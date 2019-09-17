@@ -8,6 +8,8 @@
 (defpackage overmind-agents
   (:use :cl
  	:lparallel
+        :sxql
+        :datafly
 	:random-state
 	:overmind-code
 	:overmind-input
@@ -15,6 +17,138 @@
 	:overmind-intuition
 	:overmind-agents.config))
 (in-package :overmind-agents)
+
+(defmacro with-sqlite-connection (&rest body)
+  ;; `datafly` could be connected to another database. Disconnecting.
+  (when *connection*
+    (disconnect-toplevel))
+  ;; Connecting to Overmind Agents database.
+  (connect-toplevel :sqlite3 :database-name *db-path*)
+  `(progn ,@body))
+
+(defun init-database ()
+  "Creates all the tables necessary for Overmind Agents."
+  (with-sqlite-connection
+      (execute (create-table (:populations :if-not-exists t)
+                   ((id :type 'integer
+                        :primary-key t)
+                    (parent-id :type 'integer
+                               :not-null t)
+                    (population :type 'text
+                                :not-null t)
+                    (instrument :type '(:char 128)
+                                :not-null t)
+                    (timeframe :type '(:char 128)
+                               :not-null t)
+                    (begin :type '(:char 128)
+                           :not-null t)
+                    (end :type '(:char 128)
+                         :not-null t)
+                    (time-spent :type 'integer
+                                :not-null t)
+                    (mse :type 'real
+                         :not-null t)
+                    (corrects :type 'real
+                              :not-null t)
+                    (revenue :type 'real
+                             :not-null t)
+                    )))
+    (execute (create-table (:populations-closure :if-not-exists t)
+                 ((parent-id :type 'integer
+                             :not-null t)
+                  (child-id :type 'integer
+                            :not-null t)
+                  (depth :type 'integer
+                         :not-null t)
+                  )))
+    (execute (create-table (:tests :if-not-exists t)
+                 ((id :type 'integer
+                      :primary-key t)
+                  (population-id :type 'integer
+                                 :not-null t)
+                  (instrument :type '(:char 128)
+                              :not-null t)
+                  (timeframe :type '(:char 128)
+                             :not-null t)
+                  (begin :type '(:char 128)
+                         :not-null t)
+                  (end :type '(:char 128)
+                       :not-null t)
+                  (mse :type 'real
+                       :not-null t)
+                  (corrects :type 'real
+                            :not-null t)
+                  (revenue :type 'real
+                           :not-null t)
+                  )))
+    ))
+;; (init-database)
+
+(defun insert-population ()
+  (with-sqlite-connection
+      (execute (insert-into :populations
+                 (set= :parent-id 3
+                       :population "hoho"
+                       :instrument "meow"
+                       :timeframe "woof"
+                       :begin "oueu"
+                       :end "ueue"
+                       :time-spent 10
+                       :mse 3.1
+                       :corrects 1.1
+                       :revenue 0.12)))))
+;; (insert-population)
+(with-sqlite-connection
+    (execute (delete-from :populations)))
+(with-sqlite-connection
+    (execute (delete-from :populations-closure)))
+(with-sqlite-connection
+    (retrieve-all (select :* (from :populations))))
+(with-sqlite-connection
+    (retrieve-all (select :* (from :populations-closure))))
+
+(defun get-descendants (population-id)
+  ;; (get-descendants 2)
+  (with-sqlite-connection
+      (retrieve-all (select :p.*
+                      (from (:as :populations :p))
+                      (join (:as :populations-closure :c) :on (:= :p.id :c.child-id))
+                      (where (:= :c.parent-id population-id))
+                      (where (:> :c.depth 0))
+                      ))))
+
+(defun get-ancestors (population-id)
+  ;; (get-ancestors 3)
+  (with-sqlite-connection
+      (retrieve-all (select :p.*
+                      (from (:as :populations :p))
+                      (join (:as :populations-closure :c) :on (:= :p.id :c.parent-id))
+                      (where (:= :c.child-id population-id))
+                      (where (:> :c.depth 0))
+                      ))))
+
+(defun insert-initial-closure (population-id)
+  (with-sqlite-connection
+      (execute (insert-into :populations-closure
+                 (set= :parent-id population-id
+                       :child-id population-id
+                       :depth 0)))))
+;; (insert-initial-closure 4)
+
+(defun insert-closure (parent-id child-id)
+  (with-sqlite-connection
+      (execute (insert-into :populations-closure
+                 (:parent-id :child-id :depth)
+                 (select (:p.parent-id :c.child-id (:+ :p.depth :c.depth 1))
+                   (from (:as :populations-closure :p)
+                         (:as :populations-closure :c))
+                   (where (:= :p.child-id parent-id))
+                   (where (:= :c.parent-id child-id)))))))
+;; (insert-closure 3 4)
+
+;; check sanitization
+
+;; (marshal:marshal (extract-agents-from-pool (agents-best (agents-distribution *population*))))
 
 (defun mse (series1 series2)
   (/ (reduce #'+ (mapcar (lambda (elt) (expt elt 2)) (mapcar #'- series1 (rest series2))))

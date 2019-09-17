@@ -4,6 +4,8 @@
   :license ""
   :depends-on (:lparallel
 	       :random-state
+               :datafly
+               :sxql
 	       :cl21
 	       :marshal
 	       :envy

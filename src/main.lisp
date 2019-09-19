@@ -43,7 +43,7 @@
   `(progn ,@body))
 
 (defun init-database ()
-  "Creates all the tables necessary for Overmind Agents."
+  "Creates all the necessary tables for Overmind Agents."
   (with-sqlite-connection
       (execute (create-table (:populations :if-not-exists t)
                    ((id :type 'integer
@@ -100,11 +100,11 @@
     ))
 ;; (init-database)
 
-(defun insert-population ()
+(defun insert-population (population)
   (with-sqlite-connection
       (execute (insert-into :populations
                  (set= :parent-id 3
-                       :population "hoho"
+                       :population (compress-population population)
                        :instrument "meow"
                        :timeframe "woof"
                        :begin "oueu"
@@ -424,11 +424,17 @@
 ;;   (defparameter *cached-agents* (make-hash-table :test #'equal))
 ;;   (defparameter *fitnesses* nil)
 ;;   (defparameter *ifs-sd* 20))
-;; (time
-;;  (dotimes (x 100)
-;;    (let ((fitness (agents-reproduce)))
-;;      (format t "~a: ~a~%" x fitness)
-;;      (push fitness *fitnesses*))))
+(time
+ (dotimes (x 100)
+   (let ((fitness (agents-reproduce)))
+     (format t "~a: ~a~%" x fitness)
+     (push fitness *fitnesses*))))
+
+(defun train (instrument timeframe generations)
+  (dotimes (x generations)
+    (let ((fitness (agents-reproduce)))
+      (format t "~a: ~a~%" x fitness)
+      (push fitness *fitnesses*))))
 
 ;; (dolist (pop *population*)
 ;;   (dolist (beliefs (slot-value pop 'beliefs))

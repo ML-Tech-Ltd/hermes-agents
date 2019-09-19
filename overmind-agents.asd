@@ -8,6 +8,9 @@
                :sxql
 	       :cl21
 	       :marshal
+	       :salza2
+	       :zlib
+	       :flexi-streams
 	       :envy
 	       :cl-json
 	       :dexador

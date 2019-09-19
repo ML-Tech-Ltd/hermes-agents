@@ -18,6 +18,22 @@
 	:overmind-agents.config))
 (in-package :overmind-agents)
 
+(defun compress-population (population)
+  "Compresses `population`."
+  ;; (compress-population *population*)
+  (salza2:compress-data (flexi-streams:string-to-octets
+			 (format nil "~s"
+				 (marshal:marshal (mapcar #'extract-agents-from-pool population))))
+			'salza2:zlib-compressor))
+
+(defun decompress-population (compressed-population)
+  "Decompresses a population represented by `compressed-population`."
+  ;; (decompress-population (compress-population *population*))
+  (ms:unmarshal
+   (read-from-string
+    (flexi-streams:octets-to-string
+     (zlib:uncompress compressed-population)))))
+
 (defmacro with-sqlite-connection (&rest body)
   ;; `datafly` could be connected to another database. Disconnecting.
   (when *connection*
@@ -394,78 +410,26 @@
 		       :if-does-not-exist :create)
     (format str content)))
 
-;; understanding logic start
-(defparameter *rates* (get-rates :EUR_USD 2 :H1))
-(defparameter *rates* (subseq (ms:unmarshal (read-from-string (file-get-contents "/home/amherag/quicklisp/local-projects/neuropredictions/data/aud_usd.dat"))) 300 800))
-(progn
-  (setf lparallel:*kernel* (lparallel:make-kernel 4))
-  (defparameter *num-agents* 3000)
-  (defparameter *num-rules* 2)
-  (defparameter *community-size* 50)
-  (defparameter *population-size* 100)
-  (defparameter *agents-pool* (gen-agents *num-agents*))
-  (defparameter *population* (gen-communities *community-size* *population-size*))
-  (defparameter *cached-agents* (make-hash-table :test #'equal))
-  (defparameter *fitnesses* nil)
-  (defparameter *ifs-sd* 20))
-(time
- (dotimes (x 100)
-   (let ((fitness (agents-reproduce)))
-     (format t "~a: ~a~%" x fitness)
-     (push fitness *fitnesses*))))
+;; ;; understanding logic start
+;; (defparameter *rates* (get-rates :EUR_USD 2 :H1))
+;; (defparameter *rates* (subseq (ms:unmarshal (read-from-string (file-get-contents "/home/amherag/quicklisp/local-projects/neuropredictions/data/aud_usd.dat"))) 300 800))
+;; (progn
+;;   (setf lparallel:*kernel* (lparallel:make-kernel 4))
+;;   (defparameter *num-agents* 3000)
+;;   (defparameter *num-rules* 2)
+;;   (defparameter *community-size* 50)
+;;   (defparameter *population-size* 10)
+;;   (defparameter *agents-pool* (gen-agents *num-agents*))
+;;   (defparameter *population* (gen-communities *community-size* *population-size*))
+;;   (defparameter *cached-agents* (make-hash-table :test #'equal))
+;;   (defparameter *fitnesses* nil)
+;;   (defparameter *ifs-sd* 20))
+;; (time
+;;  (dotimes (x 100)
+;;    (let ((fitness (agents-reproduce)))
+;;      (format t "~a: ~a~%" x fitness)
+;;      (push fitness *fitnesses*))))
 
-(defun list-archive-entries (pathname)
-  (archive:with-open-archive (archive pathname :direction :input)
-    (archive:do-archive-entries (entry archive)
-      (format t "~A~%" (archive:name entry)))))
-(list-archive-entries #P"~/huehue.tar")
-(archive:)
-
-(defun create-tar-file (pathname filelist)
-  (archive:with-open-archive (archive pathname :direction :output
-                                      :if-exists :supersede)
-    (dolist (file filelist (archive:finalize-archive archive))
-      (let ((entry (archive:create-entry-from-pathname archive file)))
-        (archive:write-entry-to-archive archive entry)))))
-
-(create-tar-file #P"~/haohao.tar" '(#P"~/tandon1977.pdf"))
-(ql:quickload :zlib)
-(zlib:uncompress (zlib:compress #(10) :fixed))
-(zlib:compress (marshal:marshal (mapcar #'extract-agents-from-pool *population*))
-               :dynamic)
-(zlib:compress #(1 "hohoho") :fixed)
-(make-array 3 initial-element)
-(coerce '(1 2 3) 'string)
-(ql:quickload :flexi-streams)
-(flexi-streams:string-to-octets "hello")
-
-(defun compress-population (population)
-  "Marshals `population`, parses it to an array of bytes and compresses the array."
-  (zlib:compress
-   (flexi-streams:string-to-octets
-    (format nil "~a"
-            (marshal:marshal (mapcar #'extract-agents-from-pool population))))
-   :fixed)
-  (flexi-streams:string-to-octets
-    (format nil "~a"
-            (marshal:marshal (mapcar #'extract-agents-from-pool population)))))
-(flexi-streams:)
-(length (compress-population *population*))
-98831
-(ql:quickload :chipz)
-(salza2:compress-octet-vector (flexi-streams:string-to-octets
-                               (format nil "~a"
-                                       (marshal:marshal (mapcar #'extract-agents-from-pool *population*))))
-                              (make-instance 'salza2:deflate-compressor
-                                             :callback (lambda (vec idx)
-                                                         (print vec))))
-(salza2:compress-data (sb-ext:string-to-octets "Hello, hello, hello, hello world.") 
-                      'salza2:zlib-compressor)
-
-(salza2:)
-(chipz:decompress)
-
-;; (purge-non-believers *population*)
 ;; (dolist (pop *population*)
 ;;   (dolist (beliefs (slot-value pop 'beliefs))
 ;;     (print beliefs)))
@@ -488,6 +452,7 @@
 (defun purge-non-believers (population)
   "Searches in `pop` if an agent is not believing in anything, i.e. a vector of
 `NIL`s. Replaces this sequence with a random belief vector."
+  ;; (purge-non-believers *population*)
   (dotimes (i (length population))
     (dotimes (j (length (slot-value (nth i population) 'beliefs)))
       (if (every #'null (nth j (slot-value (nth i population) 'beliefs)))

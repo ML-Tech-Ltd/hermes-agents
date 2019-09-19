@@ -13,7 +13,8 @@
 	   :*rand-gen*
            :appenv
            :developmentp
-           :productionp))
+           :productionp
+	   :*db-path*))
 (in-package :overmind-agents.config)
 
 (defparameter *db-path* (merge-pathnames (user-homedir-pathname) #P"oma.db"))

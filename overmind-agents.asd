@@ -7,6 +7,7 @@
                :datafly
                :sxql
 	       :cl21
+	       :uuid
 	       :marshal
 	       :salza2
 	       :zlib

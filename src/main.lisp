@@ -19,20 +19,27 @@
 (in-package :overmind-agents)
 
 (defun compress-population (population)
-  "Compresses `population`."
+  "Compresses a `population`."
   ;; (compress-population *population*)
   (salza2:compress-data (flexi-streams:string-to-octets
 			 (format nil "~s"
 				 (marshal:marshal (mapcar #'extract-agents-from-pool population))))
 			'salza2:zlib-compressor))
 
-(defun decompress-population (compressed-population)
-  "Decompresses a population represented by `compressed-population`."
-  ;; (decompress-population (compress-population *population*))
+(defun compress-object (object)
+  "Compresses `object`, which can be any lisp data structure."
+  ;; (compress-object *rules-config*)
+  (salza2:compress-data (flexi-streams:string-to-octets
+			 (format nil "~s" (marshal:marshal object)))
+			'salza2:zlib-compressor))
+
+(defun decompress-object (compressed-object)
+  "Decompresses an object represented by `compressed-object`."
+  ;; (decompress-object (compress-object *rules-config*))
   (ms:unmarshal
    (read-from-string
     (flexi-streams:octets-to-string
-     (zlib:uncompress compressed-population)))))
+     (zlib:uncompress compressed-object)))))
 
 (defmacro with-sqlite-connection (&rest body)
   ;; `datafly` could be connected to another database. Disconnecting.
@@ -46,22 +53,27 @@
   "Creates all the necessary tables for Overmind Agents."
   (with-sqlite-connection
       (execute (create-table (:populations :if-not-exists t)
-                   ((id :type 'integer
+                   ((id :type '(:char 38)
                         :primary-key t)
+		    (label :type '(:char 128))
                     (parent-id :type 'integer
                                :not-null t)
-                    (population :type 'text
+                    (population :type 'blob
                                 :not-null t)
                     (instrument :type '(:char 128)
                                 :not-null t)
                     (timeframe :type '(:char 128)
                                :not-null t)
+		    (generations :type 'integer
+				 :not-null t)
                     (begin :type '(:char 128)
                            :not-null t)
+		    (rules-config :type 'blob
+				  :not-null t)
                     (end :type '(:char 128)
                          :not-null t)
-                    (time-spent :type 'integer
-                                :not-null t)
+                    (creation-time :type '(:char 128)
+				   :not-null t)
                     (mse :type 'real
                          :not-null t)
                     (corrects :type 'real
@@ -70,17 +82,13 @@
                              :not-null t)
                     )))
     (execute (create-table (:populations-closure :if-not-exists t)
-                 ((parent-id :type 'integer
-                             :not-null t)
-                  (child-id :type 'integer
-                            :not-null t)
-                  (depth :type 'integer
-                         :not-null t)
-                  )))
+		 ((parent-id :type '(:char 36))
+		  (child-id :type '(:char 36))
+		  (depth :type 'integer
+			 :not-null t))
+	       (primary-key '(:parent-id :child-id))))
     (execute (create-table (:tests :if-not-exists t)
-                 ((id :type 'integer
-                      :primary-key t)
-                  (population-id :type 'integer
+                 ((population-id :type 'integer
                                  :not-null t)
                   (instrument :type '(:char 128)
                               :not-null t)
@@ -96,32 +104,70 @@
                             :not-null t)
                   (revenue :type 'real
                            :not-null t)
-                  )))
-    ))
+                  )))))
 ;; (init-database)
 
-(defun insert-population (population)
+(defun insert-population (population parent-id generations mse corrects revenue &optional label)
+  (let ((id (uuid:make-v4-uuid)))
+    (with-sqlite-connection
+	(execute (insert-into :populations
+		   (set= :id id
+			 :parent-id parent-id
+			 :label label
+			 :generations generations
+			 :population (compress-population population)
+			 :instrument *instrument*
+			 :timeframe *timeframe*
+			 :creation-time (format nil "~a" (local-time:now))
+			 :begin (format nil "~a" *begin*)
+			 :end (format nil "~a" *end*)
+			 :rules-config (compress-object *rules-config*)
+			 :mse mse
+			 :corrects corrects
+			 :revenue revenue))))
+    id))
+
+(defun get-population (population-id)
   (with-sqlite-connection
-      (execute (insert-into :populations
-                 (set= :parent-id 3
-                       :population (compress-population population)
-                       :instrument "meow"
-                       :timeframe "woof"
-                       :begin "oueu"
-                       :end "ueue"
-                       :time-spent 10
-                       :mse 3.1
-                       :corrects 1.1
-                       :revenue 0.12)))))
-;; (insert-population)
-(with-sqlite-connection
-    (execute (delete-from :populations)))
-(with-sqlite-connection
-    (execute (delete-from :populations-closure)))
-(with-sqlite-connection
-    (retrieve-all (select :* (from :populations))))
-(with-sqlite-connection
-    (retrieve-all (select :* (from :populations-closure))))
+      (retrieve-one (select :*
+		      (from :populations)
+		      (where (:= :id population-id))))))
+
+(defun init-from-database (population-id)
+  "Retrieves a population from the Overmind Agents database and initializes the
+agents parameters according to it."
+  ;; (init-from-database "EC553212-95D0-4549-A57E-2C3D2AE3CC31")
+  (let* ((retrieved-pop (get-population population-id))
+	 (pop (decompress-object
+	       (access:access retrieved-pop :population)))
+	 unique-agents)
+    ;; Resetting `*cached-agents*`, as these most likely are useless now.
+    (setf *cached-agents* (make-hash-table :test #'equal))
+    (setf *generations* (access:access retrieved-pop :generations))
+    ;; Finding out what are the unique agents, as agents can be
+    ;; repeated in a population's communities.
+    (mapcar (lambda (elt)
+	      (pushnew elt unique-agents :test #'equal))
+	    (alexandria:flatten pop))
+    ;; Setting parameters according to what is set in the stored population.
+    (setf *community-size* (length (first pop)))
+    (setf *population-size* (length pop))
+    (setf *num-rules* (length (slot-value (first (first pop)) 'rules)))
+    ;; Checking if we need to set `*agents-pool*` with filling or not.
+    (if (> (length unique-agents) *num-pool-agents*)
+    	(progn
+    	  (setf *num-pool-agents* (length unique-agents))
+    	  (setf *agents-pool* unique-agents))
+    	(setf *agents-pool* (append unique-agents
+    				    (gen-agents (- *num-pool-agents*
+    						   (length unique-agents))))))
+    ;; `*population*` needs to be a list of lists of indexes.
+    (setf *population*
+	  (mapcar (lambda (community)
+		    (mapcar (lambda (agent)
+			      (position agent unique-agents :test #'equal))
+			    community))
+		  pop))))
 
 (defun get-descendants (population-id)
   ;; (get-descendants 2)
@@ -178,17 +224,18 @@
 	;; (prev (- (second series2) (first series2)))
 	(prev (first series2))
 	)
-    (mapcar (lambda (s r)
-	   (let ((real-dir (- r prev))
-		 (sim-dir (- s prev)))
-	     (setq prev r)
-	     (if (equal (plusp real-dir)
-			(plusp sim-dir))
-		 (abs sim-dir)
-		 (* -1 (abs sim-dir))))
-	   )
-	 sim
-	 real)))
+    (apply #'+
+	   (mapcar (lambda (s r)
+		     (let ((real-dir (- r prev))
+			   (sim-dir (- s prev)))
+		       (setq prev r)
+		       (if (equal (plusp real-dir)
+				  (plusp sim-dir))
+			   (abs sim-dir)
+			   (* -1 (abs sim-dir))))
+		     )
+		   sim
+		   real))))
 
 (defun dirnum (series1 series2)
   "How many trades were correct."
@@ -260,7 +307,7 @@
   ;; (gen-communities 3 5)
   (mapcar (lambda (_)
 	    (mapcar (lambda (_)
-		      (random-int *rand-gen* 0 (1- *num-agents*)))
+		      (random-int *rand-gen* 0 (1- *num-pool-agents*)))
 		    (cl21:iota size)))
 	  (cl21:iota count)))
 
@@ -410,31 +457,100 @@
 		       :if-does-not-exist :create)
     (format str content)))
 
-;; ;; understanding logic start
-;; (defparameter *rates* (get-rates :EUR_USD 2 :H1))
+;; understanding logic start
+(defparameter *instrument* :EUR_USD
+  "The financial instrument used for querying the data used to train or test.")
+(defparameter *timeframe* :H1
+  "The timeframe used for querying the data used to train or test.")
+(defparameter *begin* (local-time:timestamp- (local-time:now) 500 :hour)
+  "The starting timestamp for the data used for training or testing.")
+(defparameter *end* (local-time:now)
+  "The ending timestamp for the data used for training or testing.")
+(defparameter *rates* (get-rates-range *instrument* :H1 *begin* *end*)
+  "The rates used to generate the agents' perceptions.")
 ;; (defparameter *rates* (subseq (ms:unmarshal (read-from-string (file-get-contents "/home/amherag/quicklisp/local-projects/neuropredictions/data/aud_usd.dat"))) 300 800))
-;; (progn
-;;   (setf lparallel:*kernel* (lparallel:make-kernel 4))
-;;   (defparameter *num-agents* 3000)
-;;   (defparameter *num-rules* 2)
-;;   (defparameter *community-size* 50)
-;;   (defparameter *population-size* 10)
-;;   (defparameter *agents-pool* (gen-agents *num-agents*))
-;;   (defparameter *population* (gen-communities *community-size* *population-size*))
-;;   (defparameter *cached-agents* (make-hash-table :test #'equal))
-;;   (defparameter *fitnesses* nil)
-;;   (defparameter *ifs-sd* 20))
-(time
- (dotimes (x 100)
-   (let ((fitness (agents-reproduce)))
-     (format t "~a: ~a~%" x fitness)
-     (push fitness *fitnesses*))))
+(progn
+  (setf lparallel:*kernel* (lparallel:make-kernel 4))
+  (defparameter *generations* 0
+    "Keeps track of how many generations have elapsed in an evolutionary process.")
+  (defparameter *num-pool-agents* 3000
+    "How many agents will be created for `*agents-pool*`. Relatively big numbers are recommended, as this increases diversity and does not significantly impact performance.")
+  (defparameter *num-rules* 2
+    "Represents how many fuzzy rules each of the agents in a solution will have.")
+  (defparameter *agents-pool* (gen-agents *num-pool-agents*)
+    "Instances of `agent` that are available to create solutions.")
+  (defparameter *community-size* 50
+    "Represents the number of agents in an 'individual' or solution. A simulation (a possible solution) will be generated using this number of agents.")
+  (defparameter *population-size* 10
+    "How many 'communities', 'individuals' or 'solutions' will be participating in the optimization process.")
+  (defparameter *population* (gen-communities *community-size* *population-size*)
+    "Represents a list of lists of indexes to *agents-pool*.")
+  (defparameter *cached-agents* (make-hash-table :test #'equal)
+    "Used for memoizing an agent's simulation.")
+  (defparameter *fitnesses* nil
+    "List of fitnesses obtained after evolving a population.")
+  (defparameter *rules-config* '((:mf-type . :gaussian)
+				 (:sd . 20)
+				 (:nmf-height-style . :complement))
+    "Configuration used to create the rules of the agents for a population."))
 
-(defun train (instrument timeframe generations)
-  (dotimes (x generations)
-    (let ((fitness (agents-reproduce)))
-      (format t "~a: ~a~%" x fitness)
-      (push fitness *fitnesses*))))
+(defun train (generations &optional (starting-population "") (save-every 100))
+  "Starts the evolutionary process, using the parameters in
+`src/config.lisp`. `starting-population` is a v4-uuid that is used to retrieve a
+population from Overmind Agents database and is used as a seed to start the
+evolutionary process."
+  ;; (train 10)
+  ;; Checking if it's a fresh start or if we'll create a branch
+  ;; from a population stored in the database.
+  (if (string= starting-population "")
+      ;; Resetting some globals like the population, agents, the cache table, etc.
+      (progn
+	(setf *agents-pool* (gen-agents *num-pool-agents*))
+	(setf *population* (gen-communities *community-size* *population-size*))
+	(setf *cached-agents* (make-hash-table :test #'equal))
+	(setf *generations* 0)
+	(setf *fitnesses* nil))
+      (init-from-database starting-population))
+  (let ((parent-id starting-population)
+	(can-save? nil))
+    (dotimes (x generations)
+      (let ((fitness (agents-reproduce)))
+	(when (or (null *fitnesses*)
+		  (< fitness (first *fitnesses*)))
+	  (when can-save?
+	    (let* ((best (agents-best (agents-distribution *population*)))
+		   (child-id (insert-population *population*
+						parent-id
+						*generations*
+						(agents-mse best)
+						(agents-directions best)
+						(agents-revenue best))))
+	      (insert-initial-closure child-id)
+	      (insert-closure parent-id child-id)
+	      (setf parent-id child-id)
+	      (setf can-save? nil)))
+	  
+	  (push fitness *fitnesses*)
+	  (format t "~a: ~a~%" x fitness)
+	  ))
+      ;; Incrementing global generations counter.
+      (incf *generations*)
+      ;; This check needs to be after incrementing `*generations*`
+      ;; So we avoid saving at generation 0.
+      (when (= (mod *generations* save-every) 0)
+	(setf can-save? t)))
+    (format nil "~a" parent-id)))
+;; (setq *last-id* (train 500))
+;; (setq *last-id* (train 5000 (format nil "~a" *last-id*)))
+;; (get-ancestors *last-id*)
+;; (access:access (get-population *last-id*) :generations)
+
+;; (insert-population *population* (uuid:make-v4-uuid) *generations* 0 0 0)
+;; (insert-population *population* "" *generations* 0 0 3.1)
+;; (with-sqlite-connection (execute (delete-from :populations)))
+;; (with-sqlite-connection (execute (delete-from :populations-closure)))
+;; (length (with-sqlite-connection (retrieve-all (select (:id :parent-id :mse :generations) (from :populations)))))
+;; (length (with-sqlite-connection (retrieve-all (select :* (from :populations-closure)))))
 
 ;; (dolist (pop *population*)
 ;;   (dolist (beliefs (slot-value pop 'beliefs))
@@ -452,8 +568,8 @@
 ;; (defparameter *best-agent* (agents-best (agents-distribution *population*)))
 
 (defun agents-ifs (params)
-  (ifs (gaussian-mf (nth 0 params) *ifs-sd* 0 (- 1 (nth 2 params)))
-       (gaussian-nmf (nth 1 params) *ifs-sd* 0 (nth 2 params))))
+  (ifs (gaussian-mf (nth 0 params) (access:access *rules-config* :sd) 0 (- 1 (nth 2 params)))
+       (gaussian-nmf (nth 1 params) (access:access *rules-config* :sd) 0 (nth 2 params))))
 
 (defun purge-non-believers (population)
   "Searches in `pop` if an agent is not believing in anything, i.e. a vector of
@@ -528,7 +644,7 @@ represented by those indexes in `*agents-pool*`."
   (if (> chance (random-float *rand-gen* 0 1.0))
       (setf (nth (random-int *rand-gen* 0 (1- *community-size*))
 		 (nth (random-int *rand-gen* 0 (1- *population-size*)) *population*))
-	    (random-int *rand-gen* 0 (1- *num-agents*)))))
+	    (random-int *rand-gen* 0 (1- *num-pool-agents*)))))
 
 (defun agents-profit (agents-indexes)
   "Uses the market simulation created by the agents represented by `agents-indexes` to generate a list of profits generated by comparing the simulation against the real market data."
@@ -917,17 +1033,17 @@ each point in the real prices."
 	 vals)
     (rest (reverse results))))
 
-(defparameter *num-agents* 2000)
+(defparameter *num-pool-agents* 2000)
 (defparameter *num-rules* 2)
 (defparameter *community-size* 20)
 (defparameter *population-size* 20)
-(defparameter *agents-pool* (gen-agents *num-agents*))
+(defparameter *agents-pool* (gen-agents *num-pool-agents*))
 (defparameter *population* (gen-communities *community-size* *population-size*))
 (defparameter *cached-agents* (make-hash-table :test #'equal))
 (defparameter *fitnesses* nil)
 (defparameter *ifs-sd* 20)
 (defparameter *continue?* t)
-(defparameter *num-agents* 10)
+(defparameter *num-pool-agents* 10)
 (defparameter *num-rules* 2)
 (defparameter *cached-agents* (make-hash-table :test #'equal))
 (defparameter *ifs-sd* 30)

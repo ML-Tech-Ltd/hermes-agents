@@ -66,6 +66,8 @@
                                :not-null t)
 		    (generations :type 'integer
 				 :not-null t)
+                    (fitness-fn :type '(:char 128)
+                                :not-null t)
                     (begin :type '(:char 128)
                            :not-null t)
 		    (rules-config :type 'blob
@@ -115,6 +117,7 @@
 			 :parent-id parent-id
 			 :label label
 			 :generations generations
+                         :fitness-fn *fitness-fn*
 			 :population (compress-population population)
 			 :instrument *instrument*
 			 :timeframe *timeframe*
@@ -144,6 +147,15 @@ agents parameters according to it."
     ;; Resetting `*cached-agents*`, as these most likely are useless now.
     (setf *cached-agents* (make-hash-table :test #'equal))
     (setf *generations* (access:access retrieved-pop :generations))
+    (let ((fit-fn (access:access retrieved-pop :fitness-fn)))
+      (cond ((= fit-fn :mse)
+             (setf *fitnesses* (list (access:access retrieved-pop :mse))))
+            ((= fit-fn :corrects)
+             (setf *fitnesses* (list (access:access retrieved-pop :corrects))))
+            ((= fit-fn :revenue)
+             (setf *fitnesses* (list (access:access retrieved-pop :revenue))))
+            (t ;; default
+             (setf *fitnesses* nil))))
     ;; Finding out what are the unique agents, as agents can be
     ;; repeated in a population's communities.
     (mapcar (lambda (elt)
@@ -489,6 +501,7 @@ agents parameters according to it."
     "Used for memoizing an agent's simulation.")
   (defparameter *fitnesses* nil
     "List of fitnesses obtained after evolving a population.")
+  (defparameter *fitness-fn* :mse)
   (defparameter *rules-config* '((:mf-type . :gaussian)
 				 (:sd . 20)
 				 (:nmf-height-style . :complement))
@@ -509,11 +522,12 @@ evolutionary process."
 	(setf *population* (gen-communities *community-size* *population-size*))
 	(setf *cached-agents* (make-hash-table :test #'equal))
 	(setf *generations* 0)
-	(setf *fitnesses* nil))
+	;; (setf *fitnesses* nil)
+        )
       (init-from-database starting-population))
   (let ((parent-id starting-population)
 	(can-save? nil))
-    (dotimes (x generations)
+    (dotimes (_ generations)
       (let ((fitness (agents-reproduce)))
 	(when (or (null *fitnesses*)
 		  (< fitness (first *fitnesses*)))
@@ -531,20 +545,28 @@ evolutionary process."
 	      (setf can-save? nil)))
 	  
 	  (push fitness *fitnesses*)
-	  (format t "~a: ~a~%" x fitness)
+	  (format t "~a: ~a~%" *generations* fitness)
 	  ))
-      ;; Incrementing global generations counter.
-      (incf *generations*)
-      ;; This check needs to be after incrementing `*generations*`
-      ;; So we avoid saving at generation 0.
+      
+      ;; This check needs to be before incrementing `*generations*`
+      ;; so we always save the root population and we save any
+      ;; improvements obtained in the first generations
+      ;; after continuing evolving a population.
       (when (= (mod *generations* save-every) 0)
-	(setf can-save? t)))
+	(setf can-save? t))
+      ;; Incrementing global generations counter.
+      (incf *generations*))
     (format nil "~a" parent-id)))
 ;; (setq *last-id* (train 500))
-;; (setq *last-id* (train 5000 (format nil "~a" *last-id*)))
+;; (setq *last-id* (train 500 *last-id*))
+*generations*
 ;; (get-ancestors *last-id*)
 ;; (access:access (get-population *last-id*) :generations)
 
+;; (ql:quickload :overmind-agents)
+;; (init-database)
+;; datafly:*connection*
+;; (datafly:disconnect-toplevel)
 ;; (insert-population *population* (uuid:make-v4-uuid) *generations* 0 0 0)
 ;; (insert-population *population* "" *generations* 0 0 3.1)
 ;; (with-sqlite-connection (execute (delete-from :populations)))

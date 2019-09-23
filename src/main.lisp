@@ -1,3 +1,4 @@
+;; (ql:quickload :overmind-agents)
 ;; (ql:quickload :overmind-intuition)
 ;; (ql:quickload :lparallel)
 ;; (ql:quickload :random-state)
@@ -74,7 +75,7 @@
 				  :not-null t)
                     (end :type '(:char 128)
                          :not-null t)
-                    (creation-time :type '(:char 128)
+                    (creation-time :type 'integer
 				   :not-null t)
                     (mse :type 'real
                          :not-null t)
@@ -109,6 +110,9 @@
                   )))))
 ;; (init-database)
 
+;; (local-time:timestamp-to-unix (local-time:now))
+;; (local-time:unix-to-timestamp (local-time:timestamp-to-unix (local-time:now)))
+
 (defun insert-population (population parent-id generations mse corrects revenue &optional label)
   (let ((id (uuid:make-v4-uuid)))
     (with-sqlite-connection
@@ -121,7 +125,7 @@
 			 :population (compress-population population)
 			 :instrument *instrument*
 			 :timeframe *timeframe*
-			 :creation-time (format nil "~a" (local-time:now))
+			 :creation-time (local-time:timestamp-to-unix (local-time:now))
 			 :begin (format nil "~a" *begin*)
 			 :end (format nil "~a" *end*)
 			 :rules-config (compress-object *rules-config*)
@@ -148,11 +152,11 @@ agents parameters according to it."
     (setf *cached-agents* (make-hash-table :test #'equal))
     (setf *generations* (access:access retrieved-pop :generations))
     (let ((fit-fn (access:access retrieved-pop :fitness-fn)))
-      (cond ((= fit-fn :mse)
+      (cond ((eq fit-fn :mse)
              (setf *fitnesses* (list (access:access retrieved-pop :mse))))
-            ((= fit-fn :corrects)
+            ((eq fit-fn :corrects)
              (setf *fitnesses* (list (access:access retrieved-pop :corrects))))
-            ((= fit-fn :revenue)
+            ((eq fit-fn :revenue)
              (setf *fitnesses* (list (access:access retrieved-pop :revenue))))
             (t ;; default
              (setf *fitnesses* nil))))
@@ -234,8 +238,7 @@ agents parameters according to it."
 	(real (rest series2))
 	;; we only need the real previous, as the simulated is based on the last real price at every moment
 	;; (prev (- (second series2) (first series2)))
-	(prev (first series2))
-	)
+	(prev (first series2)))
     (apply #'+
 	   (mapcar (lambda (s r)
 		     (let ((real-dir (- r prev))
@@ -351,7 +354,10 @@ agents parameters according to it."
       contents)))
 
 (defun agents-best (distribution &optional (sort-fn #'<))
-  (cadar (sort (copy-tree distribution) #'> :key (lambda (elt) (first elt)))))
+  (cadar (sort (copy-tree distribution) sort-fn :key (lambda (elt) (first elt)))))
+
+(defun agents-worst (distribution &optional (sort-fn #'<))
+  (cadar (reverse (sort (copy-tree distribution) sort-fn :key (lambda (elt) (first elt))))))
 
 (defun agents-without-worst (distribution &optional (sort-fn-for-best #'<))
   ;; (agents-without-worst (agents-distribution *population*))
@@ -377,7 +383,7 @@ agents parameters according to it."
                       close
                       ))))
           ;; TODO: generalize (get-data) so it doesn't need an `instrument`.
-          (get-data :EUR_USD *rates* :levels (slot-value agent 'beliefs))))
+          (get-data *instrument* *rates* :levels (slot-value agent 'beliefs))))
 
 (defun agent-trades (agent)
   "Creates a simulation of a single agent's trades."
@@ -470,7 +476,7 @@ agents parameters according to it."
     (format str content)))
 
 ;; understanding logic start
-(defparameter *instrument* :EUR_USD
+(defparameter *instrument* :GBP_USD
   "The financial instrument used for querying the data used to train or test.")
 (defparameter *timeframe* :H1
   "The timeframe used for querying the data used to train or test.")
@@ -478,7 +484,7 @@ agents parameters according to it."
   "The starting timestamp for the data used for training or testing.")
 (defparameter *end* (local-time:now)
   "The ending timestamp for the data used for training or testing.")
-(defparameter *rates* (get-rates-range *instrument* :H1 *begin* *end*)
+(defparameter *rates* (get-rates-range *instrument* *timeframe* *begin* *end*)
   "The rates used to generate the agents' perceptions.")
 ;; (defparameter *rates* (subseq (ms:unmarshal (read-from-string (file-get-contents "/home/amherag/quicklisp/local-projects/neuropredictions/data/aud_usd.dat"))) 300 800))
 (progn
@@ -559,7 +565,6 @@ evolutionary process."
     (format nil "~a" parent-id)))
 ;; (setq *last-id* (train 500))
 ;; (setq *last-id* (train 500 *last-id*))
-*generations*
 ;; (get-ancestors *last-id*)
 ;; (access:access (get-population *last-id*) :generations)
 
@@ -571,8 +576,59 @@ evolutionary process."
 ;; (insert-population *population* "" *generations* 0 0 3.1)
 ;; (with-sqlite-connection (execute (delete-from :populations)))
 ;; (with-sqlite-connection (execute (delete-from :populations-closure)))
-;; (length (with-sqlite-connection (retrieve-all (select (:id :parent-id :mse :generations) (from :populations)))))
+;; (length (with-sqlite-connection (retrieve-all (select (:creation-time) (from :populations) (order-by (:asc :creation-time))))))
 ;; (length (with-sqlite-connection (retrieve-all (select :* (from :populations-closure)))))
+
+(defun get-most-relevant-population (instrument timeframe)
+  "The most relevant population is the one that matches `instrument`,
+`timeframe` and whose creation date is most recent. However, this function has
+some fallback cases that increase the chance of getting a population, even if it
+is not ideal."
+  (with-sqlite-connection
+      ;; Trying to retrieve results where both instrument and timeframe match.
+      (access:access
+       (alexandria:if-let ((both-match (retrieve-one (select :id
+						       (from :populations)
+						       (where (:= :instrument instrument))
+						       (where (:= :timeframe timeframe))
+						       (order-by (:desc :creation-time))))))
+	 both-match
+	 ;; Couldn't find any. Now trying to retrieve results where instrument matches.
+	 (alexandria:if-let ((inst-match (retrieve-one (select :id
+							 (from :populations)
+							 (where (:= :instrument instrument))
+							 (order-by (:desc :creation-time))))))
+	   inst-match
+	   ;; Couldn't find any. Now trying to retrieve results where timeframe matches.
+	   (alexandria:when-let ((time-match (retrieve-one (select :id
+							     (from :populations)
+							     (where (:= :timeframe timeframe))
+							     (order-by (:desc :creation-time))))))
+	     time-match
+	     )))
+       :id)))
+;; (get-most-relevant-population :EUR_USD :H1)
+
+(defun market-report (instrument timeframe begin end)
+  "Searches for a relevant population in the database that has a good fitness
+for the environment defined by `instrument`, `timeframe`, `begin` and `end`, where
+`begin` and `end` define a period of time for the market `instrument` at
+granularity `timeframe`."
+  (let* ((*instrument* instrument)
+	 (*begin* begin)
+	 (*end* end)
+	 (*timeframe* timeframe)
+	 (*rates* (get-rates-range *instrument* *timeframe* *begin* *end*))
+	 (pop-id (get-most-relevant-population instrument timeframe)))
+    (let* ((d (agents-distribution *population*))
+	  (best (agents-best d))
+	  (worst (agents-worst d))
+	  (mse (agents-mse best))
+	  (corrects (agents-mse best)))
+      `((:mse . ,mse)))
+    ))
+
+;; (market-report :EUR_USD :H1 *begin* *end*)
 
 ;; (dolist (pop *population*)
 ;;   (dolist (beliefs (slot-value pop 'beliefs))

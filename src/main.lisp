@@ -61,6 +61,8 @@
                                :not-null t)
                     (population :type 'blob
                                 :not-null t)
+                    (best-index :type 'integer
+                                :not-null t)
                     (instrument :type '(:char 128)
                                 :not-null t)
                     (timeframe :type '(:char 128)
@@ -77,8 +79,14 @@
                          :not-null t)
                     (creation-time :type 'integer
 				   :not-null t)
+                    (mape :type 'real
+                          :not-null t)
+                    (mae :type 'real
+                         :not-null t)
                     (mse :type 'real
                          :not-null t)
+                    (rmse :type 'real
+                          :not-null t)
                     (corrects :type 'real
                               :not-null t)
                     (revenue :type 'real
@@ -101,8 +109,14 @@
                          :not-null t)
                   (end :type '(:char 128)
                        :not-null t)
+                  (mape :type 'real
+                        :not-null t)
+                  (mae :type 'real
+                       :not-null t)
                   (mse :type 'real
                        :not-null t)
+                  (rmse :type 'real
+                        :not-null t)
                   (corrects :type 'real
                             :not-null t)
                   (revenue :type 'real
@@ -113,25 +127,30 @@
 ;; (local-time:timestamp-to-unix (local-time:now))
 ;; (local-time:unix-to-timestamp (local-time:timestamp-to-unix (local-time:now)))
 
-(defun insert-population (population parent-id generations mse corrects revenue &optional label)
-  (let ((id (uuid:make-v4-uuid)))
+(defun insert-population (parent-id &optional label)
+  (let ((best (agents-best (agents-distribution *population*)))
+        (id (uuid:make-v4-uuid)))
     (with-sqlite-connection
 	(execute (insert-into :populations
 		   (set= :id id
 			 :parent-id parent-id
 			 :label label
-			 :generations generations
+			 :generations *generations*
                          :fitness-fn *fitness-fn*
-			 :population (compress-population population)
+			 :population (compress-population *population*)
+                         :best-index (position best *population* :test #'equalp)
 			 :instrument *instrument*
 			 :timeframe *timeframe*
 			 :creation-time (local-time:timestamp-to-unix (local-time:now))
 			 :begin (format nil "~a" *begin*)
 			 :end (format nil "~a" *end*)
 			 :rules-config (compress-object *rules-config*)
-			 :mse mse
-			 :corrects corrects
-			 :revenue revenue))))
+                         :mape (agents-mape best)
+                         :rmse (agents-rmse best)
+                         :mae (agents-mae best)
+			 :mse (agents-mse best)
+			 :corrects (agents-corrects best)
+			 :revenue (agents-revenue best)))))
     id))
 
 (defun get-population (population-id)
@@ -154,6 +173,12 @@ agents parameters according to it."
     (let ((fit-fn (access:access retrieved-pop :fitness-fn)))
       (cond ((eq fit-fn :mse)
              (setf *fitnesses* (list (access:access retrieved-pop :mse))))
+            ((eq fit-fn :mae)
+             (setf *fitnesses* (list (access:access retrieved-pop :mae))))
+            ((eq fit-fn :mape)
+             (setf *fitnesses* (list (access:access retrieved-pop :mape))))
+            ((eq fit-fn :rmse)
+             (setf *fitnesses* (list (access:access retrieved-pop :rmse))))
             ((eq fit-fn :corrects)
              (setf *fitnesses* (list (access:access retrieved-pop :corrects))))
             ((eq fit-fn :revenue)
@@ -228,49 +253,74 @@ agents parameters according to it."
 
 ;; (marshal:marshal (extract-agents-from-pool (agents-best (agents-distribution *population*))))
 
-(defun mse (series1 series2)
-  (/ (reduce #'+ (mapcar (lambda (elt) (expt elt 2)) (mapcar #'- series1 (rest series2))))
-     (length series1)))
+(defun mape (sim real)
+  "Mean absolute percentage error between a simulated time series `sim` and a real time series `real`."
+  (/ (reduce #'+ (mapcar (lambda (s r)
+                           (abs (/ (- r s) r)))
+                         sim
+                         (rest real)))
+     (length (rest real))))
 
-(defun dir (series1 series2)
+(defun mse (sim real)
+  "Mean squared error between a simulated time series `sim` and a real time series `real`."
+  (/ (reduce #'+ (mapcar (lambda (elt) (expt elt 2)) (mapcar #'- sim (rest real))))
+     (length (rest real))))
+
+(defun mae (sim real)
+  "Mean absolute error between a simulated time series `sim` and a real time
+series `real`."
+  (/ (reduce #'+ (mapcar (lambda (s r)
+                           (abs (- s r)))
+                         sim
+                         (rest real)))
+     (length (rest real))))
+
+(defun rmse (sim real)
+  "Root mean square error between a simulated time series `sim` and a real time
+series `real`."
+  (sqrt (mse sim real)))
+
+(defun revenue (sim real)
   "Currently it returns the agent profit at each trade."
-  (let ((sim series1)
-	(real (rest series2))
+  (let ((sim sim)
+	(real (rest real))
 	;; we only need the real previous, as the simulated is based on the last real price at every moment
-	;; (prev (- (second series2) (first series2)))
-	(prev (first series2)))
-    (apply #'+
-	   (mapcar (lambda (s r)
-		     (let ((real-dir (- r prev))
-			   (sim-dir (- s prev)))
-		       (setq prev r)
-		       (if (equal (plusp real-dir)
-				  (plusp sim-dir))
-			   (abs sim-dir)
-			   (* -1 (abs sim-dir))))
-		     )
-		   sim
-		   real))))
+	;; (prev (- (second real) (first real)))
+	(prev (first real)))
+    (/ (apply #'+
+              (mapcar (lambda (s r)
+                        (let ((real-dir (- r prev))
+                              (sim-dir (- s prev)))
+                          (setq prev r)
+                          (if (equal (plusp real-dir)
+                                     (plusp sim-dir))
+                              (abs sim-dir)
+                              (* -1 (abs sim-dir))))
+                        )
+                      sim
+                      real))
+       (length real))))
 
-(defun dirnum (series1 series2)
+(defun corrects (sim real)
   "How many trades were correct."
-  (let ((sim series1)
-	(real (rest series2))
+  (let ((sim sim)
+	(real (rest real))
 	;; we only need the real previous, as the simulated is based on the last real price at every moment
-	;; (prev (- (second series2) (first series2)))
-	(prev (first series2))
+	;; (prev (- (second real) (first real)))
+	(prev (first real))
 	)
-    (apply #'+ (mapcar (lambda (s r)
-			 (let ((real-dir (- r prev))
-			       (sim-dir (- s prev)))
-			   (setq prev r)
-			   (if (equal (plusp real-dir)
-				      (plusp sim-dir))
-			       1
-			       0))
-			 )
-		       sim
-		       real))))
+    (/ (apply #'+ (mapcar (lambda (s r)
+                            (let ((real-dir (- r prev))
+                                  (sim-dir (- s prev)))
+                              (setq prev r)
+                              (if (equal (plusp real-dir)
+                                         (plusp sim-dir))
+                                  1
+                                  0))
+                            )
+                          sim
+                          real))
+       (length real))))
 
 (defun combinations (&rest lists)
   (if (endp lists)
@@ -476,7 +526,7 @@ agents parameters according to it."
     (format str content)))
 
 ;; understanding logic start
-(defparameter *instrument* :GBP_USD
+(defparameter *instrument* :EUR_USD
   "The financial instrument used for querying the data used to train or test.")
 (defparameter *timeframe* :H1
   "The timeframe used for querying the data used to train or test.")
@@ -491,7 +541,7 @@ agents parameters according to it."
   (setf lparallel:*kernel* (lparallel:make-kernel 4))
   (defparameter *generations* 0
     "Keeps track of how many generations have elapsed in an evolutionary process.")
-  (defparameter *num-pool-agents* 3000
+  (defparameter *num-pool-agents* 10000
     "How many agents will be created for `*agents-pool*`. Relatively big numbers are recommended, as this increases diversity and does not significantly impact performance.")
   (defparameter *num-rules* 2
     "Represents how many fuzzy rules each of the agents in a solution will have.")
@@ -499,7 +549,7 @@ agents parameters according to it."
     "Instances of `agent` that are available to create solutions.")
   (defparameter *community-size* 50
     "Represents the number of agents in an 'individual' or solution. A simulation (a possible solution) will be generated using this number of agents.")
-  (defparameter *population-size* 10
+  (defparameter *population-size* 30
     "How many 'communities', 'individuals' or 'solutions' will be participating in the optimization process.")
   (defparameter *population* (gen-communities *community-size* *population-size*)
     "Represents a list of lists of indexes to *agents-pool*.")
@@ -507,13 +557,16 @@ agents parameters according to it."
     "Used for memoizing an agent's simulation.")
   (defparameter *fitnesses* nil
     "List of fitnesses obtained after evolving a population.")
-  (defparameter *fitness-fn* :mse)
+  (defparameter *fitness-fn* :corrects)
   (defparameter *rules-config* '((:mf-type . :gaussian)
 				 (:sd . 20)
 				 (:nmf-height-style . :complement))
     "Configuration used to create the rules of the agents for a population."))
 
-(defun train (generations &optional (starting-population "") (save-every 100))
+(defun train (generations &key (fitness-fn #'mse)
+                            (sort-fn #'<)
+                            (starting-population "")
+                            (save-every 100))
   "Starts the evolutionary process, using the parameters in
 `src/config.lisp`. `starting-population` is a v4-uuid that is used to retrieve a
 population from Overmind Agents database and is used as a seed to start the
@@ -528,23 +581,16 @@ evolutionary process."
 	(setf *population* (gen-communities *community-size* *population-size*))
 	(setf *cached-agents* (make-hash-table :test #'equal))
 	(setf *generations* 0)
-	;; (setf *fitnesses* nil)
-        )
+	(setf *fitnesses* nil))
       (init-from-database starting-population))
   (let ((parent-id starting-population)
 	(can-save? nil))
     (dotimes (_ generations)
-      (let ((fitness (agents-reproduce)))
+      (let ((fitness (agents-reproduce fitness-fn sort-fn)))
 	(when (or (null *fitnesses*)
-		  (< fitness (first *fitnesses*)))
+		  (funcall sort-fn fitness (first *fitnesses*)))
 	  (when can-save?
-	    (let* ((best (agents-best (agents-distribution *population*)))
-		   (child-id (insert-population *population*
-						parent-id
-						*generations*
-						(agents-mse best)
-						(agents-directions best)
-						(agents-revenue best))))
+	    (let* ((child-id (insert-population parent-id)))
 	      (insert-initial-closure child-id)
 	      (insert-closure parent-id child-id)
 	      (setf parent-id child-id)
@@ -563,8 +609,9 @@ evolutionary process."
       ;; Incrementing global generations counter.
       (incf *generations*))
     (format nil "~a" parent-id)))
-;; (setq *last-id* (train 500))
-;; (setq *last-id* (train 500 *last-id*))
+
+;; (setq *last-id* (train 5000 :fitness-fn #'mape :sort-fn #'<))
+;; (setq *last-id* (train 50000 :starting-population *last-id* :fitness-fn #'mape :sort-fn #'<))
 ;; (get-ancestors *last-id*)
 ;; (access:access (get-population *last-id*) :generations)
 
@@ -576,8 +623,9 @@ evolutionary process."
 ;; (insert-population *population* "" *generations* 0 0 3.1)
 ;; (with-sqlite-connection (execute (delete-from :populations)))
 ;; (with-sqlite-connection (execute (delete-from :populations-closure)))
-;; (length (with-sqlite-connection (retrieve-all (select (:creation-time) (from :populations) (order-by (:asc :creation-time))))))
+;; (length (with-sqlite-connection (retrieve-all (select (:mse :mape :mae :rmse :corrects :revenue) (from :populations) (order-by (:asc :creation-time))))))
 ;; (length (with-sqlite-connection (retrieve-all (select :* (from :populations-closure)))))
+;; (with-sqlite-connection (retrieve-all (select (:corrects :revenue) (from :populations) (order-by (:asc :creation-time)))))
 
 (defun get-most-relevant-population (instrument timeframe)
   "The most relevant population is the one that matches `instrument`,
@@ -621,14 +669,15 @@ granularity `timeframe`."
 	 (*rates* (get-rates-range *instrument* *timeframe* *begin* *end*))
 	 (pop-id (get-most-relevant-population instrument timeframe)))
     (let* ((d (agents-distribution *population*))
-	  (best (agents-best d))
-	  (worst (agents-worst d))
-	  (mse (agents-mse best))
-	  (corrects (agents-mse best)))
+           (best (agents-best d))
+           (worst (agents-worst d))
+           (mse (agents-mse best))
+           (corrects (agents-mse best)))
       `((:mse . ,mse)))
     ))
 
 ;; (market-report :EUR_USD :H1 *begin* *end*)
+;; we need to just simulate. avoid creating distribution.
 
 ;; (dolist (pop *population*)
 ;;   (dolist (beliefs (slot-value pop 'beliefs))
@@ -640,7 +689,7 @@ granularity `timeframe`."
 ;; ;; ;; make a test-all method to test a model against multiple markets, multiple testing sets
 ;; ;; ;; the objective is to prove that our architecture is generalized enough to work anywhere
 ;; ;; (let ((*rates* (subseq (ms:unmarshal (read-from-string (file-get-contents "/home/amherag/quicklisp/local-projects/neuropredictions/data/aud_usd.dat"))) 500 1000)))
-;; ;;   (dirnum (agents-simulation (agents-best (agents-distribution *population*)))
+;; ;;   (corrects (agents-simulation (agents-best (agents-distribution *population*)))
 ;; ;; 	  (get-real-data)))
 
 ;; (defparameter *best-agent* (agents-best (agents-distribution *population*)))
@@ -727,7 +776,7 @@ represented by those indexes in `*agents-pool*`."
 (defun agents-profit (agents-indexes)
   "Uses the market simulation created by the agents represented by `agents-indexes` to generate a list of profits generated by comparing the simulation against the real market data."
   ;; (agents-profit '(1 2 4))
-  (reduce #'+ (dir (agents-simulation agents-indexes) (get-real-data))))
+  (reduce #'+ (revenue (agents-simulation agents-indexes) (get-real-data))))
 
 (defun agents-describe (agents-indexes)
   (let* ((fibos (mapcar (lambda (agent-index)
@@ -1047,15 +1096,36 @@ represented by those indexes in `*agents-pool*`."
   "Compiles a list of the revenues made by the agents in `agents-indexes` at
 each point in the real prices."
   ;; (agents-revenue (first *population*))
-  (dir (agents-simulation agents-indexes)
-       (get-real-data)))
+  (revenue (agents-simulation agents-indexes)
+           (get-real-data)))
 
-(defun agents-directions (agents-indexes)
+(defun agents-corrects (agents-indexes)
   "Returns the number of correct direction predictions made by the agents in
 `agents-indexes` for the real prices."
-  ;; (agents-directions (first *population*))
-  (dirnum (agents-simulation agents-indexes)
-	  (get-real-data)))
+  ;; (agents-corrects (first *population*))
+  (corrects (agents-simulation agents-indexes)
+            (get-real-data)))
+
+(defun agents-mape (agents-indexes)
+  "Returns the mean absolute percentage error obtained by the agents' simulation in
+`agents-indexes` for the real prices."
+  ;; (agents-mse (first *population*))
+  (mape (agents-simulation agents-indexes)
+        (get-real-data)))
+
+(defun agents-rmse (agents-indexes)
+  "Returns the root mean square error obtained by the agents' simulation in
+`agents-indexes` for the real prices."
+  ;; (agents-mse (first *population*))
+  (rmse (agents-simulation agents-indexes)
+        (get-real-data)))
+
+(defun agents-mae (agents-indexes)
+  "Returns the mean absolute error obtained by the agents' simulation in
+`agents-indexes` for the real prices."
+  ;; (agents-mse (first *population*))
+  (mae (agents-simulation agents-indexes)
+       (get-real-data)))
 
 (defun agents-mse (agents-indexes)
   "Returns the mean squared error obtained by the agents' simulation in
@@ -1111,21 +1181,21 @@ each point in the real prices."
 	 vals)
     (rest (reverse results))))
 
-(defparameter *num-pool-agents* 2000)
-(defparameter *num-rules* 2)
-(defparameter *community-size* 20)
-(defparameter *population-size* 20)
-(defparameter *agents-pool* (gen-agents *num-pool-agents*))
-(defparameter *population* (gen-communities *community-size* *population-size*))
-(defparameter *cached-agents* (make-hash-table :test #'equal))
-(defparameter *fitnesses* nil)
-(defparameter *ifs-sd* 20)
-(defparameter *continue?* t)
-(defparameter *num-pool-agents* 10)
-(defparameter *num-rules* 2)
-(defparameter *cached-agents* (make-hash-table :test #'equal))
-(defparameter *ifs-sd* 30)
-(defparameter *random-best* nil)
+;; (defparameter *num-pool-agents* 2000)
+;; (defparameter *num-rules* 2)
+;; (defparameter *community-size* 20)
+;; (defparameter *population-size* 20)
+;; (defparameter *agents-pool* (gen-agents *num-pool-agents*))
+;; (defparameter *population* (gen-communities *community-size* *population-size*))
+;; (defparameter *cached-agents* (make-hash-table :test #'equal))
+;; (defparameter *fitnesses* nil)
+;; (defparameter *ifs-sd* 20)
+;; (defparameter *continue?* t)
+;; (defparameter *num-pool-agents* 10)
+;; (defparameter *num-rules* 2)
+;; (defparameter *cached-agents* (make-hash-table :test #'equal))
+;; (defparameter *ifs-sd* 30)
+;; (defparameter *random-best* nil)
 
 (defun agent-uncertainty (agents)
   "Used for only one agent."

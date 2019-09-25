@@ -52,7 +52,7 @@
 		    (label :type '(:char 128))
                     (parent-id :type 'integer
                                :not-null t)
-                    (population :type 'blob
+                    (population :type 'bytea
                                 :not-null t)
                     (best-index :type 'integer
                                 :not-null t)
@@ -64,7 +64,7 @@
 				 :not-null t)
                     (fitness-fn :type '(:char 128)
                                 :not-null t)
-		    (rules-config :type 'blob
+		    (rules-config :type 'bytea
 				  :not-null t)
                     (begin :type 'integer
                            :not-null t)

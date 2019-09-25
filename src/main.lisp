@@ -71,11 +71,11 @@
 				 :not-null t)
                     (fitness-fn :type '(:char 128)
                                 :not-null t)
-                    (begin :type '(:char 128)
-                           :not-null t)
 		    (rules-config :type 'blob
 				  :not-null t)
-                    (end :type '(:char 128)
+                    (begin :type 'integer
+                           :not-null t)
+                    (end :type 'integer
                          :not-null t)
                     (creation-time :type 'integer
 				   :not-null t)
@@ -142,8 +142,8 @@
 			 :instrument *instrument*
 			 :timeframe *timeframe*
 			 :creation-time (local-time:timestamp-to-unix (local-time:now))
-			 :begin (format nil "~a" *begin*)
-			 :end (format nil "~a" *end*)
+			 :begin *begin*
+			 :end *end*
 			 :rules-config (compress-object *rules-config*)
                          :mape (agents-mape best)
                          :rmse (agents-rmse best)
@@ -530,9 +530,10 @@ series `real`."
   "The financial instrument used for querying the data used to train or test.")
 (defparameter *timeframe* :H1
   "The timeframe used for querying the data used to train or test.")
-(defparameter *begin* (local-time:timestamp- (local-time:now) 500 :hour)
+(local-time:timestamp-to-unix (local-time:now))
+(defparameter *begin* (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 500 :hour))
   "The starting timestamp for the data used for training or testing.")
-(defparameter *end* (local-time:now)
+(defparameter *end* (local-time:timestamp-to-unix (local-time:now))
   "The ending timestamp for the data used for training or testing.")
 (defparameter *rates* (get-rates-range *instrument* *timeframe* *begin* *end*)
   "The rates used to generate the agents' perceptions.")
@@ -612,10 +613,10 @@ evolutionary process."
 
 ;; (setq *last-id* (train 5000 :fitness-fn #'mape :sort-fn #'<))
 ;; (setq *last-id* (train 50000 :starting-population *last-id* :fitness-fn #'mape :sort-fn #'<))
+;; (setq *last-id* (train 50000 :starting-population "5E84200D-F33A-43D7-9F61-3BAD51FC9313" :fitness-fn #'mape :sort-fn #'<))
 ;; (get-ancestors *last-id*)
 ;; (access:access (get-population *last-id*) :generations)
 
-;; (ql:quickload :overmind-agents)
 ;; (init-database)
 ;; datafly:*connection*
 ;; (datafly:disconnect-toplevel)
@@ -623,7 +624,7 @@ evolutionary process."
 ;; (insert-population *population* "" *generations* 0 0 3.1)
 ;; (with-sqlite-connection (execute (delete-from :populations)))
 ;; (with-sqlite-connection (execute (delete-from :populations-closure)))
-;; (length (with-sqlite-connection (retrieve-all (select (:mse :mape :mae :rmse :corrects :revenue) (from :populations) (order-by (:asc :creation-time))))))
+;; (with-sqlite-connection (retrieve-all (select (:*) (from :populations) (order-by (:asc :creation-time)))))
 ;; (length (with-sqlite-connection (retrieve-all (select :* (from :populations-closure)))))
 ;; (with-sqlite-connection (retrieve-all (select (:corrects :revenue) (from :populations) (order-by (:asc :creation-time)))))
 
@@ -639,19 +640,19 @@ is not ideal."
 						       (from :populations)
 						       (where (:= :instrument instrument))
 						       (where (:= :timeframe timeframe))
-						       (order-by (:desc :creation-time))))))
+						       (order-by (:desc :end))))))
 	 both-match
 	 ;; Couldn't find any. Now trying to retrieve results where instrument matches.
 	 (alexandria:if-let ((inst-match (retrieve-one (select :id
 							 (from :populations)
 							 (where (:= :instrument instrument))
-							 (order-by (:desc :creation-time))))))
+							 (order-by (:desc :end))))))
 	   inst-match
 	   ;; Couldn't find any. Now trying to retrieve results where timeframe matches.
 	   (alexandria:when-let ((time-match (retrieve-one (select :id
 							     (from :populations)
 							     (where (:= :timeframe timeframe))
-							     (order-by (:desc :creation-time))))))
+							     (order-by (:desc :end))))))
 	     time-match
 	     )))
        :id)))

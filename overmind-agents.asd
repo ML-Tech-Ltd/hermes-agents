@@ -5,6 +5,7 @@
   :depends-on (:lparallel
 	       :random-state
                :datafly
+	       :dbi
                :sxql
 	       :cl21
 	       :uuid
@@ -23,8 +24,9 @@
 	       )
   :components ((:module "src"
                 :components
-                ((:file "main" :depends-on ("config"))
-		 (:file "config"))))
+                ((:file "main" :depends-on ("config" "db"))
+		 (:file "config")
+		 (:file "db"))))
   :description ""
   :long-description
   #.(read-file-string

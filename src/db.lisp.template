@@ -1,0 +1,29 @@
+(defpackage overmind-agents.db
+  (:use :cl)
+  (:export with-sqlite-connection
+	   with-postgres-connection))
+(in-package overmind-agents.db)
+
+;; For mysql or postgres.
+(defparameter *db-name* "")
+(defparameter *db-user* "")
+(defparameter *db-pass* "")
+
+;; For sqlite3.
+(defparameter *db-path* "")
+
+(defmacro with-postgres-connection (&rest body)
+  ;; `datafly` could be connected to another database. Disconnecting.
+  (when *connection*
+    (disconnect-toplevel))
+  ;; Connecting to Overmind Agents database.
+  (connect-toplevel :postgres :database-name *db-name* :username *db-user* :password *db-pass*)
+  `(progn ,@body))
+
+(defmacro with-sqlite-connection (&rest body)
+  ;; `datafly` could be connected to another database. Disconnecting.
+  (when *connection*
+    (disconnect-toplevel))
+  ;; Connecting to Overmind Agents database.
+  (connect-toplevel :sqlite3 :database-name *db-path*)
+  `(progn ,@body))

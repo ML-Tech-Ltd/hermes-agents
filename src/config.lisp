@@ -17,8 +17,6 @@
 	   :*db-path*))
 (in-package :overmind-agents.config)
 
-(defparameter *db-path* (merge-pathnames (user-homedir-pathname) #P"oma.db"))
-
 (defparameter *rand-gen* (make-generator :mersenne-twister-32))
 
 (setf (config-env-var) "APP_ENV")

@@ -16,7 +16,8 @@
 	:overmind-input
 	:overmind-perception
 	:overmind-intuition
-	:overmind-agents.config))
+	:overmind-agents.config
+	:overmind-agents.db))
 (in-package :overmind-agents)
 
 (defun compress-population (population)
@@ -42,17 +43,9 @@
     (flexi-streams:octets-to-string
      (zlib:uncompress compressed-object)))))
 
-(defmacro with-sqlite-connection (&rest body)
-  ;; `datafly` could be connected to another database. Disconnecting.
-  (when *connection*
-    (disconnect-toplevel))
-  ;; Connecting to Overmind Agents database.
-  (connect-toplevel :sqlite3 :database-name *db-path*)
-  `(progn ,@body))
-
 (defun init-database ()
   "Creates all the necessary tables for Overmind Agents."
-  (with-sqlite-connection
+  (with-postgres-connection
       (execute (create-table (:populations :if-not-exists t)
                    ((id :type '(:char 38)
                         :primary-key t)
@@ -130,7 +123,7 @@
 (defun insert-population (parent-id &optional label)
   (let ((best (agents-best (agents-distribution *population*)))
         (id (uuid:make-v4-uuid)))
-    (with-sqlite-connection
+    (with-postgres-connection
 	(execute (insert-into :populations
 		   (set= :id id
 			 :parent-id parent-id
@@ -154,7 +147,7 @@
     id))
 
 (defun get-population (population-id)
-  (with-sqlite-connection
+  (with-postgres-connection
       (retrieve-one (select :*
 		      (from :populations)
 		      (where (:= :id population-id))))))
@@ -212,7 +205,7 @@ agents parameters according to it."
 
 (defun get-descendants (population-id)
   ;; (get-descendants 2)
-  (with-sqlite-connection
+  (with-postgres-connection
       (retrieve-all (select :p.*
                       (from (:as :populations :p))
                       (join (:as :populations-closure :c) :on (:= :p.id :c.child-id))
@@ -222,7 +215,7 @@ agents parameters according to it."
 
 (defun get-ancestors (population-id)
   ;; (get-ancestors 3)
-  (with-sqlite-connection
+  (with-postgres-connection
       (retrieve-all (select :p.*
                       (from (:as :populations :p))
                       (join (:as :populations-closure :c) :on (:= :p.id :c.parent-id))
@@ -231,7 +224,7 @@ agents parameters according to it."
                       ))))
 
 (defun insert-initial-closure (population-id)
-  (with-sqlite-connection
+  (with-postgres-connection
       (execute (insert-into :populations-closure
                  (set= :parent-id population-id
                        :child-id population-id
@@ -239,7 +232,7 @@ agents parameters according to it."
 ;; (insert-initial-closure 4)
 
 (defun insert-closure (parent-id child-id)
-  (with-sqlite-connection
+  (with-postgres-connection
       (execute (insert-into :populations-closure
                  (:parent-id :child-id :depth)
                  (select (:p.parent-id :c.child-id (:+ :p.depth :c.depth 1))
@@ -622,18 +615,18 @@ evolutionary process."
 ;; (datafly:disconnect-toplevel)
 ;; (insert-population *population* (uuid:make-v4-uuid) *generations* 0 0 0)
 ;; (insert-population *population* "" *generations* 0 0 3.1)
-;; (with-sqlite-connection (execute (delete-from :populations)))
-;; (with-sqlite-connection (execute (delete-from :populations-closure)))
-;; (with-sqlite-connection (retrieve-all (select (:*) (from :populations) (order-by (:asc :creation-time)))))
-;; (length (with-sqlite-connection (retrieve-all (select :* (from :populations-closure)))))
-;; (with-sqlite-connection (retrieve-all (select (:corrects :revenue) (from :populations) (order-by (:asc :creation-time)))))
+;; (with-postgres-connection (execute (delete-from :populations)))
+;; (with-postgres-connection (execute (delete-from :populations-closure)))
+;; (with-postgres-connection (retrieve-all (select (:*) (from :populations) (order-by (:asc :creation-time)))))
+;; (length (with-postgres-connection (retrieve-all (select :* (from :populations-closure)))))
+;; (with-postgres-connection (retrieve-all (select (:corrects :revenue) (from :populations) (order-by (:asc :creation-time)))))
 
 (defun get-most-relevant-population (instrument timeframe)
   "The most relevant population is the one that matches `instrument`,
 `timeframe` and whose creation date is most recent. However, this function has
 some fallback cases that increase the chance of getting a population, even if it
 is not ideal."
-  (with-sqlite-connection
+  (with-postgres-connection
       ;; Trying to retrieve results where both instrument and timeframe match.
       (access:access
        (alexandria:if-let ((both-match (retrieve-one (select :id

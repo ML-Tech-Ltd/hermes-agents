@@ -72,17 +72,17 @@
                          :not-null t)
                     (creation-time :type 'integer
 				   :not-null t)
-                    (mape :type 'real
+                    (mape :type '(:numeric 100)
                           :not-null t)
-                    (mae :type 'real
+                    (mae :type '(:numeric 100)
                          :not-null t)
-                    (mse :type 'real
+                    (mse :type '(:numeric 100)
                          :not-null t)
-                    (rmse :type 'real
+                    (rmse :type '(:numeric 100)
                           :not-null t)
-                    (corrects :type 'real
+                    (corrects :type '(:numeric 100)
                               :not-null t)
-                    (revenue :type 'real
+                    (revenue :type '(:numeric 100)
                              :not-null t)
                     )))
     (execute (create-table (:populations-closure :if-not-exists t)
@@ -102,17 +102,17 @@
                          :not-null t)
                   (end :type '(:char 128)
                        :not-null t)
-                  (mape :type 'real
+                  (mape :type '(:numeric 100)
                         :not-null t)
-                  (mae :type 'real
+                  (mae :type '(:numeric 100)
                        :not-null t)
-                  (mse :type 'real
+                  (mse :type '(:numeric 100)
                        :not-null t)
-                  (rmse :type 'real
+                  (rmse :type '(:numeric 100)
                         :not-null t)
-                  (corrects :type 'real
+                  (corrects :type '(:numeric 100)
                             :not-null t)
-                  (revenue :type 'real
+                  (revenue :type '(:numeric 100)
                            :not-null t)
                   )))))
 ;; (init-database)

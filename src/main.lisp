@@ -264,7 +264,7 @@ agents parameters according to it."
 					    (- s last-real))
 					 0)
 				     (abs (/ (- r s) r))
-				     (* 1.5
+				     (* 3
 					(abs (/ (- r s) r))))
 			       (setf last-real r)))
 			   sim
@@ -310,10 +310,9 @@ series `real`."
                         (let ((real-dir (- r prev))
                               (sim-dir (- s prev)))
                           (setq prev r)
-                          (if (equal (plusp real-dir)
-                                     (plusp sim-dir))
-                              (abs sim-dir)
-                              (* -1 (abs sim-dir))))
+                          (if (> (* real-dir sim-dir) 0)
+                              (abs real-dir)
+                              (* -1 (abs real-dir))))
                         )
                       sim
                       real))
@@ -321,18 +320,16 @@ series `real`."
 
 (defun corrects (sim real)
   "How many trades were correct."
+  ;; (corrects (agents-indexes-simulation (agents-best (agents-distribution *population*))) (get-real-data))
   (let ((sim sim)
 	(real (rest real))
 	;; we only need the real previous, as the simulated is based on the last real price at every moment
-	;; (prev (- (second real) (first real)))
-	(prev (first real))
-	)
+	(prev (first real)))
     (/ (apply #'+ (mapcar (lambda (s r)
 			    (let ((real-dir (- r prev))
 				  (sim-dir (- s prev)))
 			      (setq prev r)
-			      (if (equal (plusp real-dir)
-					 (plusp sim-dir))
+			      (if (> (* real-dir sim-dir) 0)
 				  1
 				  0))
 			    )
@@ -520,15 +517,24 @@ series `real`."
 
 (defun agents-reproduce (&optional (fitness-fn #'mse) (sort-fn #'<))
   (agents-mutate)
-
   (dotimes (i (floor (/ (length *population*) 2)))
     (let ((x (agents-selectone (agents-distribution *population* fitness-fn sort-fn)))
-	  (y (agents-selectone (agents-distribution *population* fitness-fn sort-fn)))
-	  )
-      (multiple-value-bind (newx newy)
-	  (agents-crossover x y)
-	(setf *population* (append (list x) (agents-without-worst (agents-distribution *population* fitness-fn sort-fn) sort-fn)))
-	(setf *population* (append (list y) (agents-without-worst (agents-distribution *population* fitness-fn sort-fn)))))))
+	  (y (agents-selectone (agents-distribution *population* fitness-fn sort-fn))))
+      ;; If we selected the same individual, we don't want to use them for crossover.
+      (unless (equal x y)
+        (multiple-value-bind (newx newy)
+            (agents-crossover x y)
+          ;; (setf *population* (append (list newx) (agents-without-worst (agents-distribution *population* fitness-fn sort-fn) sort-fn)))
+
+          (pushnew newx *population* :test #'equal)
+          (when (/= (length *population*) *population-size*)
+            (setf *population* (agents-without-worst (agents-distribution *population* fitness-fn sort-fn))))
+          (pushnew newy *population* :test #'equal)
+          (when (/= (length *population*) *population-size*)
+            (setf *population* (agents-without-worst (agents-distribution *population* fitness-fn sort-fn))))
+          
+          ;; (setf *population* (append (list newy) (agents-without-worst (agents-distribution *population* fitness-fn sort-fn))))
+          ))))
 
   (multiple-value-bind (_ f) (agents-distribution *population* fitness-fn sort-fn)
     f))
@@ -544,29 +550,28 @@ series `real`."
     (format str content)))
 
 ;; understanding logic start
-(defparameter *instrument* :EUR_USD
-  "The financial instrument used for querying the data used to train or test.")
-(defparameter *timeframe* :H1
-  "The timeframe used for querying the data used to train or test.")
-(local-time:timestamp-to-unix (local-time:now))
-(defparameter *begin* (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 500 :hour))
-  "The starting timestamp for the data used for training or testing.")
-(defparameter *end* (local-time:timestamp-to-unix (local-time:now))
-  "The ending timestamp for the data used for training or testing.")
-(defparameter *rates* (get-rates-range *instrument* *timeframe* *begin* *end*)
-  "The rates used to generate the agents' perceptions.")
-;; (defparameter *rates* (subseq (ms:unmarshal (read-from-string (file-get-contents "/home/amherag/quicklisp/local-projects/neuropredictions/data/aud_usd.dat"))) 300 800))
+(progn
+  (defparameter *instrument* :EUR_USD
+    "The financial instrument used for querying the data used to train or test.")
+  (defparameter *timeframe* :D
+    "The timeframe used for querying the data used to train or test.")
+  (defparameter *begin* (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 500 :day))
+    "The starting timestamp for the data used for training or testing.")
+  (defparameter *end* (local-time:timestamp-to-unix (local-time:now))
+    "The ending timestamp for the data used for training or testing.")
+  (defparameter *rates* (get-rates-range *instrument* *timeframe* *begin* *end*)
+    "The rates used to generate the agents' perceptions."))
 (progn
   (setf lparallel:*kernel* (lparallel:make-kernel 4))
   (defparameter *generations* 0
     "Keeps track of how many generations have elapsed in an evolutionary process.")
   (defparameter *num-pool-agents* 10000
     "How many agents will be created for `*agents-pool*`. Relatively big numbers are recommended, as this increases diversity and does not significantly impact performance.")
-  (defparameter *num-rules* 2
+  (defparameter *num-rules* 3
     "Represents how many fuzzy rules each of the agents in a solution will have.")
   (defparameter *agents-pool* (gen-agents *num-pool-agents*)
     "Instances of `agent` that are available to create solutions.")
-  (defparameter *community-size* 10
+  (defparameter *community-size* 6
     "Represents the number of agents in an 'individual' or solution. A simulation (a possible solution) will be generated using this number of agents.")
   (defparameter *population-size* 10
     "How many 'communities', 'individuals' or 'solutions' will be participating in the optimization process.")
@@ -629,7 +634,8 @@ evolutionary process."
       (incf *generations*))
     (print "done.")
     (format nil "~a" parent-id)))
-
+;; *population*
+;; *cached-agents*
 ;; (setq *last-id* (train 1000 :fitness-fn #'pmape :sort-fn #'<))
 ;; (setq *last-id* (train 50000 :starting-population *last-id* :fitness-fn #'pmape :sort-fn #'<))
 ;; (setq *last-id* (train 50000 :starting-population "271CEB2F-F738-4AF3-9431-01978DC9C638" :fitness-fn #'mape :sort-fn #'<))
@@ -691,28 +697,65 @@ granularity `timeframe`."
 	 (db-pop (get-most-relevant-population instrument timeframe))
 	 (pop (decompress-object (access db-pop :population)))
 	 (best (nth (access db-pop :best-index) pop))
-	 (mae (access db-pop :mae))
-	 (mse (access db-pop :mse))
-	 (rmse (access db-pop :rmse))
-	 (mape (access db-pop :mape))
-	 (pmape (access db-pop :pmape))
-	 (corrects (access db-pop :corrects))
-	 (revenue (access db-pop :revenue))
 	 (sim (agents-simulation best))
 	 (next-sim-price (alexandria:last-elt sim)))
-    `((:mae . ,mae)
-      (:mse . ,mse)
-      (:rmse . ,rmse)
-      (:mape . ,mape)
-      (:pmape . ,pmape)
-      (:corrects . ,corrects)
-      (:revenue . ,revenue)
-      (:simulation . ,sim)
-      (:rates . ,*rates*))
+    `((:training (:begin . ,(access db-pop :begin))
+                 (:end . ,(access db-pop :end))
+                 (:instrument . ,(access db-pop :instrument))
+                 (:timeframe . ,(access db-pop :timeframe))
+                 (:generations . ,(access db-pop :generations))
+                 (:fitness-fn . ,(access db-pop :fitness-fn))
+                 (:creation-time . ,(access db-pop :creation-time))
+                 (:performance-metrics . ((:mae . ,(access db-pop :mae))
+                                          (:mse . ,(access db-pop :mse))
+                                          (:rmse . ,(access db-pop :rmse))
+                                          (:mape . ,(access db-pop :mape))
+                                          (:pmape . ,(access db-pop :pmape))
+                                          (:corrects . ,(access db-pop :corrects))
+                                          (:revenue . ,(access db-pop :revenue)))))
+      (:testing (:begin . ,begin)
+                (:end . ,end)
+                (:instrument . ,instrument)
+                (:timeframe . ,timeframe)
+                ,@(agents-test best *rates*)
+                (:rates . ,*rates*)))
     ))
 
+;; (defparameter *market-report* (market-report :GBP_USD :H1 *begin* *end*))
+;; (accesses *market-report* :training :performance-metrics :mape)
 ;; (time (market-report :EUR_USD :H1 *begin* *end*))
-;; we need to just simulate. avoid creating distribution.
+
+;; (accesses (agents-indexes-test (first *population*)
+;;                                (get-rates-range :GBP_USD *timeframe*
+;;                                                 (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 1000 :hour))
+;;                                                 (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 500 :hour))))
+;;           :performance-metrics)
+
+(defun agents-test (agents rates)
+  "Runs a simulation of a market defined by `rates` using `agents`. Returns multiple performance metrics."
+  (let* ((*rates* rates)
+         (sim (agents-simulation agents))
+         (real (get-real-data))
+         
+         (mae (mae sim real))
+	 (mse (mse sim real))
+	 (rmse (rmse sim real))
+	 (mape (mape sim real))
+	 (pmape (pmape sim real))
+	 (corrects (corrects sim real))
+	 (revenue (revenue sim real)))
+    `((:performance-metrics . ((:mae . ,mae)
+                               (:mse . ,mse)
+                               (:rmse . ,rmse)
+                               (:mape . ,mape)
+                               (:pmape . ,pmape)
+                               (:corrects . ,corrects)
+                               (:revenue . ,revenue)))
+      (:simulation . ,sim))))
+
+(defun agents-indexes-test (agents-indexes rates)
+  "Runs a simulation of a market defined by `rates` using `agents-indexes`. `agents-indexes` is used to extract agents from `*agents-pool*`. Returns multiple performance metrics."
+  (agents-test (extract-agents-from-pool agents-indexes) rates))
 
 ;; (dolist (pop *population*)
 ;;   (dolist (beliefs (slot-value pop 'beliefs))
@@ -761,17 +804,14 @@ granularity `timeframe`."
 
 (defun agents-crossover (x y &optional (chance 0.6))
   (if (<= (random-float *rand-gen* 0 1.0) chance)
-      (let* ((site (random-int *rand-gen* 0 (1- *community-size*)))
+      (let* ((site (random-int *rand-gen* 1 (1- *community-size*)))
 	     (x1 (subseq x 0 site))
 	     (x2 (nthcdr site x))
 	     (y1 (subseq y 0 site))
 	     (y2 (nthcdr site y)))
-	(setf x (append x1 y2))
-	(setf y (append y1 x2))
 	(values
 	 (append x1 y2)
-	 (append y1 x2))
-	)
+	 (append y1 x2)))
       ;; no change
       (values x y)))
 
@@ -821,7 +861,7 @@ extracted from `*agents-pool*` using the indexes stored in `agents-indexes`."
                          agents))
           (get-real-data)))
 
-(defun agents-mutate (&optional (chance 0.9))
+(defun agents-mutate (&optional (chance 0.1))
   "Mutates the pool of agents if a according to `chance`."
   ;; (agents-mutate 0.5)
   (if (> chance (random-float *rand-gen* 0 1.0))

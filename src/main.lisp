@@ -47,22 +47,22 @@
   "Creates all the necessary tables for Overmind Agents."
   (with-postgres-connection
       (execute (create-table (:populations :if-not-exists t)
-                   ((id :type '(:char 38)
+                   ((id :type '(:varchar 36)
                         :primary-key t)
-		    (label :type '(:char 128))
-                    (parent-id :type 'integer
+		    (label :type '(:varchar 128))
+                    (parent-id :type '(:varchar 36)
                                :not-null t)
                     (population :type 'bytea
                                 :not-null t)
                     (best-index :type 'integer
                                 :not-null t)
-                    (instrument :type '(:char 128)
+                    (instrument :type '(:varchar 128)
                                 :not-null t)
-                    (timeframe :type '(:char 128)
+                    (timeframe :type '(:varchar 128)
                                :not-null t)
 		    (generations :type 'integer
 				 :not-null t)
-                    (fitness-fn :type '(:char 128)
+                    (fitness-fn :type '(:varchar 128)
                                 :not-null t)
 		    (rules-config :type 'bytea
 				  :not-null t)
@@ -72,47 +72,51 @@
                          :not-null t)
                     (creation-time :type 'integer
 				   :not-null t)
-                    (mape :type '(:numeric 100)
+                    (mape :type '(:numeric)
                           :not-null t)
-                    (mae :type '(:numeric 100)
+		    (pmape :type '(:numeric)
+			   :not-null t)
+                    (mae :type '(:numeric)
                          :not-null t)
-                    (mse :type '(:numeric 100)
+                    (mse :type '(:numeric)
                          :not-null t)
-                    (rmse :type '(:numeric 100)
+                    (rmse :type '(:numeric)
                           :not-null t)
-                    (corrects :type '(:numeric 100)
+                    (corrects :type '(:numeric)
                               :not-null t)
-                    (revenue :type '(:numeric 100)
+                    (revenue :type '(:numeric)
                              :not-null t)
                     )))
     (execute (create-table (:populations-closure :if-not-exists t)
-		 ((parent-id :type '(:char 36))
-		  (child-id :type '(:char 36))
+		 ((parent-id :type '(:varchar 36))
+		  (child-id :type '(:varchar 36))
 		  (depth :type 'integer
 			 :not-null t))
 	       (primary-key '(:parent-id :child-id))))
-    (execute (create-table (:tests :if-not-exists t)
-                 ((population-id :type 'integer
+     (execute (create-table (:tests :if-not-exists t)
+                 ((population-id :type '(:varchar 36)
                                  :not-null t)
-                  (instrument :type '(:char 128)
+                  (instrument :type '(:varchar 128)
                               :not-null t)
-                  (timeframe :type '(:char 128)
+                  (timeframe :type '(:varchar 128)
                              :not-null t)
-                  (begin :type '(:char 128)
+                  (begin :type '(:varchar 128)
                          :not-null t)
-                  (end :type '(:char 128)
+                  (end :type '(:varchar 128)
                        :not-null t)
-                  (mape :type '(:numeric 100)
+                  (mape :type '(:numeric)
                         :not-null t)
-                  (mae :type '(:numeric 100)
+		  (pmape :type '(:numeric)
+			   :not-null t)
+                  (mae :type '(:numeric)
                        :not-null t)
-                  (mse :type '(:numeric 100)
+                  (mse :type '(:numeric)
                        :not-null t)
-                  (rmse :type '(:numeric 100)
+                  (rmse :type '(:numeric)
                         :not-null t)
-                  (corrects :type '(:numeric 100)
+                  (corrects :type '(:numeric)
                             :not-null t)
-                  (revenue :type '(:numeric 100)
+                  (revenue :type '(:numeric)
                            :not-null t)
                   )))))
 ;; (init-database)
@@ -121,29 +125,31 @@
 ;; (local-time:unix-to-timestamp (local-time:timestamp-to-unix (local-time:now)))
 
 (defun insert-population (parent-id &optional label)
-  (let ((best (agents-best (agents-distribution *population*)))
-        (id (uuid:make-v4-uuid)))
+  (let* ((best (agents-best (agents-distribution *population*)))
+	 (id (uuid:make-v4-uuid)))
     (with-postgres-connection
-	(execute (insert-into :populations
+    	(execute (insert-into :populations
 		   (set= :id id
 			 :parent-id parent-id
 			 :label label
 			 :generations *generations*
-                         :fitness-fn *fitness-fn*
+			 :fitness-fn (format nil "~s" *fitness-fn*)
 			 :population (compress-population *population*)
-                         :best-index (position best *population* :test #'equalp)
-			 :instrument *instrument*
-			 :timeframe *timeframe*
+			 :best-index (position best *population* :test #'equalp)
+			 :instrument (format nil "~s" *instrument*)
+			 :timeframe (format nil "~s" *timeframe*)
 			 :creation-time (local-time:timestamp-to-unix (local-time:now))
 			 :begin *begin*
 			 :end *end*
 			 :rules-config (compress-object *rules-config*)
-                         :mape (agents-mape best)
-                         :rmse (agents-rmse best)
-                         :mae (agents-mae best)
+			 :mape (agents-mape best)
+			 :pmape (agents-pmape best)
+			 :rmse (agents-rmse best)
+			 :mae (agents-mae best)
 			 :mse (agents-mse best)
 			 :corrects (agents-corrects best)
-			 :revenue (agents-revenue best)))))
+			 :revenue (agents-revenue best)
+			 ))))
     id))
 
 (defun get-population (population-id)
@@ -163,13 +169,15 @@ agents parameters according to it."
     ;; Resetting `*cached-agents*`, as these most likely are useless now.
     (setf *cached-agents* (make-hash-table :test #'equal))
     (setf *generations* (access:access retrieved-pop :generations))
-    (let ((fit-fn (access:access retrieved-pop :fitness-fn)))
+    (let ((fit-fn (read-from-string (access:access retrieved-pop :fitness-fn))))
       (cond ((eq fit-fn :mse)
              (setf *fitnesses* (list (access:access retrieved-pop :mse))))
             ((eq fit-fn :mae)
              (setf *fitnesses* (list (access:access retrieved-pop :mae))))
             ((eq fit-fn :mape)
              (setf *fitnesses* (list (access:access retrieved-pop :mape))))
+	    ((eq fit-fn :pmape)
+             (setf *fitnesses* (list (access:access retrieved-pop :pmape))))
             ((eq fit-fn :rmse)
              (setf *fitnesses* (list (access:access retrieved-pop :rmse))))
             ((eq fit-fn :corrects)
@@ -246,6 +254,22 @@ agents parameters according to it."
 
 ;; (marshal:marshal (extract-agents-from-pool (agents-best (agents-distribution *population*))))
 
+(defun pmape (sim real)
+  "Penalized MAPE. If a simulation has a different direction than that of the real price, it gets penalized with a weight."
+  (let ((last-real (first (rest real))))
+    (/ (reduce #'+ (mapcar (lambda (s r)
+			     (prog1
+				 (if (>= (* (- r last-real)
+					    (- s last-real))
+					 0)
+				     (abs (/ (- r s) r))
+				     (* 1.5
+					(abs (/ (- r s) r))))
+			       (setf last-real r)))
+			   sim
+			   (rest real)))
+       (length (rest real)))))
+
 (defun mape (sim real)
   "Mean absolute percentage error between a simulated time series `sim` and a real time series `real`."
   (/ (reduce #'+ (mapcar (lambda (s r)
@@ -303,16 +327,16 @@ series `real`."
 	(prev (first real))
 	)
     (/ (apply #'+ (mapcar (lambda (s r)
-                            (let ((real-dir (- r prev))
-                                  (sim-dir (- s prev)))
-                              (setq prev r)
-                              (if (equal (plusp real-dir)
-                                         (plusp sim-dir))
-                                  1
-                                  0))
-                            )
-                          sim
-                          real))
+			    (let ((real-dir (- r prev))
+				  (sim-dir (- s prev)))
+			      (setq prev r)
+			      (if (equal (plusp real-dir)
+					 (plusp sim-dir))
+				  1
+				  0))
+			    )
+			  sim
+			  real))
        (length real))))
 
 (defun combinations (&rest lists)
@@ -541,9 +565,9 @@ series `real`."
     "Represents how many fuzzy rules each of the agents in a solution will have.")
   (defparameter *agents-pool* (gen-agents *num-pool-agents*)
     "Instances of `agent` that are available to create solutions.")
-  (defparameter *community-size* 50
+  (defparameter *community-size* 10
     "Represents the number of agents in an 'individual' or solution. A simulation (a possible solution) will be generated using this number of agents.")
-  (defparameter *population-size* 30
+  (defparameter *population-size* 10
     "How many 'communities', 'individuals' or 'solutions' will be participating in the optimization process.")
   (defparameter *population* (gen-communities *community-size* *population-size*)
     "Represents a list of lists of indexes to *agents-pool*.")
@@ -551,13 +575,13 @@ series `real`."
     "Used for memoizing an agent's simulation.")
   (defparameter *fitnesses* nil
     "List of fitnesses obtained after evolving a population.")
-  (defparameter *fitness-fn* :corrects)
+  (defparameter *fitness-fn* :mape)
   (defparameter *rules-config* '((:mf-type . :gaussian)
 				 (:sd . 20)
 				 (:nmf-height-style . :complement))
     "Configuration used to create the rules of the agents for a population."))
 
-(defun train (generations &key (fitness-fn #'mse)
+(defun train (generations &key (fitness-fn #'mape)
                             (sort-fn #'<)
                             (starting-population "")
                             (save-every 100))
@@ -602,24 +626,22 @@ evolutionary process."
 	(setf can-save? t))
       ;; Incrementing global generations counter.
       (incf *generations*))
+    (print "done.")
     (format nil "~a" parent-id)))
 
-;; (setq *last-id* (train 5000 :fitness-fn #'mape :sort-fn #'<))
-;; (setq *last-id* (train 50000 :starting-population *last-id* :fitness-fn #'mape :sort-fn #'<))
-;; (setq *last-id* (train 50000 :starting-population "5E84200D-F33A-43D7-9F61-3BAD51FC9313" :fitness-fn #'mape :sort-fn #'<))
+;; (setq *last-id* (train 1000 :fitness-fn #'pmape :sort-fn #'<))
+;; (setq *last-id* (train 50000 :starting-population *last-id* :fitness-fn #'pmape :sort-fn #'<))
+;; (setq *last-id* (train 50000 :starting-population "271CEB2F-F738-4AF3-9431-01978DC9C638" :fitness-fn #'mape :sort-fn #'<))
 ;; (get-ancestors *last-id*)
 ;; (access:access (get-population *last-id*) :generations)
 
-;; (init-database)
-;; datafly:*connection*
-;; (datafly:disconnect-toplevel)
-;; (insert-population *population* (uuid:make-v4-uuid) *generations* 0 0 0)
-;; (insert-population *population* "" *generations* 0 0 3.1)
 ;; (with-postgres-connection (execute (delete-from :populations)))
 ;; (with-postgres-connection (execute (delete-from :populations-closure)))
-;; (with-postgres-connection (retrieve-all (select (:*) (from :populations) (order-by (:asc :creation-time)))))
+
 ;; (length (with-postgres-connection (retrieve-all (select :* (from :populations-closure)))))
-;; (with-postgres-connection (retrieve-all (select (:corrects :revenue) (from :populations) (order-by (:asc :creation-time)))))
+
+;; (with-postgres-connection (retrieve-all (select (:*) (from :populations) (order-by (:asc :creation-time)))))
+;; (map nil (lambda (lst) (format t "mse: ~a ~tcorrects: ~a ~t revenue: ~a~%" (float (access:access lst :mse)) (* (float (access:access lst :corrects)) 100) (float (access:access lst :revenue))))(with-postgres-connection (retrieve-all (select (:mse :corrects :revenue) (from :populations) (order-by (:asc :creation-time))))))
 
 (defun get-most-relevant-population (instrument timeframe)
   "The most relevant population is the one that matches `instrument`,
@@ -1099,6 +1121,13 @@ each point in the real prices."
   ;; (agents-corrects (first *population*))
   (corrects (agents-simulation agents-indexes)
             (get-real-data)))
+
+(defun agents-pmape (agents-indexes)
+  "Returns the penalized mean absolute percentage error obtained by the agents' simulation in
+`agents-indexes` for the real prices."
+  ;; (agents-mse (first *population*))
+  (pmape (agents-simulation agents-indexes)
+	 (get-real-data)))
 
 (defun agents-mape (agents-indexes)
   "Returns the mean absolute percentage error obtained by the agents' simulation in

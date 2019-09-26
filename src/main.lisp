@@ -8,6 +8,7 @@
 ;; (ql:quickload :dexador)
 (defpackage overmind-agents
   (:use :cl
+	:access
  	:lparallel
         :sxql
         :datafly
@@ -468,7 +469,7 @@ series `real`."
 	    sim)))))
 
 (defun agents-fitness (agents &optional (fitness-fn #'mse))
-  (let ((sim (agents-simulation agents)))
+  (let ((sim (agents-indexes-simulation agents)))
     ;; (mse sim (get-real-data))
     (funcall fitness-fn sim (get-real-data))))
 
@@ -575,13 +576,13 @@ series `real`."
     "Used for memoizing an agent's simulation.")
   (defparameter *fitnesses* nil
     "List of fitnesses obtained after evolving a population.")
-  (defparameter *fitness-fn* :mape)
+  (defparameter *fitness-fn* :pmape)
   (defparameter *rules-config* '((:mf-type . :gaussian)
 				 (:sd . 20)
 				 (:nmf-height-style . :complement))
     "Configuration used to create the rules of the agents for a population."))
 
-(defun train (generations &key (fitness-fn #'mape)
+(defun train (generations &key (fitness-fn #'pmape)
                             (sort-fn #'<)
                             (starting-population "")
                             (save-every 100))
@@ -650,49 +651,67 @@ some fallback cases that increase the chance of getting a population, even if it
 is not ideal."
   (with-postgres-connection
       ;; Trying to retrieve results where both instrument and timeframe match.
-      (access:access
-       (alexandria:if-let ((both-match (retrieve-one (select :id
-						       (from :populations)
-						       (where (:= :instrument instrument))
-						       (where (:= :timeframe timeframe))
-						       (order-by (:desc :end))))))
-	 both-match
-	 ;; Couldn't find any. Now trying to retrieve results where instrument matches.
-	 (alexandria:if-let ((inst-match (retrieve-one (select :id
-							 (from :populations)
-							 (where (:= :instrument instrument))
-							 (order-by (:desc :end))))))
-	   inst-match
-	   ;; Couldn't find any. Now trying to retrieve results where timeframe matches.
-	   (alexandria:when-let ((time-match (retrieve-one (select :id
-							     (from :populations)
-							     (where (:= :timeframe timeframe))
-							     (order-by (:desc :end))))))
-	     time-match
-	     )))
-       :id)))
-;; (get-most-relevant-population :EUR_USD :H1)
+      (alexandria:if-let ((both-match (retrieve-one (select :*
+						      (from :populations)
+						      (where (:= :instrument
+								 (format nil "~s" instrument)))
+						      (where (:= :timeframe
+								 (format nil "~s" timeframe)))
+						      (order-by (:desc :end))))))
+	both-match
+	;; Couldn't find any. Now trying to retrieve results where instrument matches.
+	(alexandria:if-let ((inst-match (retrieve-one (select :*
+							(from :populations)
+							(where (:= :instrument
+								   (format nil "~s" instrument)))
+							(order-by (:desc :end))))))
+	  inst-match
+	  ;; Couldn't find any. Now trying to retrieve results where timeframe matches.
+	  (alexandria:when-let ((time-match (retrieve-one (select :*
+							    (from :populations)
+							    (where (:= :timeframe
+								       (format nil "~s" timeframe)))
+							    (order-by (:desc :end))))))
+	    time-match
+	    )))))
+;; (access (get-most-relevant-population :EUR_USD :H1) :best-index)
 
 (defun market-report (instrument timeframe begin end)
   "Searches for a relevant population in the database that has a good fitness
 for the environment defined by `instrument`, `timeframe`, `begin` and `end`, where
 `begin` and `end` define a period of time for the market `instrument` at
 granularity `timeframe`."
+  ;; Resetting agents cache so we don't get wrong results.
+  (setf *cached-agents* (make-hash-table :test #'equal))
   (let* ((*instrument* instrument)
 	 (*begin* begin)
 	 (*end* end)
 	 (*timeframe* timeframe)
 	 (*rates* (get-rates-range *instrument* *timeframe* *begin* *end*))
-	 (pop-id (get-most-relevant-population instrument timeframe)))
-    (let* ((d (agents-distribution *population*))
-           (best (agents-best d))
-           (worst (agents-worst d))
-           (mse (agents-mse best))
-           (corrects (agents-mse best)))
-      `((:mse . ,mse)))
+	 (db-pop (get-most-relevant-population instrument timeframe))
+	 (pop (decompress-object (access db-pop :population)))
+	 (best (nth (access db-pop :best-index) pop))
+	 (mae (access db-pop :mae))
+	 (mse (access db-pop :mse))
+	 (rmse (access db-pop :rmse))
+	 (mape (access db-pop :mape))
+	 (pmape (access db-pop :pmape))
+	 (corrects (access db-pop :corrects))
+	 (revenue (access db-pop :revenue))
+	 (sim (agents-simulation best))
+	 (next-sim-price (alexandria:last-elt sim)))
+    `((:mae . ,mae)
+      (:mse . ,mse)
+      (:rmse . ,rmse)
+      (:mape . ,mape)
+      (:pmape . ,pmape)
+      (:corrects . ,corrects)
+      (:revenue . ,revenue)
+      (:simulation . ,sim)
+      (:rates . ,*rates*))
     ))
 
-;; (market-report :EUR_USD :H1 *begin* *end*)
+;; (time (market-report :EUR_USD :H1 *begin* *end*))
 ;; we need to just simulate. avoid creating distribution.
 
 ;; (dolist (pop *population*)
@@ -705,7 +724,7 @@ granularity `timeframe`."
 ;; ;; ;; make a test-all method to test a model against multiple markets, multiple testing sets
 ;; ;; ;; the objective is to prove that our architecture is generalized enough to work anywhere
 ;; ;; (let ((*rates* (subseq (ms:unmarshal (read-from-string (file-get-contents "/home/amherag/quicklisp/local-projects/neuropredictions/data/aud_usd.dat"))) 500 1000)))
-;; ;;   (corrects (agents-simulation (agents-best (agents-distribution *population*)))
+;; ;;   (corrects (agents-indexes-simulation (agents-best (agents-distribution *population*)))
 ;; ;; 	  (get-real-data)))
 
 ;; (defparameter *best-agent* (agents-best (agents-distribution *population*)))
@@ -766,9 +785,10 @@ represented by those indexes in `*agents-pool*`."
   ;; (extract-agents-from-pool '(1 2 3))
   (mapcar #'extract-agent-from-pool agents-indexes))
 
-(defun agents-simulation (agents-indexes)
-  "Returns a simulation of multiple agents trading a dataset."
-  ;; (agents-simulation (first *population*))
+(defun agents-indexes-simulation (agents-indexes)
+  "Returns a simulation of multiple agents trading a dataset. The agents are
+extracted from `*agents-pool*` using the indexes stored in `agents-indexes`."
+  ;; (agents-indexes-simulation (first *population*))
   (mapcar (lambda (sim real)
             ;; summing the current price + the sum of all trades to obtain next price
             ;; (mse) is in charge of comparing this price against the next one
@@ -779,6 +799,26 @@ represented by those indexes in `*agents-pool*`."
                  (mapcar (lambda (agent)
                            (agent-trades agent))
                          (extract-agents-from-pool agents-indexes)))
+          (get-real-data)))
+
+(defun agents-indexes-simulation (agents-indexes)
+  "Returns a simulation of multiple agents trading a dataset. The agents are
+extracted from `*agents-pool*` using the indexes stored in `agents-indexes`."
+  ;; (agents-indexes-simulation (first *population*))
+  (agents-simulation (extract-agents-from-pool agents-indexes)))
+
+(defun agents-simulation (agents)
+  "Returns a simulation of multiple agents trading a dataset."
+  (mapcar (lambda (sim real)
+            ;; summing the current price + the sum of all trades to obtain next price
+            ;; (mse) is in charge of comparing this price against the next one
+            (+ sim real))
+          ;; summation of trades of every agent in `agents`
+          (apply #'mapcar (lambda (&rest trades)
+                            (apply #'+ trades))
+                 (mapcar (lambda (agent)
+                           (agent-trades agent))
+                         agents))
           (get-real-data)))
 
 (defun agents-mutate (&optional (chance 0.9))
@@ -792,13 +832,13 @@ represented by those indexes in `*agents-pool*`."
 (defun agents-profit (agents-indexes)
   "Uses the market simulation created by the agents represented by `agents-indexes` to generate a list of profits generated by comparing the simulation against the real market data."
   ;; (agents-profit '(1 2 4))
-  (reduce #'+ (revenue (agents-simulation agents-indexes) (get-real-data))))
+  (revenue (agents-indexes-simulation agents-indexes) (get-real-data)))
 
 (defun agents-describe (agents-indexes)
   (let* ((fibos (mapcar (lambda (agent-index)
 			  (agent-perception (extract-agent-from-pool agent-index)))
 			agents-indexes))
-         (sim (agents-simulation agents-indexes))
+         (sim (agents-indexes-simulation agents-indexes))
 	 (agent-rules (mapcar (lambda (agent)
 				(slot-value agent 'rules))
 			      (extract-agents-from-pool agents-indexes)))
@@ -952,7 +992,7 @@ represented by those indexes in `*agents-pool*`."
   (let* ((fibos (mapcar (lambda (agent-index)
 			  (agent-perception (extract-agent-from-pool agent-index)))
 			agents-indexes))
-         (sim (agents-simulation agents-indexes))
+         (sim (agents-indexes-simulation agents-indexes))
 	 (agent-rules (mapcar (lambda (agent)
 				(slot-value agent 'rules))
 			      (extract-agents-from-pool agents-indexes)))
@@ -1112,49 +1152,49 @@ represented by those indexes in `*agents-pool*`."
   "Compiles a list of the revenues made by the agents in `agents-indexes` at
 each point in the real prices."
   ;; (agents-revenue (first *population*))
-  (revenue (agents-simulation agents-indexes)
+  (revenue (agents-indexes-simulation agents-indexes)
            (get-real-data)))
 
 (defun agents-corrects (agents-indexes)
   "Returns the number of correct direction predictions made by the agents in
 `agents-indexes` for the real prices."
   ;; (agents-corrects (first *population*))
-  (corrects (agents-simulation agents-indexes)
+  (corrects (agents-indexes-simulation agents-indexes)
             (get-real-data)))
 
 (defun agents-pmape (agents-indexes)
   "Returns the penalized mean absolute percentage error obtained by the agents' simulation in
 `agents-indexes` for the real prices."
   ;; (agents-mse (first *population*))
-  (pmape (agents-simulation agents-indexes)
+  (pmape (agents-indexes-simulation agents-indexes)
 	 (get-real-data)))
 
 (defun agents-mape (agents-indexes)
   "Returns the mean absolute percentage error obtained by the agents' simulation in
 `agents-indexes` for the real prices."
   ;; (agents-mse (first *population*))
-  (mape (agents-simulation agents-indexes)
+  (mape (agents-indexes-simulation agents-indexes)
         (get-real-data)))
 
 (defun agents-rmse (agents-indexes)
   "Returns the root mean square error obtained by the agents' simulation in
 `agents-indexes` for the real prices."
   ;; (agents-mse (first *population*))
-  (rmse (agents-simulation agents-indexes)
+  (rmse (agents-indexes-simulation agents-indexes)
         (get-real-data)))
 
 (defun agents-mae (agents-indexes)
   "Returns the mean absolute error obtained by the agents' simulation in
 `agents-indexes` for the real prices."
   ;; (agents-mse (first *population*))
-  (mae (agents-simulation agents-indexes)
+  (mae (agents-indexes-simulation agents-indexes)
        (get-real-data)))
 
 (defun agents-mse (agents-indexes)
   "Returns the mean squared error obtained by the agents' simulation in
 `agents-indexes` for the real prices."
   ;; (agents-mse (first *population*))
-  (mse (agents-simulation agents-indexes)
+  (mse (agents-indexes-simulation agents-indexes)
        (get-real-data)))
 
 (defun plot-mfs ()

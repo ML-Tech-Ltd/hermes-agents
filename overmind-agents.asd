@@ -6,6 +6,8 @@
 	       :random-state
                :datafly
 	       :dbi
+               :magicl
+               :computable-reals
                :sxql
 	       :cl21
 	       :uuid

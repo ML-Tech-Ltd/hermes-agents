@@ -399,7 +399,8 @@ series `real`."
   ;; (slot-value (first (slot-value (make-instance 'agents) 'agents)) 'beliefs)
   ((beliefs :initarg :beliefs :initform (gen-beliefs) :accessor beliefs)
    (rules :initarg :rules :initform (gen-rules *num-rules*) :accessor rules)
-   (leverage :initarg :leverage :initform 1)
+   ;; (leverage :initarg :leverage :initform 1)
+   (leverage :initarg :leverage :initform (random-float *rand-gen* 0 1))
    ;; (stdev :initarg :stdev :initform (random-float *rand-gen* 5 50))
    (stdev :initarg :stdev :initform (access *rules-config* :sd))
    ))
@@ -728,9 +729,9 @@ series `real`."
     "Size of the dataset used for the training stage.")
   (defparameter *test-size* 50
     "Size of the dataset used for the testing stage.")
-  (defparameter *begin* 100
+  (defparameter *begin* 300
     "The starting timestamp for the data used for training or testing.")
-  (defparameter *end* 2100
+  (defparameter *end* 2300
     "The ending timestamp for the data used for training or testing.")
   (defparameter *all-rates* (get-rates *instrument* 1 *timeframe*))
   (defparameter *rates* (subseq *all-rates* *begin* *end*)
@@ -743,13 +744,13 @@ series `real`."
     "Keeps track of how many generations have elapsed in an evolutionary process.")
   (defparameter *num-pool-agents* 1000
     "How many agents will be created for `*agents-pool*`. Relatively big numbers are recommended, as this increases diversity and does not significantly impact performance.")
-  (defparameter *num-rules* 2
+  (defparameter *num-rules* 1
     "Represents how many fuzzy rules each of the agents in a solution will have.")
   (defparameter *agents-pool* (gen-agents *num-pool-agents*)
     "Instances of `agent` that are available to create solutions.")
-  (defparameter *community-size* 15
+  (defparameter *community-size* 45
     "Represents the number of agents in an 'individual' or solution. A simulation (a possible solution) will be generated using this number of agents.")
-  (defparameter *population-size* 20
+  (defparameter *population-size* 10
     "How many 'communities', 'individuals' or 'solutions' will be participating in the optimization process.")
   (defparameter *population* (gen-communities *community-size* *population-size*)
     "Represents a list of lists of indexes to *agents-pool*.")
@@ -759,7 +760,7 @@ series `real`."
     "List of fitnesses obtained after evolving a population.")
   (defparameter *fitness-fn* :pmape)
   (defparameter *rules-config* '((:mf-type . :gaussian)
-				 (:sd . 20)
+				 (:sd . 10)
 				 (:mf-mean-adjusting . nil)
 				 (:nmf-height-style . :complement)
 				 (:trade-scale . 3000))
@@ -819,11 +820,12 @@ evolutionary process."
 ;; (with-postgres-connection (execute (delete-from :populations)))
 ;; (with-postgres-connection (execute (delete-from :populations-closure)))
 
-;; (setq *last-id* (train 10000 :fitness-fn #'mape :sort-fn #'<))
+;; (setq *last-id* (train 10000 :fitness-fn #'pmape :sort-fn #'<))
 ;; (setq *last-id* (train 50000 :starting-population *last-id* :fitness-fn #'pmape :sort-fn #'<))
 ;; (setq *last-id* (train 50000 :starting-population "6DF6BB62-B9AB-4A6B-B6A8-9EF44EFD86FB" :fitness-fn #'pmape :sort-fn #'<))
 
-;; (map nil (lambda (lst) (format t "rmse: ~a ~tcorrects: ~a ~t revenue: ~a~%" (float (access:access lst :rmse)) (* (float (access:access lst :corrects)) 100) (float (access:access lst :revenue)))) (with-postgres-connection (retrieve-all (select (:id :rmse :corrects :revenue) (from :populations) (order-by (:asc :creation-time))))))
+;; (map nil (lambda (lst) (format t "gen: ~a ~tcorrects: ~a ~t revenue: ~a~%" (access:access lst :generations) (* (float (access:access lst :corrects)) 100) (float (access:access lst :revenue)))) (with-postgres-connection (retrieve-all (select (:*) (from :populations) (order-by (:asc :creation-time))))))
+
 
 ;; (ql:quickload :cl-mathstats)
 
@@ -958,8 +960,6 @@ granularity `timeframe`."
 			     (magicl:inv A)
 			     B)))
 
-	   (print trades)
-
 	   ;; Modifying leverages.
 	   (dotimes (i (length agents))
 	     (setf (slot-value (extract-agent-from-pool (nth i agents)) 'leverage)
@@ -967,6 +967,8 @@ granularity `timeframe`."
 	   (print (magicl:det A))
 	   ))
 
+       (setf *cached-agents* (make-hash-table :test #'equal))
+       
        ;; Calculating the number of correct trades during training stage.
        (setf train-corrects
 	     (float
@@ -998,7 +1000,7 @@ granularity `timeframe`."
        (print (list train-corrects test-corrects))
        ))
    (alexandria:iota sample-size)))
-;; (agents-brute-force 2)
+;; (agents-brute-force 10)
 
 
 (defun agents-random-search ()
@@ -1032,21 +1034,26 @@ granularity `timeframe`."
   (defparameter *market-report* (market-report (get-most-relevant-population *instrument* *timeframe*)
                                                *instrument* *timeframe*
                                                (subseq *all-rates* *begin* (+ *end* omper:*data-count*))))
-  
+  ;; (init-from-database (access (get-most-relevant-population *instrument* *timeframe*) :id))
   (list (float (accesses *market-report* :training :performance-metrics :corrects))
         (float (accesses *market-report* :testing :performance-metrics :corrects)))
-
+  ;; '(0.7241379 0.55172414)
   (defparameter *market-tests* (mapcar (lambda (db-pop)
                                          (market-report db-pop
                                                         *instrument* *timeframe*
                                                         (subseq *all-rates* *begin* (+ *end* omper:*data-count*))))
-                                       (last (retrieve-all (select (:*) (from :populations))) 600)))
+                                       (retrieve-all (select (:*)
+						       (from :populations)
+						       (order-by (:asc :creation-time))
+						       (limit 30)))))
 
   (mapcar (lambda (test)
             (list (float (accesses test :training :performance-metrics :corrects))
                   (float (accesses test :testing :performance-metrics :corrects))))
           *market-tests*)
   )
+
+
 
 ;; (accesses *market-report* :training :performance-metrics :corrects)
 ;; (accesses *market-report* :testing :performance-metrics :corrects)

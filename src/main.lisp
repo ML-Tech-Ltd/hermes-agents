@@ -365,8 +365,8 @@ series `real`."
   ;; (slot-value (first (slot-value (make-instance 'agents) 'agents)) 'beliefs)
   ((beliefs :initarg :beliefs :initform (gen-beliefs) :accessor beliefs)
    (rules :initarg :rules :initform (gen-rules *num-rules*) :accessor rules)
-   ;; (leverage :initarg :leverage :initform 1)
-   (leverage :initarg :leverage :initform (random-float *rand-gen* 0 1))
+   (leverage :initarg :leverage :initform 1)
+   ;; (leverage :initarg :leverage :initform (random-float *rand-gen* 0 1))
    (stdev :initarg :stdev :initform (random-float *rand-gen* 2 30))
    ;; (stdev :initarg :stdev :initform (access *rules-config* :sd))
    ))
@@ -433,7 +433,13 @@ series `real`."
   ;; (time (agent-trades (first (extract-agents-from-pool '(2)))))
   (let ((sig (reduce #'+
 		     (append (alexandria:flatten (slot-value agent 'beliefs))
-			     (alexandria:flatten (slot-value agent 'rules))))))
+			     (alexandria:flatten (slot-value agent 'rules))
+                             ;; (list (slot-value agent 'leverage))
+                             ;; (list (slot-value agent 'stdev))
+                             ;; (mapcar (lambda (rate)
+                             ;;           (access rate :close-bid))
+                             ;;         *rates*)
+                             ))))
     (if (cl21:gethash *cached-agents* sig)
 	(cl21:gethash *cached-agents* sig)
 	(let* ((data (agent-perception agent))
@@ -728,9 +734,9 @@ series `real`."
     "Represents how many fuzzy rules each of the agents in a solution will have.")
   (defparameter *agents-pool* (gen-agents *num-pool-agents*)
     "Instances of `agent` that are available to create solutions.")
-  (defparameter *community-size* (1- *data-count*)
+  (defparameter *community-size* 10
     "Represents the number of agents in an 'individual' or solution. A simulation (a possible solution) will be generated using this number of agents.")
-  (defparameter *population-size* 1
+  (defparameter *population-size* 20
     "How many 'communities', 'individuals' or 'solutions' will be participating in the optimization process.")
   (defparameter *population* (gen-communities *community-size* *population-size*)
     "Represents a list of lists of indexes to *agents-pool*.")
@@ -965,7 +971,7 @@ granularity `timeframe`."
        (dotimes (agents-idx (length *population*))
 	 ;; Reset the leverages to 1
          (reset-leverages)
-	 (setf *cached-agents* (make-hash-table :test #'equal))
+	 ;; (setf *cached-agents* (make-hash-table :test #'equal))
 	 
 	 (let* ((agents (nth agents-idx *population*))
 		(trades (mapcar (lambda (agent)
@@ -983,12 +989,12 @@ granularity `timeframe`."
 			     (magicl:inv A)
 			     B)))
 
-	   (setf *cached-agents* (make-hash-table :test #'equal))
+	   ;; (setf *cached-agents* (make-hash-table :test #'equal))
 	   ;; Before adjusting error, testing stage.
 	   (push (print (float (accesses
-			 (agents-test (extract-agents-from-pool agents)
-				      (subseq *all-rates* *begin* (+ *end* omper:*data-count*)))
-			 :performance-metrics :corrects)))
+                                (agents-test (extract-agents-from-pool agents)
+                                             (subseq *all-rates* *begin* (+ *end* omper:*data-count*)))
+                                :performance-metrics :corrects)))
 		 before-corrects)
 
 	   ;; Modifying leverages.
@@ -997,7 +1003,7 @@ granularity `timeframe`."
 	   	   (realpart (magicl:ref sol-matrix i 0))))
 	   ;; (print (magicl:det A))
 	   
-           (setf *cached-agents* (make-hash-table :test #'equal))
+           ;; (setf *cached-agents* (make-hash-table :test #'equal))
            ;; Train error.
            (push (float (accesses
 			 (agents-test (extract-agents-from-pool agents)
@@ -1005,7 +1011,7 @@ granularity `timeframe`."
 			 :performance-metrics :corrects))
                  train-corrects)
 
-           (setf *cached-agents* (make-hash-table :test #'equal))
+           ;; (setf *cached-agents* (make-hash-table :test #'equal))
            ;; Test error.
            (push (float (accesses
 			 (agents-test (extract-agents-from-pool agents)
@@ -1050,7 +1056,7 @@ granularity `timeframe`."
        ;;  			 (alexandria:iota (length *population*))))
        ;;  	 (length *population*))))
 
-       (print (list train-corrects test-corrects))
+       (print (list train-corrects before-corrects test-corrects))
        ))
    (alexandria:iota sample-size)))
 ;; (agents-brute-force 1)

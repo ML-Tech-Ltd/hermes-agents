@@ -371,8 +371,8 @@ series `real`."
    (trade-scale :initarg :trade-scale :initform 100000)
    ;; (trade-scale :initarg :trade-scale :initform (access *rules-config* :trade-scale))
    ;; (leverage :initarg :leverage :initform (random-float *rand-gen* 0 1))
-   (stdev :initarg :stdev :initform (random-float *rand-gen* 5 30))
-   ;; (stdev :initarg :stdev :initform (access *rules-config* :sd))
+   ;; (stdev :initarg :stdev :initform (random-float *rand-gen* 5 30))
+   (stdev :initarg :stdev :initform (access *rules-config* :sd))
    ))
 
 (defmethod ms:class-persistent-slots ((self agent))
@@ -769,6 +769,47 @@ series `real`."
 				   ))
 		    (cl21:iota 14)))
 	  (cl21:iota num-rules)))
+
+(defun gen-rules (num-rules)
+  ;; (gen-rules 7)
+  (mapcar (lambda (_)
+            (let* ((num-rel 7)
+                   ;; Separation between membership functions.
+                   (sep (/ (+ 100 (access *rules-config* :sd)) num-rel))
+                   ;; Random starting point for the first membership function of the
+                   ;; antecedents.
+                   (armf (random-float *rand-gen* 0 sep))
+                   ;; Random starting point for the first non-membership function of the
+                   ;; antecedents.
+                   (arnmf (random-float *rand-gen* 0 sep))
+                   ;; Random starting point for the first membership function of the
+                   ;; consequents.
+                   (crmf (random-float *rand-gen* 0 sep))
+                   ;; Random starting point for the first non-membership function of the
+                   ;; consequents.
+                   (crnmf (random-float *rand-gen* 0 sep))
+                   (amf-means (mapcar (lambda (i)
+                                        (+ (- (* i sep) (access *rules-config* :sd)) armf))
+                                      (alexandria:iota num-rel)))
+                   (anmf-means (mapcar (lambda (i)
+                                         (+ (- (* i sep) (access *rules-config* :sd)) arnmf))
+                                       (alexandria:iota num-rel)))
+                   (cmf-means (mapcar (lambda (i)
+                                        (+ (- (* i sep) (access *rules-config* :sd)) crmf))
+                                      (alexandria:iota num-rel)))
+                   (cnmf-means (mapcar (lambda (i)
+                                         (+ (- (* i sep) (access *rules-config* :sd)) crnmf))
+                                       (alexandria:iota num-rel))))
+              (apply #'nconc
+                     (mapcar (lambda (i) `((,(nth i amf-means)
+                                             ,(nth i anmf-means)
+                                             ,(random-float *rand-gen* 0 1))
+                                           (,(nth i cmf-means)
+                                             ,(nth i cnmf-means)
+                                             ,(random-float *rand-gen* 0 1))
+                                           ))
+                             (cl21:iota num-rel)))))
+          (cl21:iota num-rules)))
 
 (defun gen-agents (num)
   (mapcar (lambda (_)

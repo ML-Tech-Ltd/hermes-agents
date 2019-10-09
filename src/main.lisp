@@ -790,14 +790,14 @@ series `real`."
     "Keeps track of how many generations have elapsed in an evolutionary process.")
   (defparameter *num-pool-agents* 10000
     "How many agents will be created for `*agents-pool*`. Relatively big numbers are recommended, as this increases diversity and does not significantly impact performance.")
-  (defparameter *num-rules* 10
+  (defparameter *num-rules* 20
     "Represents how many fuzzy rules each of the agents in a solution will have.")
   (defparameter *agents-pool* (gen-agents *num-pool-agents*)
     "Instances of `agent` that are available to create solutions.")
-  (defparameter *community-size* 20 ;; (1- omper:*data-count*)
+  (defparameter *community-size* 10 ;; (1- omper:*data-count*)
     "Represents the number of agents in an 'individual' or solution. A simulation (a possible solution) will be generated using this number of agents.")
   (defparameter *rules-config* `((:mf-type . :gaussian)
-                                 (:sd . 10)
+                                 (:sd . 20)
                                  (:mf-mean-adjusting . nil)
                                  (:nmf-height-style . :complement)
                                  (:trade-scale . ,(calc-trade-scale)))
@@ -900,7 +900,8 @@ evolutionary process."
 	      (setf parent-id child-id)
 
 	      ;; Remove later
-              (when (and nil (= (1- omper:*data-count*) *community-size*))
+              (when (and t (= (1- omper:*data-count*) *community-size*)
+			 (> *generations* 1000))
                 (agents-brute-force 1 (agents-best (agents-distribution *population*))))
 	      (setf can-save? nil)))
 	  
@@ -923,7 +924,8 @@ evolutionary process."
 ;; (with-postgres-connection (execute (delete-from :populations-closure)))
 
 ;; (setq *last-id* (train 100000 :fitness-fn #'pmape :sort-fn #'<))
-
+;; *cached-agents*
+*population*
 
 ;; (setq *last-id* (train 50000 :starting-population *last-id* :fitness-fn #'pmape :sort-fn #'<))
 ;; (setq *last-id* (train 50000 :starting-population "6DF6BB62-B9AB-4A6B-B6A8-9EF44EFD86FB" :fitness-fn #'pmape :sort-fn #'<))
@@ -1065,33 +1067,37 @@ granularity `timeframe`."
 	    (setf (slot-value (extract-agent-from-pool (nth i agents)) 'leverage)
 		  (realpart (magicl:ref sol-matrix i 0))))
 
-	  ;; Train error.
-	  ;; (setf *cached-agents* (make-hash-table :test #'equal))
-	  (setf train-corrects
-		(float (accesses
-			(agents-test (extract-agents-from-pool agents)
-				     (subseq *all-rates* *begin* *end*))
-			:performance-metrics :corrects)))
+	  (let ((prev-data-count omper:*data-count*))
+	    ;; Train error.
+	    ;; (setf *cached-agents* (make-hash-table :test #'equal))
+	    (setf train-corrects
+		  (float (accesses
+			  (agents-test (extract-agents-from-pool agents)
+				       (subseq *all-rates* *begin* *end*))
+			  :performance-metrics :corrects)))
 
 
-	  ;; Validation error.
-	  ;; (setf omper:*data-count* (ceiling (* prev-data-count 0.2)))
-	  (setf *cached-agents* (make-hash-table :test #'equal))
-	  (setf validation-corrects
-		(float (accesses
-			(agents-test (extract-agents-from-pool agents)
-				     (subseq *all-rates* *begin* (+ *end* omper:*data-count*)))
-			:performance-metrics :corrects)))
+	    ;; Validation error.
+	    (setf omper:*data-count* (ceiling (* prev-data-count 0.1)))
+	    ;; (setf *cached-agents* (make-hash-table :test #'equal))
+	    (setf validation-corrects
+		  (float (accesses
+			  (agents-test (extract-agents-from-pool agents)
+				       (subseq *all-rates* *begin* (+ *end* omper:*data-count*)))
+			  :performance-metrics :corrects)))
 
 
-	  ;; Test error.
-	  ;; (setf omper:*data-count* (ceiling (* prev-data-count 0.2)))
-	  ;; (setf *cached-agents* (make-hash-table :test #'equal))
-	  (setf test-corrects
-		(float (accesses
-			(agents-test (extract-agents-from-pool agents)
-				     (subseq *all-rates* *begin* (+ *end* (* 2 omper:*data-count*))))
-			:performance-metrics :corrects)))
+	    ;; Test error.
+	    ;; (setf omper:*data-count* (ceiling (* prev-data-count 0.1)))
+	    ;; (setf *cached-agents* (make-hash-table :test #'equal))
+	    (setf test-corrects
+		  (float (accesses
+			  (agents-test (extract-agents-from-pool agents)
+				       (subseq *all-rates* *begin* (+ *end* (* 2 omper:*data-count*))))
+			  :performance-metrics :corrects)))
+
+	    ;; Resetting data-count.
+	    (setf omper:*data-count* prev-data-count))
 	  ;; (print (magicl:det A))
 
 	  ;; Resetting leverages back to 1.
@@ -1337,7 +1343,7 @@ extracted from `*agents-pool*` using the indexes stored in `agents-indexes`."
 
 ;; (length (agent-simulation (first *agents-pool*)))
 
-(defun agents-mutate (&optional (chance 0.3))
+(defun agents-mutate (&optional (chance 1.0))
   "Mutates the pool of agents if a according to `chance`."
   ;; (agents-mutate 0.5)
 

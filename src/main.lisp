@@ -580,67 +580,77 @@ series `real`."
     (format str content)))
 
 (defun agents-mf-adjust (agents iterations &optional (fitness-fn #'pmape) (delta 10))
-  (dotimes (_ iterations)
-    (let* ((sim (agents-simulation agents))
-	   (errs (mapcar #'- sim (rest (get-real-data (length sim)))))
-	   (errs-idxs (largest-number-indexes (mapcar #'abs errs)))
-	   (sims (mapcar (lambda (agent)
-			   ;; We're ignoring the last one as that is the final prediction,
-			   ;; i.e. there's no real data price for that.
-			   (butlast (agent-simulation agent)))
-			 agents))
-	   (errs-sims (mapcar (lambda (idx)
-				(largest-number-index
-				 (mapcar (lambda (sim)
-					   (nth idx sim))
-					 sims)))
-			      errs-idxs))
-	   (modified-agents '()))
-      (dotimes (i (length errs-idxs))
-	(let* ((agent-idx (nth i errs-sims))
-	       (agent (nth agent-idx agents))
-	       (err (nth (nth i errs-idxs) errs))
-	       (rule-idx (random-int *rand-gen* 0 (1- *num-rules*)))
-	       (rule (alexandria:last-elt
-		      (nth rule-idx
-			   (slot-value agent 'rules)))))
-	  (cond ((> err 0)
-		 (setf
-		  (first (alexandria:last-elt (nth rule-idx (slot-value agent 'rules))))
-		  (random-float *rand-gen* (if (<= (- (first rule) delta) 0)
-					       0
-					       (- (first rule) delta))
-				(1- (first rule))))
-		 (setf
-		  (second (alexandria:last-elt (nth rule-idx (slot-value agent 'rules))))
-		  (random-float *rand-gen* (if (<= (- (second rule) delta) 0)
-					       0
-					       (- (second rule) delta))
-				(1- (second rule)))))
-		((< err 0)
-		 (setf
-		  (first (alexandria:last-elt (nth rule-idx (slot-value agent 'rules))))
-		  (random-float *rand-gen*
-				(1+ (first rule))
-				(if (>= (+ (first rule) delta) 100)
-				    100
-				    (+ (first rule) delta))))
-		 (setf
-		  (second (alexandria:last-elt (nth rule-idx (slot-value agent 'rules))))
-		  (random-float *rand-gen*
-				(1+ (second rule))
-				(if (>= (+ (second rule) delta) 100)
-				    100
-				    (+ (second rule) delta)))))
-		((= err 0)))
-	  (pushnew agent-idx modified-agents)
-	  (when (>= (length modified-agents)
-		    (length agents))
-	    (return))))
-      (print (funcall fitness-fn sim (get-real-data (length sim))))
-      ;;(setf *cached-agents* (make-hash-table :test #'equal))
-      )))
+  (let ((best-error 10000))
+    (dotimes (_ iterations)
+      (let* ((sim (agents-simulation agents))
+             (errs (mapcar #'- sim (rest (get-real-data (length sim)))))
+             (errs-idxs (largest-number-indexes (mapcar #'abs errs)))
+             (sims (mapcar (lambda (agent)
+                             ;; We're ignoring the last one as that is the final prediction,
+                             ;; i.e. there's no real data price for that.
+                             (butlast (agent-simulation agent)))
+                           agents))
+             (errs-sims (mapcar (lambda (idx)
+                                  (largest-number-index
+                                   (mapcar (lambda (sim)
+                                             (nth idx sim))
+                                           sims)))
+                                errs-idxs))
+             (modified-agents '()))
+        (dotimes (i (length errs-idxs))
+          (let* ((agent-idx (nth i errs-sims))
+                 (agent (nth agent-idx agents))
+                 (err (nth (nth i errs-idxs) errs))
+                 (rule-idx (random-int *rand-gen* 0 (1- *num-rules*)))
+                 (rule (alexandria:last-elt
+                        (nth rule-idx
+                             (slot-value agent 'rules)))))
+            (cond ((> err 0)
+                   (setf
+                    (first (alexandria:last-elt (nth rule-idx (slot-value agent 'rules))))
+                    (random-float *rand-gen* (if (<= (- (first rule) delta) 0)
+                                                 0
+                                                 (- (first rule) delta))
+                                  (1- (first rule))))
+                   (setf
+                    (second (alexandria:last-elt (nth rule-idx (slot-value agent 'rules))))
+                    (random-float *rand-gen* (if (<= (- (second rule) delta) 0)
+                                                 0
+                                                 (- (second rule) delta))
+                                  (1- (second rule)))))
+                  ((< err 0)
+                   (setf
+                    (first (alexandria:last-elt (nth rule-idx (slot-value agent 'rules))))
+                    (random-float *rand-gen*
+                                  (1+ (first rule))
+                                  (if (>= (+ (first rule) delta) 100)
+                                      100
+                                      (+ (first rule) delta))))
+                   (setf
+                    (second (alexandria:last-elt (nth rule-idx (slot-value agent 'rules))))
+                    (random-float *rand-gen*
+                                  (1+ (second rule))
+                                  (if (>= (+ (second rule) delta) 100)
+                                      100
+                                      (+ (second rule) delta)))))
+                  ((= err 0)))
+            (pushnew agent-idx modified-agents)
+            (when (>= (length modified-agents)
+                      (length agents))
+              (return))))
+        (let ((err (funcall fitness-fn sim (get-real-data (length sim)))))
+          (print err)
+          (if (< err best-error)
+              (setf best-error err)
+              (return)))
+        ;;(setf *cached-agents* (make-hash-table :test #'equal))
+        ))))
 ;; (agents-mf-adjust (extract-agents-from-pool (first *population*)) 1000)
+
+(let ((best (agents-best (agents-distribution *population*))))
+  (agents-mf-adjust (extract-agents-from-pool best) 1000)
+  (agents-brute-force 1 best))
+(agents-brute-force 1 (agents-best (agents-distribution *population*)))
 
 
 (defun coco (errors solution)
@@ -788,28 +798,83 @@ series `real`."
                    ;; Random starting point for the first non-membership function of the
                    ;; consequents.
                    (crnmf (random-float *rand-gen* 0 sep))
-                   (amf-means (mapcar (lambda (i)
-                                        (+ (- (* i sep) (access *rules-config* :sd)) armf))
-                                      (alexandria:iota num-rel)))
-                   (anmf-means (mapcar (lambda (i)
-                                         (+ (- (* i sep) (access *rules-config* :sd)) arnmf))
-                                       (alexandria:iota num-rel)))
-                   (cmf-means (mapcar (lambda (i)
-                                        (+ (- (* i sep) (access *rules-config* :sd)) crmf))
-                                      (alexandria:iota num-rel)))
-                   (cnmf-means (mapcar (lambda (i)
-                                         (+ (- (* i sep) (access *rules-config* :sd)) crnmf))
+                   (amf-means (alexandria:shuffle
+                               (mapcar (lambda (i)
+                                         (+ (- (* i sep) (access *rules-config* :sd)) armf))
                                        (alexandria:iota num-rel))))
+                   (anmf-means (alexandria:shuffle
+                                (mapcar (lambda (i)
+                                          (+ (- (* i sep) (access *rules-config* :sd)) arnmf))
+                                        (alexandria:iota num-rel))))
+                   (cmf-means (alexandria:shuffle
+                               (mapcar (lambda (i)
+                                         (+ (- (* i sep) (access *rules-config* :sd)) crmf))
+                                       (alexandria:iota num-rel))))
+                   (cnmf-means (alexandria:shuffle
+                                (mapcar (lambda (i)
+                                          (+ (- (* i sep) (access *rules-config* :sd)) crnmf))
+                                        (alexandria:iota num-rel)))))
               (apply #'nconc
                      (mapcar (lambda (i) `((,(nth i amf-means)
                                              ,(nth i anmf-means)
-                                             ,(random-float *rand-gen* 0 1))
+                                             ,(random-float *rand-gen* 0 1)
+                                             )
                                            (,(nth i cmf-means)
                                              ,(nth i cnmf-means)
-                                             ,(random-float *rand-gen* 0 1))
+                                             ,(random-float *rand-gen* 0 1)
+                                             )
                                            ))
                              (cl21:iota num-rel)))))
           (cl21:iota num-rules)))
+
+;; (defun gen-rules-adjust (num-rules num-rel sep armf arnmf crmf crnmf)
+;;   (mapcar (lambda (_)
+;;             (let* ((amf-means (mapcar (lambda (i)
+;;                                         (+ (- (* i sep) (access *rules-config* :sd)) armf))
+;;                                       (alexandria:iota num-rel)))
+;;                    (anmf-means (mapcar (lambda (i)
+;;                                          (+ (- (* i sep) (access *rules-config* :sd)) arnmf))
+;;                                        (alexandria:iota num-rel)))
+;;                    (cmf-means (mapcar (lambda (i)
+;;                                         (+ (- (* i sep) (access *rules-config* :sd)) crmf))
+;;                                       (alexandria:iota num-rel)))
+;;                    (cnmf-means (mapcar (lambda (i)
+;;                                          (+ (- (* i sep) (access *rules-config* :sd)) crnmf))
+;;                                        (alexandria:iota num-rel))))
+;;               (apply #'nconc
+;;                      (mapcar (lambda (i) `((,(nth i amf-means)
+;;                                              ,(nth i anmf-means)
+;;                                              ;; ,(random-float *rand-gen* 0 1)
+;;                                              0
+;;                                              )
+;;                                            (,(nth i cmf-means)
+;;                                              ,(nth i cnmf-means)
+;;                                              ;; ,(random-float *rand-gen* 0 1)
+;;                                              0
+;;                                              )
+;;                                            ))
+;;                              (cl21:iota num-rel)))))
+;;           (cl21:iota num-rules)))
+
+;; (let ((params))
+;;  (let* ((num-rel 7)
+;;        (sep (/ (+ 100 (access *rules-config* :sd)) num-rel))
+;;        (agents (mapcar (lambda (_)
+;;                          (make-instance 'agent
+;;                                         :rules (gen-rules-adjust
+;;                                                 num-rel
+;;                                                 sep
+;;                                                 (random-float *rand-gen* 0 sep)
+;;                                                 (random-float *rand-gen* 0 sep)
+;;                                                 (random-float *rand-gen* 0 sep)
+;;                                                 (random-float *rand-gen* 0 sep))))
+;;                        (cl21:iota num)))
+;;        (sim (agents-simulation agents)))
+;;   (corrects sim
+;;             (get-real-data (length sim)))))
+
+(defun agents-adjust ()
+  )
 
 (defun gen-agents (num)
   (mapcar (lambda (_)
@@ -831,15 +896,15 @@ series `real`."
     "Keeps track of how many generations have elapsed in an evolutionary process.")
   (defparameter *num-pool-agents* 10000
     "How many agents will be created for `*agents-pool*`. Relatively big numbers are recommended, as this increases diversity and does not significantly impact performance.")
-  (defparameter *num-rules* 20
+  (defparameter *num-rules* 10
     "Represents how many fuzzy rules each of the agents in a solution will have.")
   (defparameter *agents-pool* (gen-agents *num-pool-agents*)
     "Instances of `agent` that are available to create solutions.")
-  (defparameter *community-size* 10 ;; (1- omper:*data-count*)
+  (defparameter *community-size* (1- omper:*data-count*)
     "Represents the number of agents in an 'individual' or solution. A simulation (a possible solution) will be generated using this number of agents.")
   (defparameter *rules-config* `((:mf-type . :gaussian)
-                                 (:sd . 20)
-                                 (:mf-mean-adjusting . nil)
+                                 (:sd . 10)
+                                 (:mf-mean-adjusting . t)
                                  (:nmf-height-style . :complement)
                                  (:trade-scale . ,(calc-trade-scale)))
     "Configuration used to create the rules of the agents for a population.")
@@ -966,12 +1031,18 @@ evolutionary process."
 
 ;; (setq *last-id* (train 100000 :fitness-fn #'pmape :sort-fn #'<))
 ;; *cached-agents*
-*population*
+;; *population*
+;; *generations*
+
+;; Check if there are duplicates.
+;; (mapcar #'length (mapcar #'remove-duplicates *population*))
 
 ;; (setq *last-id* (train 50000 :starting-population *last-id* :fitness-fn #'pmape :sort-fn #'<))
 ;; (setq *last-id* (train 50000 :starting-population "6DF6BB62-B9AB-4A6B-B6A8-9EF44EFD86FB" :fitness-fn #'pmape :sort-fn #'<))
 
 ;; (map nil (lambda (lst) (format t "gen: ~a ~tcorrects: ~a ~t revenue: ~a~%" (access:access lst :generations) (* (float (access:access lst :corrects)) 100) (float (access:access lst :revenue)))) (with-postgres-connection (retrieve-all (select (:*) (from :populations) (order-by (:asc :creation-time))))))
+
+;; (gaussian-mf 50 20 0 1)
 
 ;; (agent-trades (extract-agent-from-pool (alexandria:random-elt (first *population*))))
 ;; (slot-value (extract-agent-from-pool (first (first *population*))) 'rules)
@@ -1087,7 +1158,7 @@ granularity `timeframe`."
     (dotimes (i sample-size)
       ;; (setf *cached-agents* (make-hash-table :test #'equal))
       (let (train-corrects validation-corrects test-corrects)
-	(let* (;; (agents (subseq (alexandria:shuffle
+	(let* ( ;; (agents (subseq (alexandria:shuffle
 	       ;; 			(alexandria:iota *num-pool-agents*))
 	       ;; 		       0 *community-size*))
 	       (trades (mapcar (lambda (agent)
@@ -1119,7 +1190,7 @@ granularity `timeframe`."
 
 
 	    ;; Validation error.
-	    (setf omper:*data-count* (ceiling (* prev-data-count 0.1)))
+	    ;; (setf omper:*data-count* (ceiling (* prev-data-count 0.1)))
 	    ;; (setf *cached-agents* (make-hash-table :test #'equal))
 	    (setf validation-corrects
 		  (float (accesses
@@ -1307,8 +1378,8 @@ granularity `timeframe`."
 
 (defun agents-crossover (x y &optional (chance 0.6))
   (if (<= (random-float *rand-gen* 0 1.0) chance)
-      (let* ((x (alexandria:shuffle x))
-             (y (alexandria:shuffle y))
+      (let* (;; (x (alexandria:shuffle x))
+             ;; (y (alexandria:shuffle y))
              (site (random-int *rand-gen* 1 (1- *community-size*)))
 	     (x1 (subseq x 0 site))
 	     (x2 (nthcdr site x))
@@ -1411,18 +1482,18 @@ extracted from `*agents-pool*` using the indexes stored in `agents-indexes`."
   ;; 	    (random-int *rand-gen* 0 (1- *num-pool-agents*)))))
 
   
-  ;; (when (> chance (random-float *rand-gen* 0 1.0))
-  ;;   (let ((community (nth (random-int *rand-gen* 0 (1- *population-size*)) *population*))
-  ;; 	  (mutation (random-int *rand-gen* 0 (1- *num-pool-agents*))))
-  ;;     (unless (find mutation community)
-  ;; 	(setf (nth (random-int *rand-gen* 0 (1- *community-size*))
-  ;; 		   community)
-  ;; 	      mutation))))
-
   (when (> chance (random-float *rand-gen* 0 1.0))
-    (setf (nth (random-int *rand-gen* 0 (1- *community-size*))
-  	       (nth (random-int *rand-gen* 0 (1- *population-size*)) *population*))
-  	  (random-int *rand-gen* 0 (1- *num-pool-agents*))))
+    (let ((community (nth (random-int *rand-gen* 0 (1- *population-size*)) *population*))
+  	  (mutation (random-int *rand-gen* 0 (1- *num-pool-agents*))))
+      (unless (find mutation community)
+  	(setf (nth (random-int *rand-gen* 0 (1- *community-size*))
+  		   community)
+  	      mutation))))
+
+  ;; (when (> chance (random-float *rand-gen* 0 1.0))
+  ;;   (setf (nth (random-int *rand-gen* 0 (1- *community-size*))
+  ;; 	       (nth (random-int *rand-gen* 0 (1- *population-size*)) *population*))
+  ;; 	  (random-int *rand-gen* 0 (1- *num-pool-agents*))))
   )
 
 (defun agents-profit (agents-indexes)

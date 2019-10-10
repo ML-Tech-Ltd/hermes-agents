@@ -433,6 +433,8 @@ series `real`."
           ;; TODO: generalize (get-data) so it doesn't need an `instrument`.
           (get-data *instrument* *rates* :levels (slot-value agent 'beliefs))))
 
+
+;; Summarizing data.
 ;; (maphash (lambda (k v)
 ;; 	   (print k)
 ;; 	   (print v))
@@ -444,10 +446,9 @@ series `real`."
 ;; (length
 ;;  (remove-duplicates
 ;;   (mapcar (lambda (perc)
-;; 	    (subseq perc 0 3))
-;; 	  *coco*)
+;; 		    (subseq perc 0 5))
+;; 		  *coco*)
 ;;   :test #'equal))
-
 
 (defun agent-trades (agent)
   "Creates a simulation of a single agent's trades."
@@ -579,7 +580,7 @@ series `real`."
 		       :if-does-not-exist :create)
     (format str content)))
 
-(defun agents-mf-adjust (agents iterations &optional (fitness-fn #'pmape) (delta 10))
+(defun agents-mf-adjust (agents iterations &optional (fitness-fn #'pmape) (delta 1))
   (let ((best-error 10000))
     (dotimes (_ iterations)
       (let* ((sim (agents-simulation agents))
@@ -639,7 +640,7 @@ series `real`."
                       (length agents))
               (return))))
         (let ((err (funcall fitness-fn sim (get-real-data (length sim)))))
-          (print err)
+          (format t "~a~%" err)
           (if (< err best-error)
               (setf best-error err)
               (return)))
@@ -647,10 +648,13 @@ series `real`."
         ))))
 ;; (agents-mf-adjust (extract-agents-from-pool (first *population*)) 1000)
 
-(let ((best (agents-best (agents-distribution *population*))))
-  (agents-mf-adjust (extract-agents-from-pool best) 1000)
-  (agents-brute-force 1 best))
-(agents-brute-force 1 (agents-best (agents-distribution *population*)))
+;; Mixed.
+(dotimes (_ 200)
+  (let ((best (agents-best (agents-distribution *population*))))
+    (agents-mf-adjust (extract-agents-from-pool best) 1000)
+    ;; (agents-brute-force 1 best)
+    ))
+;; (agents-brute-force 1 (agents-best (agents-distribution *population*)))
 
 
 (defun coco (errors solution)
@@ -891,16 +895,14 @@ series `real`."
 ;; (calc-trade-scale)
 
 (progn
-  (setf lparallel:*kernel* (lparallel:make-kernel 4))
+  (setf lparallel:*kernel* (lparallel:make-kernel 3))
   (defparameter *generations* 0
     "Keeps track of how many generations have elapsed in an evolutionary process.")
   (defparameter *num-pool-agents* 10000
     "How many agents will be created for `*agents-pool*`. Relatively big numbers are recommended, as this increases diversity and does not significantly impact performance.")
-  (defparameter *num-rules* 10
+  (defparameter *num-rules* 1
     "Represents how many fuzzy rules each of the agents in a solution will have.")
-  (defparameter *agents-pool* (gen-agents *num-pool-agents*)
-    "Instances of `agent` that are available to create solutions.")
-  (defparameter *community-size* (1- omper:*data-count*)
+  (defparameter *community-size* 4 ;; (1- omper:*data-count*)
     "Represents the number of agents in an 'individual' or solution. A simulation (a possible solution) will be generated using this number of agents.")
   (defparameter *rules-config* `((:mf-type . :gaussian)
                                  (:sd . 10)
@@ -908,7 +910,9 @@ series `real`."
                                  (:nmf-height-style . :complement)
                                  (:trade-scale . ,(calc-trade-scale)))
     "Configuration used to create the rules of the agents for a population.")
-  (defparameter *population-size* 10
+  (defparameter *agents-pool* (gen-agents *num-pool-agents*)
+    "Instances of `agent` that are available to create solutions.")
+  (defparameter *population-size* 20
     "How many 'communities', 'individuals' or 'solutions' will be participating in the optimization process.")
   (defparameter *population* (gen-communities *community-size* *population-size*)
     "Represents a list of lists of indexes to *agents-pool*.")
@@ -993,9 +997,9 @@ evolutionary process."
   (let ((parent-id starting-population)
 	(can-save? nil))
     (dotimes (_ generations)
-      (when (and (access *rules-config* :mf-mean-adjusting)
-		 (< (random-float *rand-gen* 0 1) 0.20))
-	(agents-mf-adjust (extract-agents-from-pool (agents-best (agents-distribution *population*))) 1))
+      ;; (when (and (access *rules-config* :mf-mean-adjusting)
+      ;; 		 (< (random-float *rand-gen* 0 1) 0.20))
+      ;; 	(agents-mf-adjust (extract-agents-from-pool (agents-best (agents-distribution *population*))) 10))
       (let ((fitness (agents-reproduce fitness-fn sort-fn)))
 	(when (or (null *fitnesses*)
 		  (funcall sort-fn fitness (first *fitnesses*)))
@@ -1006,9 +1010,11 @@ evolutionary process."
 	      (setf parent-id child-id)
 
 	      ;; Remove later
-              (when (and t (= (1- omper:*data-count*) *community-size*)
-			 (> *generations* 1000))
-                (agents-brute-force 1 (agents-best (agents-distribution *population*))))
+              (when (> *generations* 500)
+		(agents-mf-adjust (extract-agents-from-pool (agents-best (agents-distribution *population*))) 10)
+                (when (= (1- omper:*data-count*) *community-size*)
+		  (agents-brute-force 1 (agents-best (agents-distribution *population*))))
+		)
 	      (setf can-save? nil)))
 	  
 	  (push fitness *fitnesses*)
@@ -1029,18 +1035,18 @@ evolutionary process."
 ;; (with-postgres-connection (execute (delete-from :populations)))
 ;; (with-postgres-connection (execute (delete-from :populations-closure)))
 
-;; (setq *last-id* (train 100000 :fitness-fn #'pmape :sort-fn #'<))
+;; (setq *last-id* (train 100000 :fitness-fn #'rmse :sort-fn #'<))
 ;; *cached-agents*
 ;; *population*
 ;; *generations*
+
+;; (map nil (lambda (lst) (format t "gen: ~a ~tcorrects: ~a ~t revenue: ~a~%" (access:access lst :generations) (* (float (access:access lst :corrects)) 100) (float (access:access lst :revenue)))) (with-postgres-connection (retrieve-all (select (:*) (from :populations) (order-by (:asc :creation-time))))))
 
 ;; Check if there are duplicates.
 ;; (mapcar #'length (mapcar #'remove-duplicates *population*))
 
 ;; (setq *last-id* (train 50000 :starting-population *last-id* :fitness-fn #'pmape :sort-fn #'<))
 ;; (setq *last-id* (train 50000 :starting-population "6DF6BB62-B9AB-4A6B-B6A8-9EF44EFD86FB" :fitness-fn #'pmape :sort-fn #'<))
-
-;; (map nil (lambda (lst) (format t "gen: ~a ~tcorrects: ~a ~t revenue: ~a~%" (access:access lst :generations) (* (float (access:access lst :corrects)) 100) (float (access:access lst :revenue)))) (with-postgres-connection (retrieve-all (select (:*) (from :populations) (order-by (:asc :creation-time))))))
 
 ;; (gaussian-mf 50 20 0 1)
 
@@ -1049,7 +1055,7 @@ evolutionary process."
 ;; *generations*
 
 ;; continue from database
-;; (setq *last-id* (train 50000 :starting-population (access (first (with-postgres-connection (retrieve-all (select (:*) (from :populations) (order-by (:desc :corrects)))))) :id) :fitness-fn #'pmape :sort-fn #'<))
+;; (setq *last-id* (train 50000 :starting-population (access (first (with-postgres-connection (retrieve-all (select (:*) (from :populations) (order-by (:desc :generations)))))) :id) :fitness-fn #'pmape :sort-fn #'<))
 
 ;; (get-ancestors *last-id*)
 ;; (access:access (get-population *last-id*) :generations)
@@ -1455,7 +1461,7 @@ extracted from `*agents-pool*` using the indexes stored in `agents-indexes`."
 
 ;; (length (agent-simulation (first *agents-pool*)))
 
-(defun agents-mutate (&optional (chance 1.0))
+(defun agents-mutate (&optional (chance 0.5))
   "Mutates the pool of agents if a according to `chance`."
   ;; (agents-mutate 0.5)
 

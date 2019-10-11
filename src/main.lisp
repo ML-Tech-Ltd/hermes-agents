@@ -366,7 +366,7 @@ series `real`."
   ;; (slot-value (first (slot-value (make-instance 'agents) 'agents)) 'beliefs)
   ((beliefs :initarg :beliefs :initform (gen-beliefs) :accessor beliefs)
    (rules :initarg :rules :initform (gen-rules *num-rules*) :accessor rules)
-   (leverage :initarg :leverage :initform 1)
+   (leverage :initarg :leverage :initform '(1))
    ;; (trade-scale :initarg :trade-scale :initform (random-int *rand-gen* 1 50000))
    (trade-scale :initarg :trade-scale :initform 100000)
    ;; (trade-scale :initarg :trade-scale :initform (access *rules-config* :trade-scale))
@@ -376,7 +376,7 @@ series `real`."
    ))
 
 (defmethod ms:class-persistent-slots ((self agent))
-  '(beliefs rules leverage stdev))
+  '(beliefs rules leverage trade-scale stdev))
 
 (defun group (n list)
   "Split LIST into a list of lists of length N."
@@ -457,7 +457,7 @@ series `real`."
   (let ((sig (reduce #'+
 		     (append (alexandria:flatten (slot-value agent 'beliefs))
 			     (alexandria:flatten (slot-value agent 'rules))
-                             (list (slot-value agent 'leverage))
+                             (slot-value agent 'leverage)
                              (list (slot-value agent 'stdev))
                              (mapcar (lambda (rate)
                                        (access rate :close-bid))
@@ -649,11 +649,11 @@ series `real`."
 ;; (agents-mf-adjust (extract-agents-from-pool (first *population*)) 1000)
 
 ;; Mixed.
-(dotimes (_ 200)
-  (let ((best (agents-best (agents-distribution *population*))))
-    (agents-mf-adjust (extract-agents-from-pool best) 1000)
-    ;; (agents-brute-force 1 best)
-    ))
+;; (dotimes (_ 200)
+;;   (let ((best (agents-best (agents-distribution *population*))))
+;;     (agents-mf-adjust (extract-agents-from-pool best) 1000)
+;;     ;; (agents-brute-force 1 best)
+;;     ))
 ;; (agents-brute-force 1 (agents-best (agents-distribution *population*)))
 
 
@@ -894,15 +894,113 @@ series `real`."
 	  *community-size* 10)))
 ;; (calc-trade-scale)
 
+(defun meow (agents iterations)
+  (let (train-corrects validation-corrects test-corrects
+		       (reals (get-real-data omper:*data-count*))
+		       (chunk-count (floor (/ omper:*data-count* *community-size*))))
+    (dotimes (_ iterations)
+      (dotimes (i chunk-count)
+	(setf *cached-agents* (make-hash-table :test #'equal))
+	(format t "~a." i)
+	;; Changing `i`th leverage to 1 so it doesn't affect currect calculation.
+	(dolist (agent-idx agents)
+	  (let ((lvg (slot-value (extract-agent-from-pool agent-idx) 'leverage)))
+	    (when (< i (length lvg))
+		(setf (nth i lvg) 1))))
+	(let* ((trades (mapcar (lambda (agent)
+				 (subseq (butlast (agent-trades agent))
+					 (* i *community-size*)
+					 (* (1+ i) *community-size*)))
+			       (extract-agents-from-pool agents)))
+	       (deltas (subseq (mapcar (lambda (next curr)
+					 (- next curr))
+				       (rest reals) reals)
+			       (* i *community-size*)
+			       (* (1+ i) *community-size*)))
+	       (A (magicl:make-complex-matrix (length deltas) (length deltas) (alexandria:flatten trades)))
+	       (B (magicl:make-complex-matrix (length deltas) 1 deltas))
+	       (sol-matrix (magicl:multiply-complex-matrices
+			    (magicl:inv A)
+			    B)))
+
+	  ;; Modifying leverages.
+	  (dotimes (j (length agents))
+	    (if (< i (length (slot-value (extract-agent-from-pool (nth j agents)) 'leverage)))
+		(setf (nth i (slot-value (extract-agent-from-pool (nth j agents)) 'leverage))
+		      (realpart (magicl:ref sol-matrix j 0)))
+		(setf (slot-value (extract-agent-from-pool (nth j agents)) 'leverage)
+		      (concatenate 'list (slot-value (extract-agent-from-pool (nth j agents)) 'leverage)
+				   (list (realpart (magicl:ref sol-matrix j 0)))))
+		))
+	  ))
+      (let ((prev-data-count omper:*data-count*))
+	;; Train error.
+	(setf *cached-agents* (make-hash-table :test #'equal))
+	(setf train-corrects
+	      (float (accesses
+		      (agents-test (extract-agents-from-pool agents)
+				   (subseq *all-rates* *begin* *end*))
+		      :performance-metrics :corrects)))
+
+
+	;; Validation error.
+	;; (setf omper:*data-count* (ceiling (* prev-data-count 0.1)))
+	(setf *cached-agents* (make-hash-table :test #'equal))
+	(setf validation-corrects
+		(float (accesses
+			(agents-test (extract-agents-from-pool agents)
+				     (subseq *all-rates* *begin* (+ *end* omper:*data-count*)))
+			:performance-metrics :corrects)))
+
+
+	;; Test error.
+	;; (setf omper:*data-count* (ceiling (* prev-data-count 0.1)))
+	(setf *cached-agents* (make-hash-table :test #'equal))
+	(setf test-corrects
+		(float (accesses
+			(agents-test (extract-agents-from-pool agents)
+				     (subseq *all-rates* *begin* (+ *end* (* 2 omper:*data-count*))))
+			:performance-metrics :corrects)))
+
+	;; ;; Resetting data-count.
+	;; (setf omper:*data-count* prev-data-count)
+
+	)
+      ;; (print (magicl:det A))
+
+      ;; ;; Resetting leverages back to 1.
+      ;; (dotimes (i (length agents))
+      ;;   (setf (slot-value (extract-agent-from-pool (nth i agents)) 'leverage)
+      ;; 	1))
+
+      ;; (when (and (/= (realpart (magicl:det A)) 0)
+      ;; 	   (> validation-corrects *best-corrects*))
+      ;;   (format t "new best found.~%")
+      ;;   (setf best-community agents)
+      ;;   (setf best-corrects validation-corrects)
+      ;;   (setf *best-corrects* validation-corrects)
+      ;;   ;; Later remove this.
+      ;;   (setf *best-community* agents)
+      ;;   )
+
+      (format t "~%train: ~a~t validation:~a~t test:~a~t~%" train-corrects validation-corrects test-corrects)
+      )))
+
+;; (slot-value (nth 0 (extract-agents-from-pool (second *population*))) 'leverage)
+;; (meow (first *population*) 1)
+
+(dolist (agent-idx (first *population*))
+  (print (slot-value (extract-agent-from-pool agent-idx) 'leverage)))
+
 (progn
-  (setf lparallel:*kernel* (lparallel:make-kernel 3))
+  (setf lparallel:*kernel* (lparallel:make-kernel 4))
   (defparameter *generations* 0
     "Keeps track of how many generations have elapsed in an evolutionary process.")
-  (defparameter *num-pool-agents* 10000
+  (defparameter *num-pool-agents* 1000
     "How many agents will be created for `*agents-pool*`. Relatively big numbers are recommended, as this increases diversity and does not significantly impact performance.")
-  (defparameter *num-rules* 1
+  (defparameter *num-rules* 10
     "Represents how many fuzzy rules each of the agents in a solution will have.")
-  (defparameter *community-size* 4 ;; (1- omper:*data-count*)
+  (defparameter *community-size* 20 ;; (1- omper:*data-count*)
     "Represents the number of agents in an 'individual' or solution. A simulation (a possible solution) will be generated using this number of agents.")
   (defparameter *rules-config* `((:mf-type . :gaussian)
                                  (:sd . 10)
@@ -1366,7 +1464,7 @@ granularity `timeframe`."
 	  	(first (gen-beliefs 1)))))))
 
 (defun process-agent-output (out trade-scale leverage)
-  (* (/ (- (* out 2) 100) trade-scale) leverage))
+  (* (/ (- (* out 2) 100) trade-scale) (reduce #'* leverage)))
 ;; (float (process-agent-output 100 1))
 
 (defun agents-selectone (distribution)

@@ -26,7 +26,8 @@
 	       )
   :components ((:module "src"
                 :components
-                ((:file "main" :depends-on ("config" "db"))
+                ((:file "main" :depends-on ("config" "db" "km"))
+		 (:file "km")
 		 (:file "config")
 		 (:file "db"))))
   :description ""

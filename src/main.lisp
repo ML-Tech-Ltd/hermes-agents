@@ -490,6 +490,11 @@ series `real`."
     ;; (mse sim (get-real-data 3))
     (funcall fitness-fn sim (get-real-data (length sim)))))
 
+(let ((agent (make-instance 'agent)))
+  (ifis-agents (agent-perception agent)
+               (gen-rules 2)
+               1 1 5))
+
 (defun ifis-agents (inputs rules trade-scale leverage stdev)
   (let ((agent-ifss (mapcar (lambda (params)
 			      (mapcar (lambda (par)
@@ -502,6 +507,9 @@ series `real`."
 		 (reduce #'ifunion ;; or
 			 (mapcar (lambda (ifs)
 				   (reduce #'ifintersection ;; and
+                                           (mapcar (lambda (i)
+                                                     )
+                                                   (iota (length ifs)))
 					   (list (rule (* 100 (/ (nth 0 inp) (+ 1 mx-inp)))
 						       ;; (nth 0 inp)
 						       (nth 0 ifs)
@@ -803,6 +811,12 @@ series `real`."
   ;; (gen-rules 7)
   (mapcar (lambda (_)
             (let* ((num-rel 7)
+                   ;; Number of antecedent and consequent membership functions
+                   ;; that we'll consider.
+                   (num-mfs (random-int *rand-gen* 1 num-rel))
+                   ;; Number of antecedent and consequent non-membership functions
+                   ;; that we'll consider.
+                   (num-nmfs (random-int *rand-gen* 1 num-rel))
                    ;; Separation between membership functions.
                    (sep (/ (+ 100 (access *rules-config* :sd)) num-rel))
                    ;; Random starting point for the first membership function of the
@@ -817,22 +831,29 @@ series `real`."
                    ;; Random starting point for the first non-membership function of the
                    ;; consequents.
                    (crnmf (random-float *rand-gen* 0 sep))
-                   (amf-means (alexandria:shuffle
-                               (mapcar (lambda (i)
-                                         (+ (- (* i sep) (access *rules-config* :sd)) armf))
-                                       (alexandria:iota num-rel))))
-                   (anmf-means (alexandria:shuffle
+                   (amf-means (subseq (shuffle
+                                       (mapcar (lambda (i)
+                                                 (+ (- (* i sep) (access *rules-config* :sd)) armf))
+                                               (alexandria:iota num-rel)))
+                                      0 num-mfs))
+                   (anmf-means (subseq
+                                (shuffle
+                                 (mapcar (lambda (i)
+                                           (+ (- (* i sep) (access *rules-config* :sd)) arnmf))
+                                         (alexandria:iota num-rel)))
+                                0 num-mfs))
+                   (cmf-means (subseq
+                               (shuffle
                                 (mapcar (lambda (i)
-                                          (+ (- (* i sep) (access *rules-config* :sd)) arnmf))
-                                        (alexandria:iota num-rel))))
-                   (cmf-means (alexandria:shuffle
-                               (mapcar (lambda (i)
-                                         (+ (- (* i sep) (access *rules-config* :sd)) crmf))
-                                       (alexandria:iota num-rel))))
-                   (cnmf-means (alexandria:shuffle
-                                (mapcar (lambda (i)
-                                          (+ (- (* i sep) (access *rules-config* :sd)) crnmf))
-                                        (alexandria:iota num-rel)))))
+                                          (+ (- (* i sep) (access *rules-config* :sd)) crmf))
+                                        (alexandria:iota num-rel)))
+                               0 num-mfs))
+                   (cnmf-means (subseq
+                                (shuffle
+                                 (mapcar (lambda (i)
+                                           (+ (- (* i sep) (access *rules-config* :sd)) crnmf))
+                                         (alexandria:iota num-rel)))
+                                0 num-mfs)))
               (apply #'nconc
                      (mapcar (lambda (i) `((,(nth i amf-means)
                                              ,(nth i anmf-means)
@@ -843,7 +864,7 @@ series `real`."
                                              ,(random-float *rand-gen* 0 1)
                                              )
                                            ))
-                             (cl21:iota num-rel)))))
+                             (cl21:iota num-mfs)))))
           (cl21:iota num-rules)))
 
 ;; (defun gen-rules-adjust (num-rules num-rel sep armf arnmf crmf crnmf)
@@ -1103,16 +1124,16 @@ series `real`."
 ;;   (terpri))
 
 (progn
-  (setf lparallel:*kernel* (lparallel:make-kernel 4))
+  (setf lparallel:*kernel* (lparallel:make-kernel 7))
   (setf omper:*data-count* 60)
   (setf omper:*partition-size* 100)
   (defparameter *generations* 0
     "Keeps track of how many generations have elapsed in an evolutionary process.")
   (defparameter *num-pool-agents* 20000
     "How many agents will be created for `*agents-pool*`. Relatively big numbers are recommended, as this increases diversity and does not significantly impact performance.")
-  (defparameter *num-rules* 5
+  (defparameter *num-rules* 10
     "Represents how many fuzzy rules each of the agents in a solution will have.")
-  (defparameter *community-size* 10 ;; (1- omper:*data-count*)
+  (defparameter *community-size* 4 ;; (1- omper:*data-count*)
     "Represents the number of agents in an 'individual' or solution. A simulation (a possible solution) will be generated using this number of agents.")
   (defparameter *rules-config* `((:mf-type . :gaussian)
                                  (:sd . 5)
@@ -1210,38 +1231,38 @@ evolutionary process."
       (init-from-database starting-population))
   (let ((parent-id starting-population)
 	(can-save? nil))
-    (dotimes (_ generations)
+    (dotimes (_ generations) 
       ;; (when (and (access *rules-config* :mf-mean-adjusting)
       ;; 		 (< (random-float *rand-gen* 0 1) 0.20))
       ;; 	(agents-mf-adjust (extract-agents-from-pool (agents-best (agents-distribution *population*))) 10))
       (let ((fitness (agents-reproduce fitness-fn sort-fn)))
-	(when (or (null *fitnesses*)
-		  (funcall sort-fn fitness (first *fitnesses*)))
-	  (when can-save?
-	    (let* ((child-id (insert-population parent-id)))
-	      (insert-initial-closure child-id)
-	      (insert-closure parent-id child-id)
-	      (setf parent-id child-id)
+        (when (or (null *fitnesses*)
+                  (funcall sort-fn fitness (first *fitnesses*)))
+          (when can-save?
+            (let* ((child-id (insert-population parent-id)))
+              (insert-initial-closure child-id)
+              (insert-closure parent-id child-id)
+              (setf parent-id child-id)
 
-	      ;; Remove later
+              ;; Remove later
               ;; (when (or t (> *generations* 500))
-	      ;; 	(meow (agents-best (agents-distribution *population*)) 1)
-	      ;; 	;; (agents-mf-adjust (extract-agents-from-pool (agents-best (agents-distribution *population*))) 10)
+              ;; 	(meow (agents-best (agents-distribution *population*)) 1)
+              ;; 	;; (agents-mf-adjust (extract-agents-from-pool (agents-best (agents-distribution *population*))) 10)
               ;;   ;; (when (= (1- omper:*data-count*) *community-size*)
-	      ;; 	;;   (agents-brute-force 1 (agents-best (agents-distribution *population*))))
-	      ;; 	)
-	      (setf can-save? nil)))
+              ;; 	;;   (agents-brute-force 1 (agents-best (agents-distribution *population*))))
+              ;; 	)
+              (setf can-save? nil)))
 	  
-	  (push fitness *fitnesses*)
-	  (format t "~a: ~a~%" *generations* fitness)
-	  ))
+          (push fitness *fitnesses*)
+          (format t "~a: ~a~%" *generations* fitness)
+          ))
       
       ;; This check needs to be before incrementing `*generations*`
       ;; so we always save the root population and we save any
       ;; improvements obtained in the first generations
       ;; after continuing evolving a population.
       (when (= (mod *generations* save-every) 0)
-	(setf can-save? t))
+        (setf can-save? t))
       ;; Incrementing global generations counter.
       (incf *generations*))
     (print "done.")
@@ -1279,23 +1300,16 @@ evolutionary process."
 ;; (agents-test (extract-agents-from-pool (nth 8 *population*)) (subseq *all-rates* *begin* (+ *end* (* 11 omper:*data-count*))))
 ;; (get-real-data 20)
 
-(apply #'mapcar (lambda (&rest nums)
-		  (apply #'+ nums))
-       (mapcar (lambda (agent)
-	  (agent-trades agent))
-	(extract-agents-from-pool (nth 8 *population*))))
-(agent-trades )
-(agents-simulation (extract-agents-from-pool (nth 8 *population*)))
-(agents-indexes-simulation (nth 8 *population*))
-(get-real-data 20)
-(agents-corrects (nth 8 *population*))
-
-(pmape
- (agents-simulation (mapcar (lambda (agent)
-			      (setf (slot-value agent 'leverage) '(0))
-			      agent)
-			    (gen-agents 5)))
- (get-real-data 20))
+;; Get agent trades.
+;; (apply #'mapcar (lambda (&rest nums)
+;; 		  (apply #'+ nums))
+;;        (mapcar (lambda (agent)
+;; 	  (agent-trades agent))
+;; 	(extract-agents-from-pool (nth 8 *population*))))
+;; (agents-simulation (extract-agents-from-pool (nth 8 *population*)))
+;; (agents-indexes-simulation (nth 8 *population*))
+;; (get-real-data 20)
+;; (agents-corrects (nth 8 *population*))
 
 ;; (get-ancestors *last-id*)
 ;; (access:access (get-population *last-id*) :generations)
@@ -1517,9 +1531,10 @@ granularity `timeframe`."
 ;; 	(alexandria:iota (length *population*)))
 
 (defun move-somewhere ()
-  (defparameter *market-report* (market-report (get-most-relevant-population *instrument* *timeframe*)
-                                               *instrument* *timeframe*
-                                               (subseq *all-rates* *begin* (+ *end* omper:*data-count*))))
+  (defparameter *market-report* (let ((omper:*data-count* (floor (* omper:*data-count* 0.2))))
+                                  (market-report (get-most-relevant-population *instrument* *timeframe*)
+                                                 *instrument* *timeframe*
+                                                 (subseq *all-rates* *begin* (+ *end* omper:*data-count*)))))
   ;; (init-from-database (access (get-most-relevant-population *instrument* *timeframe*) :id))
   (list (float (accesses *market-report* :training :performance-metrics :corrects))
         (float (accesses *market-report* :testing :performance-metrics :corrects)))
@@ -1703,7 +1718,7 @@ extracted from `*agents-pool*` using the indexes stored in `agents-indexes`."
 
 ;; (length (agent-simulation (first *agents-pool*)))
 
-(defun agents-mutate (&optional (chance 0.5))
+(defun agents-mutate (&optional (chance 0.1))
   "Mutates the pool of agents if a according to `chance`."
   ;; (agents-mutate 0.5)
 
@@ -2205,12 +2220,12 @@ each point in the real prices."
 			 :begin (read-from-string (access (first *rates*) :time))
 			 :end (read-from-string (access (alexandria:last-elt *rates*) :time))
 			 :rules-config (compress-object *rules-config*)
-			 :mape (agents-mape best)
-			 :pmape (agents-pmape best)
-			 :rmse (agents-rmse best)
-			 :mae (agents-mae best)
-			 :mse (agents-mse best)
-			 :corrects (agents-corrects best)
-			 :revenue (agents-revenue best)
+			 :mape (float (agents-mape best))
+			 :pmape (float (agents-pmape best))
+			 :rmse (float (agents-rmse best))
+			 :mae (float (agents-mae best))
+			 :mse (float (agents-mse best))
+			 :corrects (float (agents-corrects best))
+			 :revenue (float (agents-revenue best))
 			 ))))
     id))

@@ -325,6 +325,7 @@ series `real`."
 				  (sim-dir (- s prev)))
                               ;; (format t "prev: ~a~t real: ~a~t sim: ~a~t real-dir: ~a~t sim-dir: ~a~t~%" prev r s real-dir sim-dir)
 			      (setq prev r)
+			      ;; (print real-dir)
 			      (if (> (* real-dir sim-dir) 0)
 				  1
 				  0)))
@@ -1035,13 +1036,9 @@ series `real`."
                              (- next curr))
                            (rest reals) reals)))
 
-      ;; (km (mapcar (lambda (trade delta)
-      ;;               (concatenate 'list
-      ;;                            trade
-      ;;                            (list delta)))
-      ;;             (apply #'mapcar #'list trades)
-      ;;             deltas)
-      ;;     *community-size*)
+      ;; Reset all agents' leverages to '(1).
+      (dolist (agent *agents-pool*)
+	(setf (slot-value agent 'leverage) '(1)))
 
       ;; Clustered deltas.
       (let* ((delta-clusters (mapcar #'flatten (km (mapcar #'list deltas) *community-size*)))
@@ -1087,15 +1084,15 @@ series `real`."
       ;; trades
       )))
 
-(progn
-  (setf omper:*data-count* 61)
-  ;; (setf *community-size* 2)
-  ;; Reset all agents to 1.
-  (dolist (agent *agents-pool*)
-    (setf (slot-value agent 'leverage) '(1)))
-  (dolist (community *population*)
-    (woof community))
-  )
+;; (progn
+;;   (setf omper:*data-count* 61)
+;;   ;; (setf *community-size* 2)
+;;   ;; Reset all agents to 1.
+;;   (dolist (agent *agents-pool*)
+;;     (setf (slot-value agent 'leverage) '(1)))
+;;   (dolist (community *population*)
+;;     (woof community))
+;;   )
 
 ;; (mapcar #'float (mapcar #'agents-pmape *population*))
 
@@ -1107,11 +1104,11 @@ series `real`."
 
 (progn
   (setf lparallel:*kernel* (lparallel:make-kernel 4))
-  (setf omper:*data-count* 61)
+  (setf omper:*data-count* 60)
   (setf omper:*partition-size* 100)
   (defparameter *generations* 0
     "Keeps track of how many generations have elapsed in an evolutionary process.")
-  (defparameter *num-pool-agents* 10000
+  (defparameter *num-pool-agents* 20000
     "How many agents will be created for `*agents-pool*`. Relatively big numbers are recommended, as this increases diversity and does not significantly impact performance.")
   (defparameter *num-rules* 5
     "Represents how many fuzzy rules each of the agents in a solution will have.")
@@ -1275,6 +1272,30 @@ evolutionary process."
 
 ;; Init using last entry (generations)
 ;; (init-from-database (access (first (with-postgres-connection (retrieve-all (select (:*) (from :populations) (order-by (:desc :generations)))))) :id))
+
+;; Checking simulation.
+;; (agents-corrects (nth 8 *population*))
+;; (agents-indexes-simulation (nth 8 *population*))
+;; (agents-test (extract-agents-from-pool (nth 8 *population*)) (subseq *all-rates* *begin* (+ *end* (* 11 omper:*data-count*))))
+;; (get-real-data 20)
+
+(apply #'mapcar (lambda (&rest nums)
+		  (apply #'+ nums))
+       (mapcar (lambda (agent)
+	  (agent-trades agent))
+	(extract-agents-from-pool (nth 8 *population*))))
+(agent-trades )
+(agents-simulation (extract-agents-from-pool (nth 8 *population*)))
+(agents-indexes-simulation (nth 8 *population*))
+(get-real-data 20)
+(agents-corrects (nth 8 *population*))
+
+(pmape
+ (agents-simulation (mapcar (lambda (agent)
+			      (setf (slot-value agent 'leverage) '(0))
+			      agent)
+			    (gen-agents 5)))
+ (get-real-data 20))
 
 ;; (get-ancestors *last-id*)
 ;; (access:access (get-population *last-id*) :generations)
@@ -1458,18 +1479,19 @@ granularity `timeframe`."
     best-community))
 ;; (agents-brute-force 1 (agents-best (agents-distribution *population*)))
 
-(defun agents-random-search ()
+(defun agents-random-search (num-agents iterations)
   (let (best)
-    (dotimes (_ 20)
-      (let ((community (mapcar (lambda (_)
-				 (alexandria:random-elt (alexandria:iota *num-pool-agents*)))
-			       (alexandria:iota omper:*data-count*))))
+    (dotimes (_ iterations)
+      (let ((community (subseq (shuffle (iota *num-pool-agents*)) 0 num-agents)))
+	(woof community)
 	(when (or (null best)
 		  (< (agents-pmape community)
 		     (agents-pmape best)))
 	  (print (agents-pmape community))
 	  (setf best community))))
     best))
+;; (agents-random-search 10 1000)
+;; *cached-agents*
 
 ;; (reset-leverages)
 

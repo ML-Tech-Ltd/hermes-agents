@@ -1275,10 +1275,13 @@ evolutionary process."
 
 ;; (with-postgres-connection (execute (delete-from :populations)))
 ;; (with-postgres-connection (execute (delete-from :populations-closure)))
-;; (setq *last-id* (train 100000 :fitness-fn #'pmape :sort-fn #'< :save-every 1))
+;; (setq *last-id* (train 100000 :fitness-fn #'corrects :sort-fn #'> :save-every 1))
 ;; *cached-agents*
 ;; *population*
 ;; *generations*
+
+;; Communities' sizes.
+;; (mapcar #'length *population*)
 
 ;; (map nil (lambda (lst) (format t "gen: ~a ~t mape:~a ~t corrects: ~a ~t revenue: ~a~%" (access:access lst :generations) (float (access:access lst :mape)) (* (float (access:access lst :corrects)) 100) (float (access:access lst :revenue)))) (with-postgres-connection (retrieve-all (select (:*) (from :populations) (order-by (:asc :creation-time))))))
 
@@ -1313,6 +1316,12 @@ evolutionary process."
 
 ;; Init using last entry (generations)
 ;; (init-from-database (access (first (with-postgres-connection (retrieve-all (select (:*) (from :populations) (order-by (:desc :generations)))))) :id))
+
+;; (agents-indexes-simulation (agents-best (agents-distribution *population*)))
+;; (agents-corrects (agents-best (agents-distribution *population*)))
+;; (mapcar (lambda (agent)
+;;           (slot-value agent 'leverage))
+;;         (extract-agents-from-pool (agents-best (agents-distribution *population*))))
 
 ;; Checking simulation.
 ;; (agents-corrects (nth 8 *population*))
@@ -1601,13 +1610,6 @@ history."
 			 (iota 7 :start 10 :step 5)))
 	  (mapcar #'list (get-real-data omper:*data-count*))))
 
-(length (get-moving-average 2))
-(length (agent-perception (make-instance 'agent)))
-(time (agent-perception (make-instance 'agent)))
-
-(remove nil (mapcar (moving-average 5)
-		    (get-real-data 24)))
-
 (defun ta-average (sequence &key (key #'identity))
   (let ((len 1))
     (/ (reduce #'(lambda (x y) (incf len) (+ x y)) sequence :key key)
@@ -1654,17 +1656,17 @@ from each sample."
         (float (accesses *market-report* :testing :performance-metrics :corrects)))
 
   (defparameter *market-validations* (let ((omper:*data-count* (floor (* omper:*data-count* 0.2))))
-				 (mapcar (lambda (db-pop)
-					   (let ((test (market-report db-pop
-								      *instrument* *timeframe*
-								      (subseq *all-rates* *begin* (+ *end* omper:*data-count*)))))
-					     (print (list (float (accesses test :training :performance-metrics :corrects))
-							  (float (accesses test :testing :performance-metrics :corrects))))
-					     test))
-					 (retrieve-all (select (:*)
-							 (from :populations)
-							 (order-by (:desc :creation-time))
-							 (limit 1))))))
+                                       (mapcar (lambda (db-pop)
+                                                 (let ((test (market-report db-pop
+                                                                            *instrument* *timeframe*
+                                                                            (subseq *all-rates* *begin* (+ *end* omper:*data-count*)))))
+                                                   (print (list (float (accesses test :training :performance-metrics :corrects))
+                                                                (float (accesses test :testing :performance-metrics :corrects))))
+                                                   test))
+                                               (retrieve-all (select (:*)
+                                                               (from :populations)
+                                                               (order-by (:desc :creation-time))
+                                                               (limit 1000))))))
 
   (mapcar (lambda (test)
 	    (list (float (accesses test :training :performance-metrics :corrects))
@@ -1791,8 +1793,8 @@ from each sample."
 
 (defun agents-crossover (x y &optional (chance 0.6))
   (if (<= (random-float *rand-gen* 0 1.0) chance)
-      (let* ((x (alexandria:shuffle x))
-             (y (alexandria:shuffle y))
+      (let* ((x (shuffle x))
+             (y (shuffle y))
              (site (random-int *rand-gen* 1 (1- *community-size*)))
 	     (x1 (subseq x 0 site))
 	     (x2 (nthcdr site x))
@@ -1808,6 +1810,23 @@ from each sample."
 			 *community-size*)
 		      newy
 		      y))))
+      ;; no change
+      (values x y)))
+
+(defun agents-crossover (x y &optional (chance 0.6))
+  (if (<= (random-float *rand-gen* 0 1.0) chance)
+      (let* ((lenx1 (* 2 (ceiling (/ (random-int *rand-gen* 1 (1- (length x))) 2))))
+             (lenx2 (* 2 (ceiling (/ (random-int *rand-gen* 1 (1- (length x))) 2))))
+             (leny1 (* 2 (ceiling (/ (random-int *rand-gen* 1 (1- (length y))) 2))))
+             (leny2 (* 2 (ceiling (/ (random-int *rand-gen* 1 (1- (length y))) 2))))
+             (x1 (subseq (shuffle x) 0 lenx1))
+	     (x2 (subseq (shuffle x) 0 lenx2))
+	     (y1 (subseq (shuffle y) 0 leny1))
+	     (y2 (subseq (shuffle y) 0 leny2)))
+	(let ((newx (append x1 y2))
+	      (newy (append y1 x2)))
+	  (values newx
+		  newy)))
       ;; no change
       (values x y)))
 
@@ -1904,10 +1923,17 @@ extracted from `*agents-pool*` using the indexes stored in `agents-indexes`."
   ;; 		   community)
   ;; 	      mutation))))
 
-  (when (> chance (random-float *rand-gen* 0 1.0))
-    (setf (nth (random-int *rand-gen* 0 (1- *community-size*))
-  	       (nth (random-int *rand-gen* 0 (1- *population-size*)) *population*))
-  	  (random-int *rand-gen* 0 (1- *num-pool-agents*))))
+  
+  
+  (let ((community-idx (position (agents-worst (agents-distribution *population*))
+                                 *population* :test #'equal)))
+    (setf (nth community-idx *population*)
+          (first (gen-communities *community-size* 1)))
+    ;; (when (> chance (random-float *rand-gen* 0 1.0))
+    ;;   (setf (nth (random-int *rand-gen* 0 (1- (length (nth community-idx *population*))))
+    ;;              (nth community-idx *population*))
+    ;;         (random-int *rand-gen* 0 (1- *num-pool-agents*))))
+    )
   )
 
 (defun agents-profit (agents-indexes)

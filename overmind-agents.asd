@@ -6,6 +6,7 @@
 	       :random-state
                :datafly
 	       :dbi
+               :cl-mathstats
                :magicl
                :computable-reals
                :sxql

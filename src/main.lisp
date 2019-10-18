@@ -26,7 +26,7 @@
 (in-package :overmind-agents)
 
 (progn
-  (defparameter *instrument* :EUR_USD
+  (defparameter *instrument* :US30_USD
     "The financial instrument used for querying the data used to train or test.")
   (defparameter *timeframe* :D
     "The timeframe used for querying the data used to train or test.")
@@ -454,7 +454,7 @@ series `real`."
 ;; 		  *coco*)
 ;;   :test #'equal))
 
-(defun agent-trades (agent)
+(defun agent-trades (agent &optional (perception-fn #'agent-moving-average))
   "Creates a simulation of a single agent's trades."
   ;; (time (length (agent-trades (make-instance 'agent))))
   ;; (time (agent-trades (first (extract-agents-from-pool '(2)))))
@@ -471,7 +471,7 @@ series `real`."
 					(slot-value agent 'trade-scale)
 					(slot-value agent 'leverage)))
 		(cl21:gethash *cached-agents* sig))
-	(let* ((data (agent-perception agent))
+	(let* ((data (funcall perception-fn agent))
                (closes (mapcar #'alexandria:last-elt data)))
 	  (let ((sim (ifis-agents data
                                   (slot-value agent 'rules)
@@ -490,11 +490,6 @@ series `real`."
     ;; (mse sim (get-real-data 3))
     (funcall fitness-fn sim (get-real-data (length sim)))))
 
-(let ((agent (make-instance 'agent)))
-  (ifis-agents (agent-perception agent)
-               (gen-rules 2)
-               1 1 5))
-
 (defun ifis-agents (inputs rules trade-scale leverage stdev)
   (let ((agent-ifss (mapcar (lambda (params)
 			      (mapcar (lambda (par)
@@ -504,42 +499,52 @@ series `real`."
     (mapcar (lambda (inp)
 	      (let ((mx-inp (apply #'max (butlast inp))))
 		(if-coa
-		 (reduce #'ifunion ;; or
-			 (mapcar (lambda (ifs)
-				   (reduce #'ifintersection ;; and
-                                           (mapcar (lambda (i)
-                                                     )
-                                                   (iota (length ifs)))
-					   (list (rule (* 100 (/ (nth 0 inp) (+ 1 mx-inp)))
-						       ;; (nth 0 inp)
-						       (nth 0 ifs)
-						       (nth 1 ifs))
-						 (rule (* 100 (/ (nth 1 inp) (+ 1 mx-inp)))
-						       ;; (nth 1 inp)
-						       (nth 2 ifs)
-						       (nth 3 ifs))
-						 (rule (* 100 (/ (nth 2 inp) (+ 1 mx-inp)))
-						       ;; (nth 2 inp)
-						       (nth 4 ifs)
-						       (nth 5 ifs))
-						 (rule (* 100 (/ (nth 3 inp) (+ 1 mx-inp)))
-						       ;; (nth 3 inp)
-						       (nth 6 ifs)
-						       (nth 7 ifs))
-						 (rule (* 100 (/ (nth 4 inp) (+ 1 mx-inp)))
-						       ;; (nth 4 inp)
-						       (nth 8 ifs)
-						       (nth 9 ifs))
-						 (rule (* 100 (/ (nth 5 inp) (+ 1 mx-inp)))
-						       ;; (nth 5 inp)
-						       (nth 10 ifs)
-						       (nth 11 ifs))
-						 (rule (* 100 (/ (nth 6 inp) (+ 1 mx-inp)))
-						       ;; (nth 6 inp)
-						       (nth 12 ifs)
-						       (nth 13 ifs))
-						 )))
-				 agent-ifss)))))
+		 (reduce #'ifintersection
+			 (mapcar (lambda (i)
+				   (let ((ifs (nth i agent-ifss)))
+				     (reduce #'ifunion
+					     (mapcar (lambda (j)
+						       (rule ;; (* 100 (/ (nth i inp) (+ 1 mx-inp)))
+							(nth i inp)
+							     (nth (* j 2) ifs)
+							     (nth (1+ (* j 2)) ifs)))
+						     (iota (floor (/ (length ifs) 2)))))))
+				 (iota (length (butlast inp)))))
+
+		 ;; (reduce #'ifunion ;; or
+		 ;; 	 (mapcar (lambda (ifs)
+		 ;; 		   (reduce #'ifintersection ;; and   
+		 ;; 			   (list (rule (* 100 (/ (nth 0 inp) (+ 1 mx-inp)))
+		 ;; 				       ;; (nth 0 inp)
+		 ;; 				       (nth 0 ifs)
+		 ;; 				       (nth 1 ifs))
+		 ;; 				 (rule (* 100 (/ (nth 1 inp) (+ 1 mx-inp)))
+		 ;; 				       ;; (nth 1 inp)
+		 ;; 				       (nth 2 ifs)
+		 ;; 				       (nth 3 ifs))
+		 ;; 				 (rule (* 100 (/ (nth 2 inp) (+ 1 mx-inp)))
+		 ;; 				       ;; (nth 2 inp)
+		 ;; 				       (nth 4 ifs)
+		 ;; 				       (nth 5 ifs))
+		 ;; 				 (rule (* 100 (/ (nth 3 inp) (+ 1 mx-inp)))
+		 ;; 				       ;; (nth 3 inp)
+		 ;; 				       (nth 6 ifs)
+		 ;; 				       (nth 7 ifs))
+		 ;; 				 (rule (* 100 (/ (nth 4 inp) (+ 1 mx-inp)))
+		 ;; 				       ;; (nth 4 inp)
+		 ;; 				       (nth 8 ifs)
+		 ;; 				       (nth 9 ifs))
+		 ;; 				 (rule (* 100 (/ (nth 5 inp) (+ 1 mx-inp)))
+		 ;; 				       ;; (nth 5 inp)
+		 ;; 				       (nth 10 ifs)
+		 ;; 				       (nth 11 ifs))
+		 ;; 				 (rule (* 100 (/ (nth 6 inp) (+ 1 mx-inp)))
+		 ;; 				       ;; (nth 6 inp)
+		 ;; 				       (nth 12 ifs)
+		 ;; 				       (nth 13 ifs))
+		 ;; 				 )))
+		 ;; 		 agent-ifss))
+		 )))
 	    inputs)))
 
 (defun agents-distribution (population &optional (fitness-fn #'mape) (sort-fn #'<))
@@ -606,6 +611,7 @@ series `real`."
 (defun agents-mf-adjust (agents iterations &optional (fitness-fn #'pmape) (delta 1))
   (let ((best-error 10000))
     (dotimes (_ iterations)
+      (woof agents)
       (let* ((sim (agents-simulation agents))
              (errs (mapcar #'- sim (rest (get-real-data (length sim)))))
              (errs-idxs (largest-number-indexes (mapcar #'abs errs)))
@@ -670,6 +676,7 @@ series `real`."
         ;;(setf *cached-agents* (make-hash-table :test #'equal))
         ))))
 ;; (agents-mf-adjust (extract-agents-from-pool (first *population*)) 1000)
+;; (agents-mf-adjust (extract-agents-from-pool (agents-best (agents-distribution *population*))) 10000)
 
 ;; Mixed.
 ;; (dotimes (_ 200)
@@ -768,7 +775,6 @@ series `real`."
 ;;            (print (second (first (agents-err-adjust *test-agents* n)))))
 ;;      (alexandria:iota 10))
 
-;; (agents-mf-adjust (extract-agents-from-pool (agents-best (agents-distribution *population*))) 10000)
 ;; (agents-mf-adjust (extract-agents-from-pool (first *population*)) 10000)
 ;; *cached-agents*
 
@@ -807,18 +813,17 @@ series `real`."
 		    (cl21:iota 14)))
 	  (cl21:iota num-rules)))
 
-(defun gen-rules (num-rules)
-  ;; (gen-rules 7)
+(defun gen-rules (max-num-rules)
+  ;; (gen-rules 100)
   (mapcar (lambda (_)
-            (let* ((num-rel 7)
-                   ;; Number of antecedent and consequent membership functions
+            (let* ( ;; Number of antecedent and consequent membership functions
                    ;; that we'll consider.
-                   (num-mfs (random-int *rand-gen* 1 num-rel))
+                   (num-mfs (random-int *rand-gen* 1 max-num-rules))
                    ;; Number of antecedent and consequent non-membership functions
                    ;; that we'll consider.
-                   (num-nmfs (random-int *rand-gen* 1 num-rel))
+                   (num-nmfs (random-int *rand-gen* 1 max-num-rules))
                    ;; Separation between membership functions.
-                   (sep (/ (+ 100 (access *rules-config* :sd)) num-rel))
+                   (sep (/ (+ 100 (access *rules-config* :sd)) max-num-rules))
                    ;; Random starting point for the first membership function of the
                    ;; antecedents.
                    (armf (random-float *rand-gen* 0 sep))
@@ -834,25 +839,25 @@ series `real`."
                    (amf-means (subseq (shuffle
                                        (mapcar (lambda (i)
                                                  (+ (- (* i sep) (access *rules-config* :sd)) armf))
-                                               (alexandria:iota num-rel)))
+                                               (alexandria:iota max-num-rules)))
                                       0 num-mfs))
                    (anmf-means (subseq
                                 (shuffle
                                  (mapcar (lambda (i)
                                            (+ (- (* i sep) (access *rules-config* :sd)) arnmf))
-                                         (alexandria:iota num-rel)))
+                                         (alexandria:iota max-num-rules)))
                                 0 num-mfs))
                    (cmf-means (subseq
                                (shuffle
                                 (mapcar (lambda (i)
                                           (+ (- (* i sep) (access *rules-config* :sd)) crmf))
-                                        (alexandria:iota num-rel)))
+                                        (alexandria:iota max-num-rules)))
                                0 num-mfs))
                    (cnmf-means (subseq
                                 (shuffle
                                  (mapcar (lambda (i)
                                            (+ (- (* i sep) (access *rules-config* :sd)) crnmf))
-                                         (alexandria:iota num-rel)))
+                                         (alexandria:iota max-num-rules)))
                                 0 num-mfs)))
               (apply #'nconc
                      (mapcar (lambda (i) `((,(nth i amf-means)
@@ -865,7 +870,7 @@ series `real`."
                                              )
                                            ))
                              (cl21:iota num-mfs)))))
-          (cl21:iota num-rules)))
+          (cl21:iota 7)))
 
 ;; (defun gen-rules-adjust (num-rules num-rel sep armf arnmf crmf crnmf)
 ;;   (mapcar (lambda (_)
@@ -1124,16 +1129,16 @@ series `real`."
 ;;   (terpri))
 
 (progn
-  (setf lparallel:*kernel* (lparallel:make-kernel 7))
-  (setf omper:*data-count* 60)
+  (setf lparallel:*kernel* (lparallel:make-kernel 4))
+  (setf omper:*data-count* 252)
   (setf omper:*partition-size* 100)
   (defparameter *generations* 0
     "Keeps track of how many generations have elapsed in an evolutionary process.")
-  (defparameter *num-pool-agents* 20000
+  (defparameter *num-pool-agents* 10000
     "How many agents will be created for `*agents-pool*`. Relatively big numbers are recommended, as this increases diversity and does not significantly impact performance.")
-  (defparameter *num-rules* 10
+  (defparameter *num-rules* 5
     "Represents how many fuzzy rules each of the agents in a solution will have.")
-  (defparameter *community-size* 4 ;; (1- omper:*data-count*)
+  (defparameter *community-size* 50 ;; (1- omper:*data-count*)
     "Represents the number of agents in an 'individual' or solution. A simulation (a possible solution) will be generated using this number of agents.")
   (defparameter *rules-config* `((:mf-type . :gaussian)
                                  (:sd . 5)
@@ -1239,7 +1244,7 @@ evolutionary process."
         (when (or (null *fitnesses*)
                   (funcall sort-fn fitness (first *fitnesses*)))
           (when can-save?
-            (let* ((child-id (insert-population parent-id)))
+            (let* ((child-id (insert-population parent-id "" fitness-fn sort-fn)))
               (insert-initial-closure child-id)
               (insert-closure parent-id child-id)
               (setf parent-id child-id)
@@ -1254,7 +1259,7 @@ evolutionary process."
               (setf can-save? nil)))
 	  
           (push fitness *fitnesses*)
-          (format t "~a: ~a~%" *generations* fitness)
+          (format t "~a: ~a~%" *generations* (float fitness))
           ))
       
       ;; This check needs to be before incrementing `*generations*`
@@ -1270,13 +1275,28 @@ evolutionary process."
 
 ;; (with-postgres-connection (execute (delete-from :populations)))
 ;; (with-postgres-connection (execute (delete-from :populations-closure)))
-
 ;; (setq *last-id* (train 100000 :fitness-fn #'pmape :sort-fn #'< :save-every 1))
 ;; *cached-agents*
 ;; *population*
 ;; *generations*
 
-;; (map nil (lambda (lst) (format t "gen: ~a ~tcorrects: ~a ~t revenue: ~a~%" (access:access lst :generations) (* (float (access:access lst :corrects)) 100) (float (access:access lst :revenue)))) (with-postgres-connection (retrieve-all (select (:*) (from :populations) (order-by (:asc :creation-time))))))
+;; (map nil (lambda (lst) (format t "gen: ~a ~t mape:~a ~t corrects: ~a ~t revenue: ~a~%" (access:access lst :generations) (float (access:access lst :mape)) (* (float (access:access lst :corrects)) 100) (float (access:access lst :revenue)))) (with-postgres-connection (retrieve-all (select (:*) (from :populations) (order-by (:asc :creation-time))))))
+
+;; Print metrics.
+;; (mapcar (lambda (rate)
+;; 	  (format t "~f~%" rate))
+;; 	(agents-indexes-simulation (agents-best (agents-distribution *population*))))
+;; (mapcar #'print (get-real-data omper:*data-count*))
+
+;; Get metrics.
+;; (float (corrects (agents-indexes-simulation (agents-best (agents-distribution *population* #'corrects
+;; 									      #'>)
+;; 							 #'>))
+;; 		 (get-real-data omper:*data-count*)))
+;; (mapcar (lambda (pop)
+;; 	  (float (corrects (agents-indexes-simulation pop)
+;; 			   (get-real-data omper:*data-count*))))
+;; 	*population*)
 
 ;; Check if there are duplicates.
 ;; (mapcar #'length (mapcar #'remove-duplicates *population*))
@@ -1530,6 +1550,100 @@ granularity `timeframe`."
 ;; 			    :performance-metrics :corrects))))
 ;; 	(alexandria:iota (length *population*)))
 
+(defun make-history-function (periods evaluator)
+  "Returns a function that takes a series of data points, one at a
+time, and returns the results of calling the evaluator with a sequence
+storing PERIODS data points. The function returns NIL before PERIODS
+data points have been evaluated. If the data point is NIL, the
+function returns NIL and does not store the data point in the
+history."
+  (let ((history '())
+	(count 0))
+    (lambda (element)
+      (if element
+	  (progn
+	    (push element history)
+	    (incf count)
+	    (if (>= count periods)
+		(progn
+		  (setf history (subseq history 0 periods))
+		  (funcall evaluator history))
+		nil))
+	  nil))))
+
+(defun moving-average (periods &key (key #'identity))
+  "Creates a function that computes a moving average over PERIODS data points."
+  (make-history-function periods (lambda (history)
+				   (ta-average history :key key))))
+
+(defun get-moving-average (periods)
+  (remove nil
+	  (mapcar (moving-average periods)
+		  (get-real-data
+		   (+ omper:*data-count*
+		      (1- periods))))))
+
+(defun agent-moving-average (agent)
+  "TODO: `agent` is unused"
+  (mapcar (lambda (mas rate)
+	    (append
+	     (mapcar (lambda (ma)
+		       (+ 50
+			  (* 1000
+			     (/ (- (first rate) ma)
+				(first rate))))
+		       )
+		     mas)
+	     rate))
+	  (apply #'mapcar #'list
+		 (mapcar (lambda (i)
+			   (get-moving-average i))
+			 (iota 7 :start 10 :step 5)))
+	  (mapcar #'list (get-real-data omper:*data-count*))))
+
+(length (get-moving-average 2))
+(length (agent-perception (make-instance 'agent)))
+(time (agent-perception (make-instance 'agent)))
+
+(remove nil (mapcar (moving-average 5)
+		    (get-real-data 24)))
+
+(defun ta-average (sequence &key (key #'identity))
+  (let ((len 1))
+    (/ (reduce #'(lambda (x y) (incf len) (+ x y)) sequence :key key)
+       len)))
+
+(defun bollinger-bands (periods &key (key #'identity))
+  "Creates a function that computes Bollinger bands over PERIODS data
+points. The function returns a list with the average, upper, and lower
+Bollinger band points."
+  (make-history-function periods
+			 (lambda (history)
+			   (let* ((avg (average history :key key))
+				  (std (std-dev history :key key))
+				  (2std (* 2 std))
+				  (upper (+ avg 2std))
+				  (lower (- avg 2std)))
+			     (list avg upper lower)))))
+
+(defun stochastic (key-high key-low key-close
+		   &key (%k-periods 5) (%d-periods 5))
+  "Creates a function that computes the stochastic indicator over the
+specified number of periods for %K and $D. This function requires
+access to high, low, and closing prices for all data points and so
+accessor functions must be passed to the function to retrieve the data
+from each sample."
+  (let ((%d-history (moving-average %d-periods)))
+    (make-history-function %k-periods
+			   (lambda (history)
+			     (let* ((high (maximum history :key key-high))
+				    (low (minimum history :key key-low))
+				    (close (funcall key-close (elt history 0)))
+				    (%k (* 100 (/ (- close low)
+						  (- high low))))
+				    (%d (funcall %d-history %k)))
+			       (list %k %d))))))
+
 (defun move-somewhere ()
   (defparameter *market-report* (let ((omper:*data-count* (floor (* omper:*data-count* 0.2))))
                                   (market-report (get-most-relevant-population *instrument* *timeframe*)
@@ -1539,22 +1653,59 @@ granularity `timeframe`."
   (list (float (accesses *market-report* :training :performance-metrics :corrects))
         (float (accesses *market-report* :testing :performance-metrics :corrects)))
 
-  (defparameter *market-tests* (mapcar (lambda (db-pop)
-                                         (let ((test (market-report db-pop
-								    *instrument* *timeframe*
-								    (subseq *all-rates* *begin* (+ *end* omper:*data-count*)))))
-					   (print (list (float (accesses test :training :performance-metrics :corrects))
-							(float (accesses test :testing :performance-metrics :corrects))))
-					   test))
-                                       (retrieve-all (select (:*)
-						       (from :populations)
-						       (order-by (:desc :creation-time))
-						       (limit 1000)))))
+  (defparameter *market-validations* (let ((omper:*data-count* (floor (* omper:*data-count* 0.2))))
+				 (mapcar (lambda (db-pop)
+					   (let ((test (market-report db-pop
+								      *instrument* *timeframe*
+								      (subseq *all-rates* *begin* (+ *end* omper:*data-count*)))))
+					     (print (list (float (accesses test :training :performance-metrics :corrects))
+							  (float (accesses test :testing :performance-metrics :corrects))))
+					     test))
+					 (retrieve-all (select (:*)
+							 (from :populations)
+							 (order-by (:desc :creation-time))
+							 (limit 1))))))
 
   (mapcar (lambda (test)
-            (list (float (accesses test :training :performance-metrics :corrects))
-                  (float (accesses test :testing :performance-metrics :corrects))))
-          *market-tests*))
+	    (list (float (accesses test :training :performance-metrics :corrects))
+		  (float (accesses test :testing :performance-metrics :corrects))))
+	  *market-validations*)
+
+  (defparameter *market-tests* (let ((omper:*data-count* (floor (* omper:*data-count* 0.2))))
+				       (mapcar (lambda (db-pop)
+						 (let ((test (market-report db-pop
+									    *instrument* *timeframe*
+									    (subseq *all-rates* *begin* (+ *end* (* 2 omper:*data-count*))))))
+						   (print (list (float (accesses test :training :performance-metrics :corrects))
+								(float (accesses test :testing :performance-metrics :corrects))))
+						   test))
+					       (retrieve-all (select (:*)
+							       (from :populations)
+							       (order-by (:desc :creation-time))
+							       (limit 1000))))))
+
+  (mapcar (lambda (test)
+	    (list (float (accesses test :training :performance-metrics :corrects))
+		  (float (accesses test :testing :performance-metrics :corrects))))
+	  *market-tests*)
+
+  ;; ;; Check correlation.
+  ;; (ql:quickload :cl-mathstats)
+  (defparameter *tests-corrects*
+    (remove-if (lambda (elt)
+  		 (< (first elt) 0.55))
+  	       (mapcar (lambda (test)
+  			 (list (float (accesses test :training :performance-metrics :corrects))
+  			       (float (accesses test :testing :performance-metrics :corrects))))
+  		       *market-validations*)))
+  ;; (mean (mapcar #'second *tests-corrects*))
+  (cl-mathstats:correlation (mapcar (lambda (test)
+  				      (float (accesses test :training :performance-metrics :corrects)))
+  				    *market-tests*)
+  			    (mapcar (lambda (test)
+  				      (float (accesses test :testing :performance-metrics :corrects)))
+  				    *market-tests*))
+  )
 
 ;; (accesses *market-report* :training :performance-metrics :corrects)
 ;; (accesses *market-report* :testing :performance-metrics :corrects)
@@ -1640,8 +1791,8 @@ granularity `timeframe`."
 
 (defun agents-crossover (x y &optional (chance 0.6))
   (if (<= (random-float *rand-gen* 0 1.0) chance)
-      (let* (;; (x (alexandria:shuffle x))
-             ;; (y (alexandria:shuffle y))
+      (let* ((x (alexandria:shuffle x))
+             (y (alexandria:shuffle y))
              (site (random-int *rand-gen* 1 (1- *community-size*)))
 	     (x1 (subseq x 0 site))
 	     (x2 (nthcdr site x))
@@ -1745,18 +1896,18 @@ extracted from `*agents-pool*` using the indexes stored in `agents-indexes`."
   ;; 	    (random-int *rand-gen* 0 (1- *num-pool-agents*)))))
 
   
-  (when (> chance (random-float *rand-gen* 0 1.0))
-    (let ((community (nth (random-int *rand-gen* 0 (1- *population-size*)) *population*))
-  	  (mutation (random-int *rand-gen* 0 (1- *num-pool-agents*))))
-      (unless (find mutation community)
-  	(setf (nth (random-int *rand-gen* 0 (1- *community-size*))
-  		   community)
-  	      mutation))))
-
   ;; (when (> chance (random-float *rand-gen* 0 1.0))
-  ;;   (setf (nth (random-int *rand-gen* 0 (1- *community-size*))
-  ;; 	       (nth (random-int *rand-gen* 0 (1- *population-size*)) *population*))
-  ;; 	  (random-int *rand-gen* 0 (1- *num-pool-agents*))))
+  ;;   (let ((community (nth (random-int *rand-gen* 0 (1- *population-size*)) *population*))
+  ;; 	  (mutation (random-int *rand-gen* 0 (1- *num-pool-agents*))))
+  ;;     (unless (find mutation community)
+  ;; 	(setf (nth (random-int *rand-gen* 0 (1- *community-size*))
+  ;; 		   community)
+  ;; 	      mutation))))
+
+  (when (> chance (random-float *rand-gen* 0 1.0))
+    (setf (nth (random-int *rand-gen* 0 (1- *community-size*))
+  	       (nth (random-int *rand-gen* 0 (1- *population-size*)) *population*))
+  	  (random-int *rand-gen* 0 (1- *num-pool-agents*))))
   )
 
 (defun agents-profit (agents-indexes)
@@ -2202,8 +2353,8 @@ each point in the real prices."
 	      )
 	    (first (slot-value agents 'rules)))))
 
-(defun insert-population (parent-id &optional label)
-  (let* ((best (agents-best (agents-distribution *population*)))
+(defun insert-population (parent-id &optional label (fitness-fn #'pmape) (sort-fn #'<))
+  (let* ((best (agents-best (agents-distribution *population* fitness-fn sort-fn) sort-fn))
 	 (id (uuid:make-v4-uuid)))
     (with-postgres-connection
     	(execute (insert-into :populations

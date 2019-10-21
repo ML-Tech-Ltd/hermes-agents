@@ -8,6 +8,7 @@
 	       :dbi
                :cl-mathstats
                :magicl
+	       :cl-csv
                :computable-reals
                :sxql
 	       :cl21

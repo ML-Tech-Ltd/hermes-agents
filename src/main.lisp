@@ -33,12 +33,12 @@
     "All the rates. Subsets are used during training, validation and testing stages.")
   )
 
-(setf *all-rates*
-      (mapcar (lambda (tuple)
-		`((:time . ,(format nil "~a" (local-time:timestamp-to-unix (local-time:parse-timestring (nth 0 tuple)))))
-		  (:close-bid . ,(read-from-string (nth 4 tuple))))
-		)
-	      (cl-csv:read-csv #P"~/bitcoin.csv" :separator #\Space)))
+;; (setf *all-rates*
+;;       (mapcar (lambda (tuple)
+;; 		`((:time . ,(format nil "~a" (local-time:timestamp-to-unix (local-time:parse-timestring (nth 0 tuple)))))
+;; 		  (:close-bid . ,(read-from-string (nth 4 tuple))))
+;; 		)
+;; 	      (cl-csv:read-csv #P"~/bitcoin.csv" :separator #\Space)))
 
 (defun compress-population (population)
   "Compresses a `population`."
@@ -1106,7 +1106,7 @@ series `real`."
                                                                (mean nums))
                                                     trades)
                                              )
-                                           (hash-table-values trade-clusters))))
+                                           (reverse (hash-table-values trade-clusters)))))
                (A (magicl:make-complex-matrix (length mean-deltas) (length mean-deltas) (flatten mean-trades)))
                (B (magicl:make-complex-matrix (length mean-deltas) 1 mean-deltas))
                (sol-matrix (magicl:multiply-complex-matrices

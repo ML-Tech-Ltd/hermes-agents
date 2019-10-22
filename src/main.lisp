@@ -817,18 +817,6 @@ series `real`."
       (remove nil
 	      (shuffle (concatenate 'list (make-list (- (length options) (length nums))) nums))))))
 
-(defun gen-rules (num-rules)
-  ;; (gen-rules 2)
-  (mapcar (lambda (_)
-	    (mapcar (lambda (_) `(,(random-float *rand-gen* 0 100)
-				   ,(random-float *rand-gen* 0 100)
-				   ,(random-float *rand-gen* 0 1)
-				   ;; 0
-				   ))
-		    (cl21:iota (* 2 num-rules))))
-	  (cl21:iota *num-inputs*)
-	  ))
-
 (defun gen-rules (max-num-rules)
   ;; (gen-rules 2)
   (mapcar (lambda (_)
@@ -889,6 +877,18 @@ series `real`."
                                            ))
                              (cl21:iota num-mfs)))))
           (cl21:iota *num-inputs*)))
+
+(defun gen-rules (num-rules)
+  ;; (gen-rules 2)
+  (mapcar (lambda (_)
+	    (mapcar (lambda (_) `(,(random-float *rand-gen* 0 100)
+				   ,(random-float *rand-gen* 0 100)
+				   ,(random-float *rand-gen* 0 1)
+				   ;; 0
+				   ))
+		    (cl21:iota (* 2 num-rules))))
+	  (cl21:iota *num-inputs*)
+	  ))
 
 ;; (defun gen-rules-adjust (num-rules num-rel sep armf arnmf crmf crnmf)
 ;;   (mapcar (lambda (_)
@@ -1148,8 +1148,10 @@ series `real`."
 
 (progn
   (setf lparallel:*kernel* (lparallel:make-kernel 4))
-  (setf omper:*data-count* 50)
+  (setf omper:*data-count* 101)
   (setf omper:*partition-size* 100)
+  (defparameter *community-size* 10
+    "Represents the number of agents in an 'individual' or solution. A simulation (a possible solution) will be generated using this number of agents.")
   (defparameter *begin* (random-int *rand-gen* 0 (- (length *all-rates*) 1000))
     "The starting timestamp for the data used for training or testing.")
   (defparameter *end* (+ (+ *begin* *data-count*) (random-int *rand-gen* 0 (- (- (length *all-rates*) *data-count*) *begin*)))
@@ -1164,8 +1166,6 @@ series `real`."
     "How many agents will be created for `*agents-pool*`. Relatively big numbers are recommended, as this increases diversity and does not significantly impact performance.")
   (defparameter *num-rules* 7
     "Represents how many fuzzy rules each of the agents in a solution will have.")
-  (defparameter *community-size* 10 ;; (1- omper:*data-count*)
-    "Represents the number of agents in an 'individual' or solution. A simulation (a possible solution) will be generated using this number of agents.")
   (defparameter *rules-config* `((:mf-type . :gaussian)
                                  (:sd . 7)
                                  (:mf-mean-adjusting . t)
@@ -1302,7 +1302,7 @@ evolutionary process."
 
 ;; (with-postgres-connection (execute (delete-from :populations)))
 ;; (with-postgres-connection (execute (delete-from :populations-closure)))
-;; (setq *last-id* (train 100000 :fitness-fn #'mape :sort-fn #'< :save-every 1))
+;; (setq *last-id* (train 100000 :fitness-fn #'corrects :sort-fn #'> :save-every 1))
 ;; *cached-agents*
 ;; *population*
 ;; *generations*
@@ -1824,8 +1824,8 @@ from each sample."
 	  	(first (gen-beliefs 1)))))))
 
 (defun process-agent-output (out leverage)
-  (* (/ (- (* out 2) 100)) (mean leverage)))
-;; (float (process-agent-output 100 1))
+  (* (- (* out 2) 100) (mean leverage)))
+;; (float (process-agent-output 0 '(1)))
 
 (defun agents-selectone (distribution)
   "Done"

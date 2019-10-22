@@ -38,7 +38,7 @@
 ;; 		`((:time . ,(format nil "~a" (local-time:timestamp-to-unix (local-time:parse-timestring (nth 0 tuple)))))
 ;; 		  (:close-bid . ,(read-from-string (nth 4 tuple))))
 ;; 		)
-;; 	      (cl-csv:read-csv #P"~/bitcoin.csv" :separator #\Space)))
+;; 	      (cl-csv:read-csv #P"~/skycoin.csv" :separator #\Space)))
 
 (defun compress-population (population)
   "Compresses a `population`."
@@ -525,40 +525,6 @@ series `real`."
 							     (nth (1+ (* j 2)) ifs)))
 						     (iota (floor (/ (length ifs) 2)))))))
 				 (iota (length (butlast inp)))))
-
-		 ;; (reduce #'ifunion ;; or
-		 ;; 	 (mapcar (lambda (ifs)
-		 ;; 		   (reduce #'ifintersection ;; and   
-		 ;; 			   (list (rule (* 100 (/ (nth 0 inp) (+ 1 mx-inp)))
-		 ;; 				       ;; (nth 0 inp)
-		 ;; 				       (nth 0 ifs)
-		 ;; 				       (nth 1 ifs))
-		 ;; 				 (rule (* 100 (/ (nth 1 inp) (+ 1 mx-inp)))
-		 ;; 				       ;; (nth 1 inp)
-		 ;; 				       (nth 2 ifs)
-		 ;; 				       (nth 3 ifs))
-		 ;; 				 (rule (* 100 (/ (nth 2 inp) (+ 1 mx-inp)))
-		 ;; 				       ;; (nth 2 inp)
-		 ;; 				       (nth 4 ifs)
-		 ;; 				       (nth 5 ifs))
-		 ;; 				 (rule (* 100 (/ (nth 3 inp) (+ 1 mx-inp)))
-		 ;; 				       ;; (nth 3 inp)
-		 ;; 				       (nth 6 ifs)
-		 ;; 				       (nth 7 ifs))
-		 ;; 				 (rule (* 100 (/ (nth 4 inp) (+ 1 mx-inp)))
-		 ;; 				       ;; (nth 4 inp)
-		 ;; 				       (nth 8 ifs)
-		 ;; 				       (nth 9 ifs))
-		 ;; 				 (rule (* 100 (/ (nth 5 inp) (+ 1 mx-inp)))
-		 ;; 				       ;; (nth 5 inp)
-		 ;; 				       (nth 10 ifs)
-		 ;; 				       (nth 11 ifs))
-		 ;; 				 (rule (* 100 (/ (nth 6 inp) (+ 1 mx-inp)))
-		 ;; 				       ;; (nth 6 inp)
-		 ;; 				       (nth 12 ifs)
-		 ;; 				       (nth 13 ifs))
-		 ;; 				 )))
-		 ;; 		 agent-ifss))
 		 )))
 	    inputs)))
 
@@ -1152,7 +1118,9 @@ series `real`."
   (setf omper:*partition-size* 100)
   (defparameter *community-size* 10
     "Represents the number of agents in an 'individual' or solution. A simulation (a possible solution) will be generated using this number of agents.")
-  (defparameter *begin* (random-int *rand-gen* 0 (- (length *all-rates*) 1000))
+  (defparameter *population-size* 10
+    "How many 'communities', 'individuals' or 'solutions' will be participating in the optimization process.")
+  (defparameter *begin* (random-int *rand-gen* 0 (- (length *all-rates*) 200))
     "The starting timestamp for the data used for training or testing.")
   (defparameter *end* (+ (+ *begin* *data-count*) (random-int *rand-gen* 0 (- (- (length *all-rates*) *data-count*) *begin*)))
     "The ending timestamp for the data used for training or testing.")
@@ -1167,7 +1135,7 @@ series `real`."
   (defparameter *num-rules* 7
     "Represents how many fuzzy rules each of the agents in a solution will have.")
   (defparameter *rules-config* `((:mf-type . :gaussian)
-                                 (:sd . 7)
+                                 (:sd . 10)
                                  (:mf-mean-adjusting . t)
                                  (:nmf-height-style . :complement)
                                  ;; (:trade-scale . ,(calc-trade-scale))
@@ -1175,8 +1143,6 @@ series `real`."
     "Configuration used to create the rules of the agents for a population.")
   (defparameter *agents-pool* (gen-agents *num-pool-agents*)
     "Instances of `agent` that are available to create solutions.")
-  (defparameter *population-size* 10
-    "How many 'communities', 'individuals' or 'solutions' will be participating in the optimization process.")
   (defparameter *population* (gen-communities *community-size* *population-size*)
     "Represents a list of lists of indexes to *agents-pool*.")
   (defparameter *cached-agents* (make-hash-table :test #'equal :size 2000 :synchronized t)
@@ -1184,121 +1150,6 @@ series `real`."
   (defparameter *fitnesses* nil
     "List of fitnesses obtained after evolving a population.")
   (defparameter *fitness-fn* :pmape))
-
-;; (setf *population* (gen-communities *community-size* 1))
-
-;; (defparameter *best* (extract-agents-from-pool (nth 0 *population*)))
-
-;; (agents-test *best* (subseq *all-rates* *begin* *end*))
-;; (agents-test (extract-agents-from-pool (nth 0 *population*)) (subseq *all-rates* *begin* *end*))
-
-;; (dotimes (_ 1)
-;;   (let* ((agents (nth 0 *population*))
-;; 	 (trades (mapcar (lambda (agent)
-;; 			   (butlast (agent-trades agent)))
-;; 			 (extract-agents-from-pool agents)))
-;; 	 (reals (get-real-data omper:*data-count*))
-;; 	 (deltas (mapcar #'- (rest reals) reals))
-;; 	 (A (magicl:make-complex-matrix (length deltas) (length deltas) (alexandria:flatten trades)))
-;; 	 (B (magicl:make-complex-matrix (length deltas) 1 deltas))
-;; 	 (sol-matrix (magicl:multiply-complex-matrices
-;; 		      (magicl:inv A)
-;; 		      B)))
-
-;;     ;; (let ((leverages (mapcar (lambda (i)
-;;     ;; 			       (abs (magicl:ref sol-matrix i 0)))
-;;     ;; 			     (alexandria:iota (length agents))))
-;;     ;; 	  (n 1))
-;;     ;;   (dotimes (x n)
-;;     ;; 	(let ((idxs (append (subseq (largest-number-indexes leverages) 0 n)
-;;     ;; 			    (last (largest-number-indexes leverages) n)))
-;;     ;; 	      ;; (idxs (last (largest-number-indexes leverages) n))
-;;     ;; 	      ;; (idxs (subseq (largest-number-indexes leverages) 0 n))
-;;     ;; 	      )
-;;     ;; 	  (setf (nth (nth x idxs)
-;;     ;; 		     agents)
-;;     ;; 		(random-int *rand-gen* 0 (1- *num-pool-agents*))))))
-
-;;     ;; Modifying leverages.
-;;     (dotimes (i (length agents))
-;;       (setf (slot-value (extract-agent-from-pool (nth i agents)) 'leverage)
-;; 	    (realpart (magicl:ref sol-matrix i 0))))
-
-;;     (let ((best-error (accesses (agents-test *best*
-;; 					     (subseq *all-rates* *begin* *end*))
-;; 				:performance-metrics :mape))
-;; 	  (current-error (accesses (agents-test (extract-agents-from-pool agents)
-;; 						(subseq *all-rates* *begin* *end*))
-;; 				   :performance-metrics :mape)))
-;;       (when (or t (< current-error best-error))
-;; 	(setf *best* (extract-agents-from-pool agents))
-;; 	(format t "current: ~a~t best: ~a~%" current-error best-error)
-;; 	;; (print (float current-error))
-;; 	))
-;;     ))
-
-(defun train (generations &key (fitness-fn #'pmape)
-                            (sort-fn #'<)
-                            (starting-population "")
-                            (save-every 100))
-  "Starts the evolutionary process, using the parameters in
-`src/config.lisp`. `starting-population` is a v4-uuid that is used to retrieve a
-population from Overmind Agents database and is used as a seed to start the
-evolutionary process."
-  ;; (train 10)
-  ;; Checking if it's a fresh start or if we'll create a branch
-  ;; from a population stored in the database.
-  (if (string= starting-population "")
-      ;; Resetting some globals like the population, agents, the cache table, etc.
-      (progn
-	(setf *agents-pool* (gen-agents *num-pool-agents*))
-	(setf *population* (gen-communities *community-size* *population-size*))
-	(setf *cached-agents* (make-hash-table :test #'equal :size 2000 :synchronized t))
-	(setf *generations* 0)
-	(setf *fitnesses* nil)
-	;; Reset all agents' leverages to 1.
-	(dolist (agent *agents-pool*)
-	  (setf (slot-value agent 'leverage) '(1)))
-	)
-      (init-from-database starting-population))
-  (let ((parent-id starting-population)
-	(can-save? nil))
-    (dotimes (_ generations) 
-      ;; (when (and (access *rules-config* :mf-mean-adjusting)
-      ;; 		 (< (random-float *rand-gen* 0 1) 0.20))
-      ;; 	(agents-mf-adjust (extract-agents-from-pool (agents-best (agents-distribution *population*))) 10))
-      (let ((fitness (agents-reproduce fitness-fn sort-fn)))
-        (when (or (null *fitnesses*)
-                  (funcall sort-fn fitness (first *fitnesses*)))
-          (when can-save?
-            (let* ((child-id (insert-population parent-id "" fitness-fn sort-fn)))
-              (insert-initial-closure child-id)
-              (insert-closure parent-id child-id)
-              (setf parent-id child-id)
-
-              ;; Remove later
-              ;; (when (or t (> *generations* 500))
-              ;; 	(meow (agents-best (agents-distribution *population*)) 1)
-              ;; 	;; (agents-mf-adjust (extract-agents-from-pool (agents-best (agents-distribution *population*))) 10)
-              ;;   ;; (when (= (1- omper:*data-count*) *community-size*)
-              ;; 	;;   (agents-brute-force 1 (agents-best (agents-distribution *population*))))
-              ;; 	)
-              (setf can-save? nil)))
-	  
-          (push fitness *fitnesses*)
-          (format t "~a: ~a~%" *generations* (float fitness))
-          ))
-      
-      ;; This check needs to be before incrementing `*generations*`
-      ;; so we always save the root population and we save any
-      ;; improvements obtained in the first generations
-      ;; after continuing evolving a population.
-      (when (= (mod *generations* save-every) 0)
-        (setf can-save? t))
-      ;; Incrementing global generations counter.
-      (incf *generations*))
-    (print "done.")
-    (format nil "~a" parent-id)))
 
 ;; (with-postgres-connection (execute (delete-from :populations)))
 ;; (with-postgres-connection (execute (delete-from :populations-closure)))
@@ -1315,8 +1166,12 @@ evolutionary process."
 
 ;; Print metrics.
 ;; (length (mapcar (lambda (rate)
-;; 	  (format t "~f~%" rate))
-;; 	(butlast (agents-indexes-simulation (agents-best (agents-distribution *population*))))))
+;; 		  (format t "~f~%" rate))
+;; 		;; (butlast (agents-indexes-simulation (agents-best (agents-distribution *population*))))
+;; 		(agents-indexes-simulation (agents-best (agents-distribution *population*
+;; 									     #'corrects
+;; 									     #'>)
+;; 							#'>))))
 ;; (mapcar #'print (rest (get-real-data omper:*data-count*)))
 
 ;; Get metrics.
@@ -1344,7 +1199,7 @@ evolutionary process."
 ;; (setq *last-id* (train 50000 :starting-population (access (first (with-postgres-connection (retrieve-all (select (:*) (from :populations) (order-by (:desc :generations)))))) :id) :fitness-fn #'pmape :sort-fn #'<))
 
 ;; Init using last entry (generations)
-;; (init-from-database (access (last-elt (with-postgres-connection (retrieve-all (select (:*) (from :populations) (order-by (:desc :generations)))))) :id))
+;; (init-from-database (access (first (with-postgres-connection (retrieve-all (select (:*) (from :populations) (order-by (:desc :generations)))))) :id))
 
 ;; (agents-indexes-simulation (agents-best (agents-distribution *population*)))
 ;; (agents-corrects (agents-best (agents-distribution *population*)))
@@ -1377,6 +1232,72 @@ evolutionary process."
 ;; (length (with-postgres-connection (retrieve-all (select :* (from :populations-closure)))))
 
 ;; (access (first (with-postgres-connection (retrieve-all (select (:id :pmape) (from :populations) (order-by (:asc :pmape)))))) :id)
+
+(defun train (generations &key (fitness-fn #'pmape)
+                            (sort-fn #'<)
+                            (starting-population "")
+                            (save-every 100))
+  "Starts the evolutionary process, using the parameters in
+`src/config.lisp`. `starting-population` is a v4-uuid that is used to retrieve a
+population from Overmind Agents database and is used as a seed to start the
+evolutionary process."
+  ;; (train 10)
+  ;; Checking if it's a fresh start or if we'll create a branch
+  ;; from a population stored in the database.
+  (if (string= starting-population "")
+      ;; Resetting some globals like the population, agents, the cache table, etc.
+      (progn
+	(setf *agents-pool* (gen-agents *num-pool-agents*))
+	(setf *population* (gen-communities *community-size* *population-size*))
+	(setf *cached-agents* (make-hash-table :test #'equal :size 2000 :synchronized t))
+	(setf *generations* 0)
+	(setf *fitnesses* nil)
+	;; Reset all agents' leverages to 1.
+	(dolist (agent *agents-pool*)
+	  (setf (slot-value agent 'leverage) '(1)))
+	)
+      (init-from-database starting-population))
+  (let ((parent-id starting-population)
+	(can-save? nil))
+    (dotimes (_ generations) 
+      ;; (when (and (access *rules-config* :mf-mean-adjusting)
+      ;; 		 (< (random-float *rand-gen* 0 1) 0.20))
+      ;; 	(agents-mf-adjust (extract-agents-from-pool (agents-best (agents-distribution *population*))) 10))
+      (let* (;; (rnd-start (- (random-int *rand-gen* (floor (* omper:*data-count* 0.2)) omper:*data-count*)
+	    ;; 		   (floor (* omper:*data-count* 0.1))))
+	    ;; (*rates* (subseq *rates* rnd-start (+ rnd-start (floor (* omper:*data-count* 0.2)))))
+	    (fitness (agents-reproduce fitness-fn sort-fn)))
+        (when (or (null *fitnesses*)
+                  (funcall sort-fn fitness (first *fitnesses*)))
+          (when can-save?
+            (let* ((child-id (insert-population parent-id "" fitness-fn sort-fn)))
+              (insert-initial-closure child-id)
+              (insert-closure parent-id child-id)
+              (setf parent-id child-id)
+
+              ;; Remove later
+              ;; (when (or t (> *generations* 500))
+              ;; 	(meow (agents-best (agents-distribution *population*)) 1)
+              ;; 	;; (agents-mf-adjust (extract-agents-from-pool (agents-best (agents-distribution *population*))) 10)
+              ;;   ;; (when (= (1- omper:*data-count*) *community-size*)
+              ;; 	;;   (agents-brute-force 1 (agents-best (agents-distribution *population*))))
+              ;; 	)
+              (setf can-save? nil)))
+	  
+          (push fitness *fitnesses*)
+          (format t "~a: ~a~%" *generations* (float fitness))
+          ))
+      
+      ;; This check needs to be before incrementing `*generations*`
+      ;; so we always save the root population and we save any
+      ;; improvements obtained in the first generations
+      ;; after continuing evolving a population.
+      (when (= (mod *generations* save-every) 0)
+        (setf can-save? t))
+      ;; Incrementing global generations counter.
+      (incf *generations*))
+    (print "done.")
+    (format nil "~a" parent-id)))
 
 (defun get-most-relevant-population (instrument timeframe)
   "The most relevant population is the one that matches `instrument`,
@@ -1704,7 +1625,7 @@ from each sample."
   (list (float (accesses *market-report* :training :performance-metrics :corrects))
         (float (accesses *market-report* :testing :performance-metrics :corrects)))
   
-  (defparameter *market-validations* (let ((omper:*data-count* 26))
+  (defparameter *market-validations* (let ((omper:*data-count* (ceiling (* omper:*data-count* 0.1))))
                                        (mapcar (lambda (db-pop)
                                                  (let ((validation (market-report db-pop
                                                                             *instrument* *timeframe*

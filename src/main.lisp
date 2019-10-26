@@ -25,7 +25,7 @@
 	))
 (in-package :overmind-agents)
 (progn
-  (defparameter *instrument* :EUR_USD
+  (defparameter *instrument* :US30_USD
     "The financial instrument used for querying the data used to train or test.")
   (defparameter *timeframe* :D
     "The timeframe used for querying the data used to train or test.")
@@ -1125,6 +1125,16 @@ series `real`."
       ;; trades
       )))
 
+(defun median-elt (sample)
+  (nth (floor (/ (length sample) 2))
+       (sort (copy-sequence 'list sample) #'<)))
+
+(defun median-elt-idx (sample)
+  (position (median-elt sample) sample))
+
+;; (let ((seq '(4 5 1 2 3 6 7 8)))
+;;   (median-elt-idx seq))
+
 (defun woof (agents)
   (ignore-errors
     ;; Reset all agents' leverages to 1.
@@ -1143,7 +1153,7 @@ series `real`."
       ;; Clustered deltas.
       (let* ((delta-clusters (mapcar #'flatten (km (mapcar #'list deltas) (length agents))))
              (trade-clusters (make-hash-table :size (length agents)))
-             (mean-deltas (mapcar #'first delta-clusters)))
+             (mean-deltas (mapcar #'mean delta-clusters)))
 
         ;; Clustering deltas and trades.
         (dotimes (i (length deltas))
@@ -1159,8 +1169,58 @@ series `real`."
         (let* ((mean-trades (apply #'mapcar #'list
                                    (mapcar (lambda (trades)
                                              (apply #'mapcar (lambda (&rest nums)
-                                                               (first nums))
+                                                               (mean nums))
                                                     (cdr trades)))
+                                           (sort (copy-sequence 'list (hash-table-alist trade-clusters)) #'< :key #'first))))
+               (A (magicl:make-complex-matrix (length mean-deltas) (length mean-deltas) (flatten mean-trades)))
+               (B (magicl:make-complex-matrix (length mean-deltas) 1 mean-deltas))
+               (sol-matrix (magicl:multiply-complex-matrices
+                            (magicl:inv A)
+                            B)))
+          ;; Modifying leverages.
+          (dotimes (j (length agents))
+            (setf (slot-value (extract-agent-from-pool (nth j agents)) 'leverage)
+                  (realpart (magicl:ref sol-matrix j 0))))
+          )))))
+
+(defun woof (agents)
+  (ignore-errors
+    ;; Reset all agents' leverages to 1.
+    (dolist (agent *agents-pool*)
+      (setf (slot-value agent 'leverage) 1))
+    
+    (let* ((reals (get-real-data omper:*data-count*))
+           (trades (mapcar (lambda (agent)
+                             (butlast (agent-trades agent))
+                             )
+                           (extract-agents-from-pool agents)))
+           (deltas (mapcar (lambda (next curr)
+                             (- next curr))
+                           (rest reals) reals)))
+
+      ;; Clustered deltas.
+      (let* ((delta-clusters (mapcar #'flatten (km (mapcar #'list deltas) (length agents))))
+             (trade-clusters (make-hash-table :size (length agents)))
+             (idxs (mapcar #'median-elt-idx delta-clusters))
+             (mean-deltas (mapcar #'median-elt delta-clusters)))
+
+        ;; Clustering deltas and trades.
+        (dotimes (i (length deltas))
+          ;; `num-cluster` is the number of the cluster in which we found the `ith` delta.
+          (let ((num-cluster (position (nth i deltas) delta-clusters :test #'find)))
+            ;; We save the slice of trades (different trades by different agents)
+            ;; in its corresponding cluster.
+            (push (mapcar (lambda (trade)
+                            (nth i trade))
+                          trades)
+                  (gethash num-cluster trade-clusters))))
+
+        (let* ((mean-trades (apply #'mapcar #'list
+                                   (mapcar (lambda (idx trades)
+                                             (apply #'mapcar (lambda (&rest nums)
+                                                               (nth idx nums))
+                                                    (cdr trades)))
+                                           idxs
                                            (sort (copy-sequence 'list (hash-table-alist trade-clusters)) #'< :key #'first))))
                (A (magicl:make-complex-matrix (length mean-deltas) (length mean-deltas) (flatten mean-trades)))
                (B (magicl:make-complex-matrix (length mean-deltas) 1 mean-deltas))
@@ -1193,11 +1253,11 @@ series `real`."
 
 (progn
   (setf lparallel:*kernel* (lparallel:make-kernel 4))
-  (setf omper:*data-count* 101)
+  (setf omper:*data-count* 301)
   (setf omper:*partition-size* 100)
   (defparameter *community-size* 10
     "Represents the number of agents in an 'individual' or solution. A simulation (a possible solution) will be generated using this number of agents.")
-  (defparameter *population-size* 10
+  (defparameter *population-size* 30
     "How many 'communities', 'individuals' or 'solutions' will be participating in the optimization process.")
   (defparameter *begin* (random-int *rand-gen* 0 (- (length *all-rates*) (* *data-count* 3)))
     "The starting timestamp for the data used for training or testing.")
@@ -1209,7 +1269,7 @@ series `real`."
     "Keeps track of how many generations have elapsed in an evolutionary process.")
   (defparameter *generations* 0
     "Keeps track of how many generations have elapsed in an evolutionary process.")
-  (defparameter *num-pool-agents* 2000
+  (defparameter *num-pool-agents* 10000
     "How many agents will be created for `*agents-pool*`. Relatively big numbers are recommended, as this increases diversity and does not significantly impact performance.")
   (defparameter *num-rules* 5
     "Represents how many fuzzy rules each of the agents in a solution will have.")
@@ -1232,6 +1292,7 @@ series `real`."
 
 ;; (with-postgres-connection (execute (delete-from :populations)))
 ;; (with-postgres-connection (execute (delete-from :populations-closure)))
+;; (train 100000 :fitness-fn #'mape :sort-fn #'< :save-every 1 :epsilon 0.01)
 ;; (train 100000 :fitness-fn #'corrects :sort-fn #'> :save-every 1 :epsilon 1.8)
 ;; *cached-agents*
 ;; *population*
@@ -1745,9 +1806,9 @@ from each sample."
 	(len 0))
     (dolist (report reports)
       (when (and (> (accesses report :train :corrects) 0.6)
-		 (< (accesses report :train :mape) 0.03)
+		 (< (accesses report :train :mape) 0.05)
 		 (> (accesses report :validation :corrects) 0.6)
-		 (< (accesses report :validation :mape) 0.03))
+		 (< (accesses report :validation :mape) 0.05))
 	(incf train-mape (accesses report :train :mape))
 	(incf train-corrects (accesses report :train :corrects))
 	(incf val-mape (accesses report :validation :mape))
@@ -1765,7 +1826,7 @@ from each sample."
     ))
 
 ;; (defparameter *results* (run-random-rates 10))
-;; 0.55
+;; *generations*
 
 (defun move-somewhere ()
   ;; Print prices.
@@ -1974,7 +2035,7 @@ extracted from `*agents-pool*` using the indexes stored in `agents-indexes`."
 
 ;; (length (agent-simulation (first *agents-pool*)))
 
-(defun agents-mutate (&optional (chance 0.1))
+(defun agents-mutate (&optional (chance 0.2))
   "Mutates the pool of agents if a according to `chance`."
   ;; (agents-mutate 0.5)
 

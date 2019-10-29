@@ -328,7 +328,8 @@ series `real`."
 (defun corrects (sim real &optional (mape-constraint t))
   "How many trades were correct."
   ;; (corrects (agents-indexes-simulation (agents-best (agents-distribution *population*))) (get-real-data))
-  (if (and mape-constraint (> (mape sim real) 0.1))
+  (if (and mape-constraint (or (> (mape sim real) 0.1)
+			       (check-zero-metric sim real)))
       (/ 1 (length real))
       (let ((real (rest real))
 	    ;; we only need the real previous, as the simulated is based on the last real price at every moment
@@ -1253,7 +1254,7 @@ series `real`."
 
 (progn
   (setf lparallel:*kernel* (lparallel:make-kernel 4))
-  (setf omper:*data-count* 301)
+  (setf omper:*data-count* 101)
   (setf omper:*partition-size* 100)
   (defparameter *community-size* 10
     "Represents the number of agents in an 'individual' or solution. A simulation (a possible solution) will be generated using this number of agents.")
@@ -1292,8 +1293,8 @@ series `real`."
 
 ;; (with-postgres-connection (execute (delete-from :populations)))
 ;; (with-postgres-connection (execute (delete-from :populations-closure)))
-;; (train 100000 :fitness-fn #'mape :sort-fn #'< :save-every 1 :epsilon 0.01)
-;; (train 100000 :fitness-fn #'corrects :sort-fn #'> :save-every 1 :epsilon 1.8)
+;; (time (train 100000 :fitness-fn #'mape :sort-fn #'< :save-every 1 :epsilon 0.001))
+;; (time (train 100000 :fitness-fn #'corrects :sort-fn #'> :save-every 1 :epsilon 1.8))
 ;; *cached-agents*
 ;; *population*
 ;; *generations*
@@ -1400,7 +1401,7 @@ evolutionary process."
 	  (setf (slot-value agent 'leverage) 1))
 	)
       (init-from-database starting-population))
-  (terpri)
+  (format t "~%start.~%")
   (let ((parent-id starting-population)
 	(can-save? nil))
     (dotimes (_ generations) 

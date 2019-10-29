@@ -1258,7 +1258,7 @@ series `real`."
   (setf omper:*partition-size* 100)
   (defparameter *community-size* 10
     "Represents the number of agents in an 'individual' or solution. A simulation (a possible solution) will be generated using this number of agents.")
-  (defparameter *population-size* 30
+  (defparameter *population-size* 10
     "How many 'communities', 'individuals' or 'solutions' will be participating in the optimization process.")
   (defparameter *begin* (random-int *rand-gen* 0 (- (length *all-rates*) (* *data-count* 3)))
     "The starting timestamp for the data used for training or testing.")
@@ -1293,8 +1293,8 @@ series `real`."
 
 ;; (with-postgres-connection (execute (delete-from :populations)))
 ;; (with-postgres-connection (execute (delete-from :populations-closure)))
-;; (time (train 100000 :fitness-fn #'mape :sort-fn #'< :save-every 1 :epsilon 0.001))
 ;; (time (train 100000 :fitness-fn #'corrects :sort-fn #'> :save-every 1 :epsilon 1.8))
+;; (time (train 100000 :fitness-fn #'mape :sort-fn #'< :save-every 1 :epsilon 0.001))
 ;; *cached-agents*
 ;; *population*
 ;; *generations*
@@ -1410,6 +1410,7 @@ evolutionary process."
       ;; 	(agents-mf-adjust (extract-agents-from-pool (agents-best (agents-distribution *population*))) 10))
       (let* ((fitness (agents-reproduce fitness-fn sort-fn)))
         (when (or (null *fitnesses*)
+                  (> fitness 0.6)
                   (funcall sort-fn fitness (first *fitnesses*)))
           (when can-save?
             (let* ((child-id (insert-population parent-id "" fitness-fn sort-fn)))
@@ -1807,9 +1808,9 @@ from each sample."
 	(len 0))
     (dolist (report reports)
       (when (and (> (accesses report :train :corrects) 0.6)
-		 (< (accesses report :train :mape) 0.05)
-		 (> (accesses report :validation :corrects) 0.6)
-		 (< (accesses report :validation :mape) 0.05))
+		 (< (accesses report :train :mape) 0.03)
+		 (> (accesses report :validation :corrects) 0.5)
+		 (< (accesses report :validation :mape) 0.03))
 	(incf train-mape (accesses report :train :mape))
 	(incf train-corrects (accesses report :train :corrects))
 	(incf val-mape (accesses report :validation :mape))

@@ -1258,15 +1258,15 @@ series `real`."
 
 (progn
   (setf lparallel:*kernel* (lparallel:make-kernel 4))
-  (setf omper:*data-count* 301)
+  (setf omper:*data-count* 1001)
   (setf omper:*partition-size* 100)
   (defparameter *community-size* 100
     "Represents the number of agents in an 'individual' or solution. A simulation (a possible solution) will be generated using this number of agents.")
-  (defparameter *population-size* 10
+  (defparameter *population-size* 2
     "How many 'communities', 'individuals' or 'solutions' will be participating in the optimization process.")
   (defparameter *begin* (random-int *rand-gen* 0 (- (length *all-rates*) (* *data-count* 3)))
     "The starting timestamp for the data used for training or testing.")
-  (defparameter *end* (+ *begin* (* *data-count* 3))
+  (defparameter *end* (+ *begin* (ceiling (* *data-count* 1.5)))
     "The ending timestamp for the data used for training or testing.")
   (defparameter *rates* (subseq *all-rates* *begin* *end*)
     "The rates used to generate the agents' perceptions.")
@@ -1395,9 +1395,9 @@ evolutionary process."
   (if (string= starting-population "")
       ;; Resetting some globals like the population, agents, the cache table, etc.
       (progn
-	(setf *agents-pool* (gen-agents *num-pool-agents*))
-	(setf *population* (gen-communities *community-size* *population-size*))
-	(setf *cached-agents* (make-hash-table :test #'equal :size 2000 :synchronized t))
+	;; (setf *agents-pool* (gen-agents *num-pool-agents*))
+	;; (setf *population* (gen-communities *community-size* *population-size*))
+	;; (setf *cached-agents* (make-hash-table :test #'equal :size 2000 :synchronized t))
 	(setf *generations* 0)
 	(setf *fitnesses* nil)
 	;; Reset all agents' leverages to 1.

@@ -1228,6 +1228,10 @@ series `real`."
                (sol-matrix (magicl:multiply-complex-matrices
                             (magicl:inv A)
                             B)))
+
+          ;; (when (= (realpart (magicl:det A)) 0.0)
+          ;;   (print trades))
+          
           ;; Modifying leverages.
           (dotimes (j (length agents))
             (setf (slot-value (extract-agent-from-pool (nth j agents)) 'leverage)
@@ -1254,9 +1258,9 @@ series `real`."
 
 (progn
   (setf lparallel:*kernel* (lparallel:make-kernel 4))
-  (setf omper:*data-count* 101)
+  (setf omper:*data-count* 301)
   (setf omper:*partition-size* 100)
-  (defparameter *community-size* 10
+  (defparameter *community-size* 100
     "Represents the number of agents in an 'individual' or solution. A simulation (a possible solution) will be generated using this number of agents.")
   (defparameter *population-size* 10
     "How many 'communities', 'individuals' or 'solutions' will be participating in the optimization process.")
@@ -1410,7 +1414,7 @@ evolutionary process."
       ;; 	(agents-mf-adjust (extract-agents-from-pool (agents-best (agents-distribution *population*))) 10))
       (let* ((fitness (agents-reproduce fitness-fn sort-fn)))
         (when (or (null *fitnesses*)
-                  (> fitness 0.6)
+                  ;; (> fitness 0.6)
                   (funcall sort-fn fitness (first *fitnesses*)))
           (when can-save?
             (let* ((child-id (insert-population parent-id "" fitness-fn sort-fn)))
@@ -1809,7 +1813,7 @@ from each sample."
     (dolist (report reports)
       (when (and (> (accesses report :train :corrects) 0.6)
 		 (< (accesses report :train :mape) 0.03)
-		 (> (accesses report :validation :corrects) 0.5)
+		 (> (accesses report :validation :corrects) 0.6)
 		 (< (accesses report :validation :mape) 0.03))
 	(incf train-mape (accesses report :train :mape))
 	(incf train-corrects (accesses report :train :corrects))

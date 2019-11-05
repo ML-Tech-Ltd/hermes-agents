@@ -249,7 +249,7 @@ agents parameters according to it."
   (if (< (mean (mapcar (lambda (s r)
 			 (abs (/ (- r s) r)))
 		       sim real))
-  	 0.01)
+  	 0.005)
       t))
 
 (defun pmape (sim real)
@@ -270,12 +270,13 @@ agents parameters according to it."
 			       (rest real)))
 	   (length (rest real))))))
 
-(defun mape (sim real)
+(defun mape (sim real &optional (zero-metric-constraint t))
   "Mean absolute percentage error between a simulated time series `sim` and a real time series `real`."
-  (if (check-zero-metric sim real)
+  (if (and zero-metric-constraint
+	   (check-zero-metric sim real))
       most-positive-fixnum
       (/ (reduce #'+ (mapcar (lambda (s r)
-			       (abs (/ (- r s) r)))
+			       (/ (abs (- r s)) (abs r)))
 			     sim
 			     (rest real)))
 	 (length (rest real)))))
@@ -1268,10 +1269,10 @@ series `real`."
 ;; (mapcar #'float (mapcar #'agents-pmape *population*))
 
 ;; All communities leverages.
-;; (dolist (community *population*)
-;;   (dolist (agent-idx community)
-;;     (format t " ~a~%" (slot-value (extract-agent-from-pool agent-idx) 'leverage)))
-;;   (terpri))
+(dolist (community *population*)
+  (dolist (agent-idx community)
+    (format t " ~a~%" (slot-value (extract-agent-from-pool agent-idx) 'leverage)))
+  (terpri))
 
 ;; (dolist (community *population*)
 ;;   (woof (extract-agents-from-pool community))
@@ -1324,45 +1325,43 @@ series `real`."
                                     (- (* scale 0.01))
                                     (* scale 0.01))))
          (iota n))))
-(agents-mape (agents-best (agents-distribution *population*)))
 (descent 'fit (noised-trade-scales (length (first *population*)))
          :error 0.0d0
-         :rate 1.0d0
-         :max-steps 100000)
+         :rate (* (calc-trade-scale) 20.0)
+         :max-steps 1000000)
 
-(fit #(14 14 14 14 14))
+;; Print metrics.
+;; (csv-real-sim)
 
-(descent 'f #(2.0))
+;; Print current leverages
+;; (dolist (agent *best*) (print (slot-value (extract-agent-from-pool agent) 'leverage)))
 
-(descent (lambda (x)
-           (reduce #'* x))
-         #(1.0))
+;; (agents-mape *best* nil)
+;; (float (agents-corrects *best* nil))
+(let ((omper:*data-count* (ceiling (* omper:*data-count* 0.5))))
+  (agents-test (extract-agents-from-pool
+                *best*)
+               (subseq *all-rates* *begin* (+ *end* omper:*data-count*))))
+(float 68/125)
 
+(defparameter *best* (agents-best (agents-distribution *population*)))
 (defun fit (leverages)
-  (let* ((community (agents-best (agents-distribution *population*)))
+  (let* ((community *best*)
          (agents (extract-agents-from-pool
                   community)))
     ;; Changing leverages
     (dotimes (i (length leverages))
       (setf (slot-value (nth i agents) 'leverage)
             (aref leverages i)))
-    (let ((mape (agents-mape community)))
+    (let ((mape (agents-mape community nil)))
       (print mape)
       mape)))
 
-(let ((result (descent 'f #(2.0 2.0) :rate 3.3d-2)))
-  (format nil "~%    We found a local extremum at x=~3,3f y=~3,3f~%" (aref result 0) (aref result 1)))
-
-;; (f (descent 'f #(3.0 3.0) :rate 3.3d-2))
-
-;; (f (descent 'f #(1.0 1.0) :rate 3.3d-2))
-;; (f #(0.0 0.0))
-
 (defun init ()
-  (setf lparallel:*kernel* (lparallel:make-kernel 4))
-  (setf omper:*data-count* 101)
+  (setf lparallel:*kernel* (lparallel:make-kernel 32))
+  (setf omper:*data-count* 501)
   (setf omper:*partition-size* 100)
-  (defparameter *community-size* 20
+  (defparameter *community-size* 100
     "Represents the number of agents in an 'individual' or solution. A simulation (a possible solution) will be generated using this number of agents.")
   (defparameter *population-size* 10
     "How many 'communities', 'individuals' or 'solutions' will be participating in the optimization process.")
@@ -1418,8 +1417,9 @@ series `real`."
 ;; Setting *begin* and *end* according to last entry in database.
 ;; (with-postgres-connection (retrieve-all (select (:*) (from :populations) (order-by (:asc :creation-time)))))
 ;; *begin*
-;; (position 1307505600000000 *all-rates* :key (lambda (elt)
-;;                                               (read-from-string (access elt :time))))
+;; (position 1386046800000000 *all-rates* :key (lambda (elt) (read-from-string (access elt :time))))
+;; *end*
+;; (1+ (position 1538539200000000 *all-rates* :key (lambda (elt) (read-from-string (access elt :time)))))
 
 ;; (setf *begin* 1780)
 ;; (setf *end* 2382)
@@ -1530,7 +1530,7 @@ evolutionary process."
         (when (or (null *fitnesses*)
                   ;; (> fitness 0.6)
                   (funcall sort-fn fitness (first *fitnesses*)))
-          (when (and (< fitness 0.01) can-save?)
+          (when (and can-save?)
             (let* ((child-id (insert-population parent-id "" fitness-fn sort-fn)))
               (insert-initial-closure child-id)
               (insert-closure parent-id child-id)
@@ -1881,7 +1881,7 @@ from each sample."
 			       (list %k %d))))))
 
 (defun get-reports ()
-  (let* ((omper:*data-count* (ceiling (* omper:*data-count* 0.5))))
+  (let* ((omper:*data-count* (ceiling (* omper:*data-count* 0.1))))
     (mapcar (lambda (db-pop)
 	      (let* ((validation (market-report db-pop
 						*instrument* *timeframe*
@@ -1900,7 +1900,7 @@ from each sample."
 	    (retrieve-all (select (:*)
 			    (from :populations)
 			    (order-by (:desc :creation-time))
-			    (limit 1000))))))
+			    (limit 5))))))
 
 (defun run-random-rates (iterations)
   (dotimes (_ iterations)
@@ -1998,7 +1998,7 @@ from each sample."
          (mae (mae sim real))
 	 (mse (mse sim real))
 	 (rmse (rmse sim real))
-	 (mape (mape sim real))
+	 (mape (mape sim real nil))
 	 (pmape (pmape sim real))
 	 (corrects (corrects sim real nil))
 	 (revenue (revenue sim real)))
@@ -2550,12 +2550,12 @@ each point in the real prices."
   (let ((sim (agents-indexes-simulation agents-indexes)))
     (revenue sim (get-real-data (length sim)))))
 
-(defun agents-corrects (agents-indexes)
+(defun agents-corrects (agents-indexes &optional (mape-constraint t))
   "Returns the number of correct direction predictions made by the agents in
 `agents-indexes` for the real prices."
   ;; (agents-corrects (first *population*))
   (let ((sim (agents-indexes-simulation agents-indexes)))
-    (corrects sim (get-real-data (length sim)))))
+    (corrects sim (get-real-data (length sim)) mape-constraint)))
 
 (defun agents-pmape (agents-indexes)
   "Returns the penalized mean absolute percentage error obtained by the agents' simulation in
@@ -2564,12 +2564,12 @@ each point in the real prices."
   (let ((sim (agents-indexes-simulation agents-indexes)))
     (pmape sim (get-real-data (length sim)))))
 
-(defun agents-mape (agents-indexes)
+(defun agents-mape (agents-indexes &optional (zero-metric-constraint t))
   "Returns the mean absolute percentage error obtained by the agents' simulation in
 `agents-indexes` for the real prices."
   ;; (agents-mse (first *population*))
   (let ((sim (agents-indexes-simulation agents-indexes)))
-    (mape sim (get-real-data (length sim)))))
+    (mape sim (get-real-data (length sim)) zero-metric-constraint)))
 
 (defun agents-rmse (agents-indexes)
   "Returns the root mean square error obtained by the agents' simulation in

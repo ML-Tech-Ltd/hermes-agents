@@ -328,7 +328,7 @@ series `real`."
 (defun corrects (sim real &optional (mape-constraint t))
   "How many trades were correct."
   ;; (corrects (agents-indexes-simulation (agents-best (agents-distribution *population*))) (get-real-data))
-  (if (and mape-constraint (or (> (mape sim real) 0.1)
+  (if (and mape-constraint (or ;; (> (mape sim real) 0.1)
 			       (check-zero-metric sim real)))
       (/ 1 (length real))
       (let ((real (rest real))
@@ -384,7 +384,8 @@ series `real`."
   ;; (slot-value (first (slot-value (make-instance 'agents) 'agents)) 'beliefs)
   ((beliefs :initarg :beliefs :initform (gen-beliefs) :accessor beliefs)
    (rules :initarg :rules :initform (gen-rules *num-rules*) :accessor rules)
-   (leverage :initarg :leverage :initform 1)
+   ;; (leverage :initarg :leverage :initform 1)
+   (leverage :initarg :leverage :initform (calc-trade-scale))
    ;; (trade-scale :initarg :trade-scale :initform (random-int *rand-gen* 1 100000))
    (trade-scale :initarg :trade-scale :initform 1)
    ;; (trade-scale :initarg :trade-scale :initform (access *rules-config* :trade-scale))
@@ -551,9 +552,12 @@ series `real`."
 (defun agents-reproduce (&optional (fitness-fn #'mape) (sort-fn #'<))
   (agents-mutate)
   ;; Finding appropriate leverages.
-  (dolist (community *population*)
-    (woof community))
-  
+  ;; (dolist (community *population*)
+  ;;   (woof community))
+  ;; (when (> *generations* 900)
+  ;;   (dolist (community *population*)
+  ;;     (woof community)))
+
   (let ((x (agents-selectone (agents-distribution *population* fitness-fn sort-fn)))
 	(y (agents-selectone (agents-distribution *population* fitness-fn sort-fn))))
     ;; If we selected the same individual, we don't want to use them for crossover.
@@ -573,8 +577,11 @@ series `real`."
 	)))
 
   ;; Finding appropriate leverages.
-  (dolist (community *population*)
-    (woof community))
+  ;; (dolist (community *population*)
+  ;;     (woof community))
+  ;; (when (> *generations* 900)
+  ;;   (dolist (community *population*)
+  ;;     (woof community)))
 
   (multiple-value-bind (_ f) (agents-distribution *population* fitness-fn sort-fn)
     f))
@@ -908,13 +915,13 @@ series `real`."
 	  (cl21:iota num)))
 
 (defun calc-trade-scale ()
-  (/ 1 (/ (avg (mapcar (lambda (next curr)
-			 (abs (- (access next :close-bid)
-				 (access curr :close-bid))))
-		       (rest *rates*)
-		       *rates*))
-	  *community-size* 10)))
-;; (calc-trade-scale)
+  (/ (mean (mapcar (lambda (next curr)
+                     (abs (- (access next :close-bid)
+                             (access curr :close-bid))))
+                   (rest *rates*)
+                   *rates*))
+     *community-size*))
+;; (* 50 (calc-trade-scale))
 
 ;; (defun meow (agents iterations)
 ;;   (let (train-corrects validation-corrects test-corrects
@@ -1136,6 +1143,70 @@ series `real`."
 ;; (let ((seq '(4 5 1 2 3 6 7 8)))
 ;;   (median-elt-idx seq))
 
+(defun csv-real-sim ()
+  (map nil (lambda (real sim)
+             (format t "~a, ~a~%" real sim))
+       (rest (get-real-data omper:*data-count*))
+       (mapcar (lambda (rate)
+                 (format nil "~f" rate))
+               (agents-indexes-simulation (agents-best (agents-distribution *population*
+                                                                            #'mape
+                                                                            #'<)
+                                                       #'<)))))
+
+(defun woof (agents)
+  (ignore-errors
+    ;; Reset all agents' leverages to 1.
+    (dolist (agent *agents-pool*)
+      (setf (slot-value agent 'leverage) 1))
+    
+    (let* ((reals (get-real-data omper:*data-count*))
+           (trades (mapcar (lambda (agent)
+                             (butlast (agent-trades agent))
+                             )
+                           (extract-agents-from-pool agents)))
+           (deltas (mapcar (lambda (next curr)
+                             (- next curr))
+                           (rest reals) reals)))
+
+      ;; Clustered deltas.
+      (let* ((delta-clusters (mapcar #'flatten (km (mapcar #'list deltas) (length agents))))
+             (trade-clusters (make-hash-table :size (length agents)))
+             (idxs (mapcar #'median-elt-idx delta-clusters))
+             (mean-deltas (mapcar #'median-elt delta-clusters)))
+
+        ;; Clustering deltas and trades.
+        (dotimes (i (length deltas))
+          ;; `num-cluster` is the number of the cluster in which we found the `ith` delta.
+          (let ((num-cluster (position (nth i deltas) delta-clusters :test #'find)))
+            ;; We save the slice of trades (different trades by different agents)
+            ;; in its corresponding cluster.
+            (push (mapcar (lambda (trade)
+                            (nth i trade))
+                          trades)
+                  (gethash num-cluster trade-clusters))))
+
+        (let* ((mean-trades (apply #'mapcar #'list
+                                   (mapcar (lambda (idx trades)
+                                             (apply #'mapcar (lambda (&rest nums)
+                                                               (nth idx nums))
+                                                    (cdr trades)))
+                                           idxs
+                                           (sort (copy-sequence 'list (hash-table-alist trade-clusters)) #'< :key #'first))))
+               (A (magicl:make-complex-matrix (length mean-deltas) (length mean-deltas) (flatten mean-trades)))
+               (B (magicl:make-complex-matrix (length mean-deltas) 1 mean-deltas))
+               (sol-matrix (magicl:multiply-complex-matrices
+                            (magicl:inv A)
+                            B)))
+
+          (if (= (realpart (magicl:det A)) 0.0)
+              (format t ".")
+              ;; Modifying leverages.
+              (dotimes (j (length agents))
+                (setf (slot-value (extract-agent-from-pool (nth j agents)) 'leverage)
+                      (realpart (magicl:ref sol-matrix j 0)))))
+          )))))
+
 (defun woof (agents)
   (ignore-errors
     ;; Reset all agents' leverages to 1.
@@ -1184,60 +1255,6 @@ series `real`."
                   (realpart (magicl:ref sol-matrix j 0))))
           )))))
 
-(defun woof (agents)
-  (ignore-errors
-    ;; Reset all agents' leverages to 1.
-    (dolist (agent *agents-pool*)
-      (setf (slot-value agent 'leverage) 1))
-    
-    (let* ((reals (get-real-data omper:*data-count*))
-           (trades (mapcar (lambda (agent)
-                             (butlast (agent-trades agent))
-                             )
-                           (extract-agents-from-pool agents)))
-           (deltas (mapcar (lambda (next curr)
-                             (- next curr))
-                           (rest reals) reals)))
-
-      ;; Clustered deltas.
-      (let* ((delta-clusters (mapcar #'flatten (km (mapcar #'list deltas) (length agents))))
-             (trade-clusters (make-hash-table :size (length agents)))
-             (idxs (mapcar #'median-elt-idx delta-clusters))
-             (mean-deltas (mapcar #'median-elt delta-clusters)))
-
-        ;; Clustering deltas and trades.
-        (dotimes (i (length deltas))
-          ;; `num-cluster` is the number of the cluster in which we found the `ith` delta.
-          (let ((num-cluster (position (nth i deltas) delta-clusters :test #'find)))
-            ;; We save the slice of trades (different trades by different agents)
-            ;; in its corresponding cluster.
-            (push (mapcar (lambda (trade)
-                            (nth i trade))
-                          trades)
-                  (gethash num-cluster trade-clusters))))
-
-        (let* ((mean-trades (apply #'mapcar #'list
-                                   (mapcar (lambda (idx trades)
-                                             (apply #'mapcar (lambda (&rest nums)
-                                                               (nth idx nums))
-                                                    (cdr trades)))
-                                           idxs
-                                           (sort (copy-sequence 'list (hash-table-alist trade-clusters)) #'< :key #'first))))
-               (A (magicl:make-complex-matrix (length mean-deltas) (length mean-deltas) (flatten mean-trades)))
-               (B (magicl:make-complex-matrix (length mean-deltas) 1 mean-deltas))
-               (sol-matrix (magicl:multiply-complex-matrices
-                            (magicl:inv A)
-                            B)))
-
-          ;; (when (= (realpart (magicl:det A)) 0.0)
-          ;;   (print trades))
-          
-          ;; Modifying leverages.
-          (dotimes (j (length agents))
-            (setf (slot-value (extract-agent-from-pool (nth j agents)) 'leverage)
-                  (realpart (magicl:ref sol-matrix j 0))))
-          )))))
-
 ;; (progn
 ;;   (setf omper:*data-count* 61)
 ;;   ;; (setf *community-size* 2)
@@ -1250,23 +1267,108 @@ series `real`."
 
 ;; (mapcar #'float (mapcar #'agents-pmape *population*))
 
-;; ;; All communities leverages.
+;; All communities leverages.
 ;; (dolist (community *population*)
 ;;   (dolist (agent-idx community)
-;;     (print (slot-value (extract-agent-from-pool agent-idx) 'leverage)))
+;;     (format t " ~a~%" (slot-value (extract-agent-from-pool agent-idx) 'leverage)))
 ;;   (terpri))
 
-(progn
+;; (dolist (community *population*)
+;;   (woof (extract-agents-from-pool community))
+;;   )
+
+(defun f (v)
+  (reduce '+ (map 'vector (lambda (i) (expt i 2)) v)))
+
+(defun norm (x)
+  (sqrt (reduce '+ (map 'vector (lambda (i) (expt i 2)) x))))
+
+(defun nabla (f x v &optional (epsilon 1.0d-4))
+  (let* ((dir (map 'vector (lambda (u) (* epsilon u)) v))
+         (ter (map 'vector '+ x dir))
+         (ini (map 'vector '- x dir)))
+    (/ (- (funcall f ter) 
+          (funcall f ini))
+       (* 2 (norm dir)))))
+
+(defun basis (i n)
+  (map 'vector (lambda (j) (if (equal i j) 1 0)) (range n)))
+
+(defun descent (fun x &key (error 1.0d-5) 
+                        (rate 1.0d-2) 
+                        (max-steps 10000))
+  (let ((len (length x)))
+    (do* ((y x (map 'vector '- y step))
+          (step (map 'vector 
+                     (lambda (i) (* rate (nabla fun y (basis i len)))) 
+                     (iota len))
+                (map 'vector 
+                     (lambda (i) (* rate (nabla fun y (basis i len)))) 
+                     (iota len)))
+          (n 0 (1+ n)))
+         ((or (< (norm step) error) 
+              (>= n max-steps))
+          ;; (if (< n max-steps) y)
+          y
+          ))))
+
+(dolist (agent *agents-pool*)
+  (setf (slot-value agent 'leverage)
+        (calc-trade-scale)))
+
+(defun noised-trade-scales (n)
+  (let ((scale (calc-trade-scale)))
+    (map 'vector (lambda (_)
+                   (+ scale
+                      (random-float *rand-gen*
+                                    (- (* scale 0.01))
+                                    (* scale 0.01))))
+         (iota n))))
+(agents-mape (agents-best (agents-distribution *population*)))
+(descent 'fit (noised-trade-scales (length (first *population*)))
+         :error 0.0d0
+         :rate 1.0d0
+         :max-steps 100000)
+
+(fit #(14 14 14 14 14))
+
+(descent 'f #(2.0))
+
+(descent (lambda (x)
+           (reduce #'* x))
+         #(1.0))
+
+(defun fit (leverages)
+  (let* ((community (agents-best (agents-distribution *population*)))
+         (agents (extract-agents-from-pool
+                  community)))
+    ;; Changing leverages
+    (dotimes (i (length leverages))
+      (setf (slot-value (nth i agents) 'leverage)
+            (aref leverages i)))
+    (let ((mape (agents-mape community)))
+      (print mape)
+      mape)))
+
+(let ((result (descent 'f #(2.0 2.0) :rate 3.3d-2)))
+  (format nil "~%    We found a local extremum at x=~3,3f y=~3,3f~%" (aref result 0) (aref result 1)))
+
+;; (f (descent 'f #(3.0 3.0) :rate 3.3d-2))
+
+;; (f (descent 'f #(1.0 1.0) :rate 3.3d-2))
+;; (f #(0.0 0.0))
+
+(defun init ()
   (setf lparallel:*kernel* (lparallel:make-kernel 4))
-  (setf omper:*data-count* 1001)
+  (setf omper:*data-count* 101)
   (setf omper:*partition-size* 100)
-  (defparameter *community-size* 100
+  (defparameter *community-size* 20
     "Represents the number of agents in an 'individual' or solution. A simulation (a possible solution) will be generated using this number of agents.")
-  (defparameter *population-size* 2
+  (defparameter *population-size* 10
     "How many 'communities', 'individuals' or 'solutions' will be participating in the optimization process.")
   (defparameter *begin* (random-int *rand-gen* 0 (- (length *all-rates*) (* *data-count* 3)))
     "The starting timestamp for the data used for training or testing.")
-  (defparameter *end* (+ *begin* (ceiling (* *data-count* 1.5)))
+  (defparameter *end* (+ *begin* (ceiling (* *data-count* 3)))
     "The ending timestamp for the data used for training or testing.")
   (defparameter *rates* (subseq *all-rates* *begin* *end*)
     "The rates used to generate the agents' perceptions.")
@@ -1283,7 +1385,7 @@ series `real`."
                                  (:mf-mean-adjusting . t)
                                  (:nmf-height-style . :complement)
                                  ;; (:trade-scale . ,(calc-trade-scale))
-				 )
+                                 )
     "Configuration used to create the rules of the agents for a population.")
   (defparameter *agents-pool* (gen-agents *num-pool-agents*)
     "Instances of `agent` that are available to create solutions.")
@@ -1293,7 +1395,8 @@ series `real`."
     "Used for memoizing an agent's simulation.")
   (defparameter *fitnesses* nil
     "List of fitnesses obtained after evolving a population.")
-  (defparameter *fitness-fn* :pmape))
+  (defparameter *fitness-fn* :mape))
+;; (init)
 
 ;; (with-postgres-connection (execute (delete-from :populations)))
 ;; (with-postgres-connection (execute (delete-from :populations-closure)))
@@ -1303,7 +1406,8 @@ series `real`."
 ;; *population*
 ;; *generations*
 
-;; (filter-reports (get-reports))
+;; (filter-reports *results*)
+;; (defparameter *results* (get-reports))
 
 ;; Communities' sizes.
 ;; (mapcar #'length *population*)
@@ -1311,15 +1415,17 @@ series `real`."
 ;; Report
 ;; (map nil (lambda (lst) (format t "gen: ~a ~t mape:~a ~t corrects: ~a ~t revenue: ~a~%" (access:access lst :generations) (float (access:access lst :mape)) (* (float (access:access lst :corrects)) 100) (float (access:access lst :revenue)))) (with-postgres-connection (retrieve-all (select (:*) (from :populations) (order-by (:asc :creation-time))))))
 
+;; Setting *begin* and *end* according to last entry in database.
+;; (with-postgres-connection (retrieve-all (select (:*) (from :populations) (order-by (:asc :creation-time)))))
+;; *begin*
+;; (position 1307505600000000 *all-rates* :key (lambda (elt)
+;;                                               (read-from-string (access elt :time))))
+
+;; (setf *begin* 1780)
+;; (setf *end* 2382)
+
 ;; Print metrics.
-;; (length (mapcar (lambda (rate)
-;; 		  (format t "~f~%" rate))
-;; 		;; (butlast (agents-indexes-simulation (agents-best (agents-distribution *population*))))
-;; 		(agents-indexes-simulation (agents-best (agents-distribution *population*
-;; 									     #'corrects
-;; 									     #'>)
-;; 							#'>))))
-;; (mapcar #'print (rest (get-real-data omper:*data-count*)))
+;; (csv-real-sim)
 
 ;; Get metrics.
 ;; (float (corrects (agents-indexes-simulation (agents-best (agents-distribution *population* #'pmape
@@ -1347,6 +1453,14 @@ series `real`."
 
 ;; Init using last entry (generations)
 ;; (init-from-database (access (first (with-postgres-connection (retrieve-all (select (:*) (from :populations) (order-by (:desc :generations)))))) :id))
+
+;; Woofing individually.
+;; (woof (agents-best (agents-distribution *population*)))
+;; (agents-corrects (agents-best (agents-distribution *population*)))
+;; (let ((omper:*data-count* (ceiling (* omper:*data-count* 0.1))))
+;;   (agents-test (extract-agents-from-pool
+;;                 (agents-best (agents-distribution *population*)))
+;;                (subseq *all-rates* *begin* (+ *end* omper:*data-count*))))
 
 ;; (agents-indexes-simulation (agents-best (agents-distribution *population*)))
 ;; (agents-corrects (agents-best (agents-distribution *population*)))
@@ -1395,19 +1509,19 @@ evolutionary process."
   (if (string= starting-population "")
       ;; Resetting some globals like the population, agents, the cache table, etc.
       (progn
-	;; (setf *agents-pool* (gen-agents *num-pool-agents*))
-	;; (setf *population* (gen-communities *community-size* *population-size*))
-	;; (setf *cached-agents* (make-hash-table :test #'equal :size 2000 :synchronized t))
+	(setf *agents-pool* (gen-agents *num-pool-agents*))
+	(setf *population* (gen-communities *community-size* *population-size*))
+	(setf *cached-agents* (make-hash-table :test #'equal :size 2000 :synchronized t))
 	(setf *generations* 0)
 	(setf *fitnesses* nil)
 	;; Reset all agents' leverages to 1.
-	(dolist (agent *agents-pool*)
-	  (setf (slot-value agent 'leverage) 1))
+	;; (dolist (agent *agents-pool*)
+	;;   (setf (slot-value agent 'leverage) 1))
 	)
       (init-from-database starting-population))
   (format t "~%start.~%")
   (let ((parent-id starting-population)
-	(can-save? nil))
+	(can-save? t))
     (dotimes (_ generations) 
       ;; (when (and (access *rules-config* :mf-mean-adjusting)
       ;; 		 (< (random-float *rand-gen* 0 1) 0.20))
@@ -1416,7 +1530,7 @@ evolutionary process."
         (when (or (null *fitnesses*)
                   ;; (> fitness 0.6)
                   (funcall sort-fn fitness (first *fitnesses*)))
-          (when can-save?
+          (when (and (< fitness 0.01) can-save?)
             (let* ((child-id (insert-population parent-id "" fitness-fn sort-fn)))
               (insert-initial-closure child-id)
               (insert-closure parent-id child-id)
@@ -1432,7 +1546,7 @@ evolutionary process."
               (setf can-save? nil)))
 	  
           (push fitness *fitnesses*)
-          (format t "~a: ~a~%" *generations* (float fitness)))
+          (format t "~%~a: ~a" *generations* (float fitness)))
 	;; Checking if error threshold is met.
 	(when (funcall sort-fn fitness epsilon)
 	  (return))
@@ -1514,8 +1628,8 @@ granularity `timeframe`."
 		 (:end . ,(read-from-string (access (alexandria:last-elt rates) :time)))
                 (:instrument . ,instrument)
                 (:timeframe . ,timeframe)
-                ,@(agents-test best *rates*)
-                (:rates . ,*rates*)))
+                ,@(agents-test best rates)
+                (:rates . ,rates)))
     ))
 
 ;; (ql:quickload :magicl)
@@ -1767,7 +1881,7 @@ from each sample."
 			       (list %k %d))))))
 
 (defun get-reports ()
-  (let* ((omper:*data-count* (ceiling (* omper:*data-count* 0.1))))
+  (let* ((omper:*data-count* (ceiling (* omper:*data-count* 0.5))))
     (mapcar (lambda (db-pop)
 	      (let* ((validation (market-report db-pop
 						*instrument* *timeframe*
@@ -1790,16 +1904,10 @@ from each sample."
 
 (defun run-random-rates (iterations)
   (dotimes (_ iterations)
-
-    (defparameter *begin* (random-int *rand-gen* 0 (- (length *all-rates*) (* *data-count* 3)))
-      "The starting timestamp for the data used for training or testing.")
-    (defparameter *end* (+ *begin* (* *data-count* 3))
-      "The ending timestamp for the data used for training or testing.")
-    (defparameter *rates* (subseq *all-rates* *begin* *end*)
-      "The rates used to generate the agents' perceptions.")
-      
-    (train 1000 :fitness-fn #'corrects :sort-fn #'> :save-every 1 :epsilon 1.6))
-
+    (init)
+    (train 4000 :fitness-fn #'mape :sort-fn #'< :save-every 1 :epsilon 0.001)
+    ;; (train 1000 :fitness-fn #'corrects :sort-fn #'> :save-every 1 :epsilon 1.8)
+    )
   (filter-reports (get-reports)))
 
 (defun filter-reports (reports)
@@ -1811,10 +1919,11 @@ from each sample."
 	(test-corrects 0)
 	(len 0))
     (dolist (report reports)
-      (when (and (> (accesses report :train :corrects) 0.6)
-		 (< (accesses report :train :mape) 0.03)
-		 (> (accesses report :validation :corrects) 0.6)
-		 (< (accesses report :validation :mape) 0.03))
+      (when (and ;; (> (accesses report :train :corrects) 0.5)
+             (< (accesses report :train :mape) 0.01)
+             ;; (> (accesses report :validation :corrects) 0.6)
+             ;; (< (accesses report :validation :mape) 0.02)
+             )
 	(incf train-mape (accesses report :train :mape))
 	(incf train-corrects (accesses report :train :corrects))
 	(incf val-mape (accesses report :validation :mape))
@@ -1828,10 +1937,12 @@ from each sample."
 	(:validation-mape . ,(float (/ val-mape len)))
 	(:validation-corrects . ,(float (/ val-corrects len)))
 	(:test-mape . ,(float (/ test-mape len)))
-	(:test-corrects . ,(float (/ test-corrects len)))))
-    ))
+	(:test-corrects . ,(float (/ test-corrects len)))
+        (:sample-size . ,len)))))
 
-;; (defparameter *results* (run-random-rates 10))
+;; (filter-reports *reports*)
+;; (defparameter *reports* (get-reports))
+;; (defparameter *results* (run-random-rates 100))
 ;; *generations*
 
 (defun move-somewhere ()

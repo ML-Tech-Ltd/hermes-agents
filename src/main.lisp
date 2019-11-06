@@ -326,52 +326,38 @@ series `real`."
                       real))
        (length real))))
 
-;; (agents-corrects (agents-best (agents-distribution *population*)) nil)
-;; (float 413/501)
+;; (float 399/500)
 ;; (corrects '(3 8 2 5) '(0 10 5 0) nil)
 ;; (agent-trades (extract-agent-from-pool (first (agents-best (agents-distribution *population*)))))
 
-(defun corrects (sim real &optional (mape-constraint t))
-  "How many trades were correct."
-  ;; (corrects (agents-indexes-simulation (agents-best (agents-distribution *population*))) (get-real-data))
-  ;; (print (last-elt sim))
-  (if (and mape-constraint (or ;; (> (mape sim real) 0.1)
-			    (check-zero-metric sim real)))
-      (/ 1 (length real))
-      (let ((sim-dirs (mapcar (lambda (curr next)
-				(if (> (- next curr) 0)
-				    1
-				    0))
-			      sim
-			      (rest sim)
-			      ))
-	    (real-dirs (rest
-			(mapcar (lambda (curr next)
-				  (if (> (- next curr) 0)
-				      1
-				      0))
-				real
-				(rest real)
-				))))
-	(/ (count t
-		  (mapcar (lambda (s r)
-			    ;; (print s)
-			    (when (= s r)
-			      t))
-			  sim-dirs
-			  real-dirs))
-	   (length real-dirs))
-	)))
+;; (map nil #'print (agents-indexes-simulation (agents-best (agents-distribution *population*))))
+;; (agents-indexes-simulation (agents-best (agents-distribution *population*)))
+;; ;; Get agent trades.
+;; ;; (agents-corrects (agents-best (agents-distribution *population*)) nil)
+;; (map nil 'print
+;;      (apply #'mapcar (lambda (&rest nums)
+;; 		       (apply #'+ nums))
+;; 	    (mapcar (lambda (agent)
+;; 		      (agent-trades agent))
+;; 		    (extract-agents-from-pool
+;; 		     (agents-best (agents-distribution *population*))))))
+
+;; (mapcar (lambda (s r)
+;; 	  (- s r)
+;; 	  r)
+;; 	(agents-indexes-simulation (agents-best (agents-distribution *population*)))
+;; 	(get-real-data 501))
 
 (defun corrects (sim real &optional (mape-constraint t))
   "How many trades were correct."
   ;; (corrects (agents-indexes-simulation (agents-best (agents-distribution *population*))) (get-real-data))
   (if (and mape-constraint (or ;; (> (mape sim real) 0.1)
-			       (check-zero-metric sim real)))
+			    (check-zero-metric sim real)))
       (/ 1 (length real))
-      (let (;; (real (rest real))
+      (let ((prev (first real))
+	    (real (rest real))
 	    ;; we only need the real previous, as the simulated is based on the last real price at every moment
-	    (prev (first real)))
+	    )
 	(/ (apply #'+ (mapcar (lambda (s r)
 				(let ((real-dir (- r prev))
 				      (sim-dir (- s prev)))
@@ -382,8 +368,8 @@ series `real`."
 				      1
 				      0)))
 			      (rest sim)
-			      (rest real)))
-	   (length (rest real))))))
+			      real))
+	   (length real)))))
 
 ;; (corrects '(9.5 9.7 9.5 9.4) '(10 9 10 9 10))
 
@@ -1397,7 +1383,7 @@ series `real`."
   (setf lparallel:*kernel* (lparallel:make-kernel 32))
   (setf omper:*data-count* 501)
   (setf omper:*partition-size* 100)
-  (defparameter *community-size* 5
+  (defparameter *community-size* 10
     "Represents the number of agents in an 'individual' or solution. A simulation (a possible solution) will be generated using this number of agents.")
   (defparameter *population-size* 10
     "How many 'communities', 'individuals' or 'solutions' will be participating in the optimization process.")
@@ -1436,13 +1422,19 @@ series `real`."
 ;; (with-postgres-connection (execute (delete-from :populations)))
 ;; (with-postgres-connection (execute (delete-from :populations-closure)))
 ;; (time (train 100000 :fitness-fn #'corrects :sort-fn #'> :save-every 1 :epsilon 1.8))
-;; (time (train 100000 :fitness-fn #'mape :sort-fn #'< :save-every 1 :epsilon 0.001))
+;; (time (train 100000 :fitness-fn #'mape :sort-fn #'< :save-every 10 :epsilon 0.001))
 ;; *cached-agents*
 ;; *population*
 ;; *generations*
 
 ;; (filter-reports *results*)
 ;; (defparameter *results* (get-reports))
+
+;; Get corrects of *results*.
+(dolist (res (reverse *results*))
+  (format t "~a,~a,~a~%" (accesses res :train :corrects)
+	  (accesses res :validation :corrects)
+	  (accesses res :test :corrects)))
 
 ;; Communities' sizes.
 ;; (mapcar #'length *population*)
@@ -1936,7 +1928,7 @@ from each sample."
 	    (retrieve-all (select (:*)
 			    (from :populations)
 			    (order-by (:desc :creation-time))
-			    (limit 5))))))
+			    (limit 1000))))))
 
 (defun run-random-rates (iterations)
   (dotimes (_ iterations)

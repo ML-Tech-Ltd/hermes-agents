@@ -288,10 +288,14 @@ agents parameters according to it."
 	   (check-zero-metric sim real))
       most-positive-fixnum
       (/ (reduce #'+ (mapcar (lambda (s r)
-			       (/ (abs (- r s)) (abs r)))
+			       (/ (abs (- r s)) (1+ (abs r))))
 			     sim
-			     (rest real)))
-	 (length (rest real)))))
+                             real
+			     ;; (rest real)
+                             ))
+	 ;; (length (rest real))
+         (length real)
+         )))
 
 ;; (check-zero-metric '(1.001 1.999 1.001 1.999 1.001 1.999)
 ;; 		   '(1 2 1 2 1 2))
@@ -515,7 +519,7 @@ series `real`."
 ;; (defparameter *coco* (gen-rules 2))
 ;; (add-rules-deltas *coco* (iota 300 :start 2 :step 0))
 
-(defun agent-trades (agent &optional (perception-fn #'agent-moving-average))
+(defun agent-trades (agent &optional (perception-fn #'agent-stochastic-oscillator))
   "Creates a simulation of a single agent's trades."
   ;; (time (length (agent-trades (make-instance 'agent))))
   ;; (time (agent-trades (first (extract-agents-from-pool '(2)))))
@@ -1298,14 +1302,14 @@ series `real`."
       (setf (slot-value agent 'leverage)
     	    (iota *num-inputs* :start *trade-scale* :step 0)))
     
-    (let* ((deltas (rest (get-real-data omper:*data-count*)))
+    (let* ((reals (get-real-data omper:*data-count*))
            (trades (mapcar (lambda (agent)
                              (butlast (agent-trades agent))
                              )
                            (extract-agents-from-pool agents)))
-           ;; (deltas (mapcar (lambda (next curr)
-           ;;                   (- next curr))
-           ;;                 (rest reals) reals))
+           (deltas (mapcar (lambda (next curr)
+                             (- next curr))
+                           (rest reals) reals))
 	   )
 
       ;; Clustered deltas.
@@ -1544,13 +1548,13 @@ series `real`."
   (setf lparallel:*kernel* (lparallel:make-kernel 32))
   (setf omper:*data-count* 60)
   ;; (setf omper:*partition-size* 100)
-  (defparameter *community-size* 70
+  (defparameter *community-size* 10
     "Represents the number of agents in an 'individual' or solution. A simulation (a possible solution) will be generated using this number of agents.")
   (defparameter *population-size* 10
     "How many 'communities', 'individuals' or 'solutions' will be participating in the optimization process.")
-  (defparameter *begin* (random-int *rand-gen* 0 (ceiling (- (length *all-rates*) (* *data-count* 4))))
+  (defparameter *begin* (random-int *rand-gen* 0 (ceiling (- (length *all-rates*) (* *data-count* 5))))
     "The starting timestamp for the data used for training or testing.")
-  (defparameter *end* (+ *begin* (ceiling (* *data-count* 3)))
+  (defparameter *end* (+ *begin* (ceiling (* *data-count* 4)))
     "The ending timestamp for the data used for training or testing.")
   (defparameter *rates* (subseq *all-rates* *begin* *end*)
     "The rates used to generate the agents' perceptions.")
@@ -2034,8 +2038,8 @@ history."
 (defparameter *stochastic-key-low* 3)
 (defparameter *stochastic-key-close* 3)
 
-(mapcar (stochastic 5 3 3)
-	(get-real-data 10))
+;; (mapcar (stochastic 5 3 3)
+;; 	(get-real-data 10))
 
 (defun get-stochastic-oscillator (periods)
   (remove nil
@@ -2085,20 +2089,17 @@ history."
 
 (defun agent-stochastic-oscillator (agent)
   "TODO: `agent` is unused"
-  (mapcar (lambda (mas rate)
-	     (append
-	      (mapcar (lambda (ma)
-			(+ 50
-			   (* 1000
-			      (/ (- (first rate) ma)
-				 (first rate)))))
-		      mas)
-	      rate))
-	   (apply #'mapcar #'list
-		  (mapcar (lambda (i)
-			    (get-moving-average i))
-			  (iota *num-inputs* :start *moving-average-start* :step *moving-average-step*)))
-	   (mapcar #'list (get-real-data omper:*data-count*))))
+  (mapcar (lambda (stochastic rate)
+            (append
+             (mapcar (lambda (s)
+                       (/ (+ 100 s) 2))
+                     stochastic)
+             rate))
+          (apply #'mapcar #'list
+                 (mapcar (lambda (i)
+                           (get-stochastic-oscillator i i))
+                         (iota *num-inputs* :start 5 :step 1)))
+          (mapcar #'list (get-real-data omper:*data-count*))))
 
 (defun ta-average (sequence &key (key #'identity))
   (let ((len 1))
@@ -2118,27 +2119,30 @@ Bollinger band points."
 				  (lower (- avg 2std)))
 			     (list avg upper lower)))))
 
-(defun max-price (history &key key-high)
-  (apply #'max (mapcar key-high history)))
+(defun max-price (history &key key)
+  (apply #'max (mapcar key history)))
+(defun min-price (history &key key)
+  (apply #'max (mapcar key history)))
 
-(mapcar (lambda (rate)
-	  ) *rates*)
-(max-price *rates* :key-high (lambda (r) (access r :high-bid)))
-
-(mapcar (lambda ()))
-
-(mapcar (lambda (r) (access r :high-bid)) *rates*)
-
-(mapcar (make-history-function
-	 3
-	 (stochastic
-	  (lambda (rate)
-	    (access rate :bid-high))
-	  (lambda (rate)
-	    (access rate :bid-low))
-	  (lambda (rate)
-	    (access rate :bid-close))))
-	*rates*)
+(defun get-stochastic-oscillator (&optional (%k-periods 5) (%d-periods 5))
+  (last (remove nil
+          (mapcar (stochastic
+                   (lambda (rate)
+                     (access rate :high-bid))
+                   (lambda (rate)
+                     (access rate :low-bid))
+                   (lambda (rate)
+                     (access rate :close-bid))
+                   :%k-periods %k-periods
+                   :%d-periods %d-periods)
+                  (get-full-real-data (+ omper:*data-count*
+                                         (+ %d-periods %k-periods)))))
+        omper:*data-count*))
+;; (get-stochastic-oscillator 20 20)
+;; (sort (get-stochastic-oscillator 5 3) (lambda (e1 e2)
+;;                                         (if (null e2)
+;;                                             0
+;;                                             (< e1 e2))) :key #'second)
 
 (defun stochastic (key-high key-low key-close
 		   &key (%k-periods 5) (%d-periods 5))
@@ -2156,7 +2160,10 @@ from each sample."
 				    (%k (* 100 (/ (- close low)
 						  (- high low))))
 				    (%d (funcall %d-history %k)))
-			       (list %k %d))))))
+			       ;; (list %k %d)
+                               %d)))))
+
+
 
 (defun get-reports (count)
   (let* ((omper:*data-count* (ceiling (* omper:*data-count* 0.1))))
@@ -2813,7 +2820,9 @@ each point in the real prices."
 `agents-indexes` for the real prices."
   ;; (agents-mse (first *population*))
   (let ((sim (agents-indexes-simulation agents-indexes)))
-    (mape sim (get-real-data (length sim)) zero-metric-constraint)))
+    (mape (butlast sim) (get-real-data-deltas (length sim)) zero-metric-constraint)))
+
+;; (agents-mape (second *population*))
 
 (defun agents-rmse (agents-indexes)
   "Returns the root mean square error obtained by the agents' simulation in
@@ -2873,8 +2882,18 @@ each point in the real prices."
   (let ((diff (abs (- (nth 0 ifs) (nth 1 ifs)))))
     diff))
 
+(defun get-real-data-deltas (count)
+  (let ((reals (get-real-data count)))
+    (mapcar (lambda (curr next)
+              (- next curr))
+            reals
+            (rest reals))))
+
 (defun get-real-data (count)
   (reverse (subseq (reverse (mapcar (lambda (rate) (cdr (assoc :close-bid rate))) *rates*)) 0 count)))
+
+(defun get-full-real-data (count)
+  (reverse (subseq (reverse *rates*) 0 count)))
 
 (defun get-accumulation (start vals)
   (let ((results `(,start)))

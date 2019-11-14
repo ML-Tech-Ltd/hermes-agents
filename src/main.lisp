@@ -628,11 +628,11 @@ series `real`."
 (defun agents-reproduce (&optional (fitness-fn #'mape) (sort-fn #'<))
   (agents-mutate)
   ;; Finding appropriate leverages.
-  (dolist (community *population*)
-    (woof community))
-  ;; (when (> *generations* 900)
-  ;;   (dolist (community *population*)
-  ;;     (woof community)))
+  ;; (dolist (community *population*)
+  ;;   (woof community))
+  (when (> *generations* 100)
+    (dolist (community *population*)
+      (woof community)))
 
   (let ((x (agents-selectone (agents-distribution *population* fitness-fn sort-fn)))
 	(y (agents-selectone (agents-distribution *population* fitness-fn sort-fn))))
@@ -653,11 +653,11 @@ series `real`."
 	)))
 
   ;; Finding appropriate leverages.
-  (dolist (community *population*)
-      (woof community))
-  ;; (when (> *generations* 900)
-  ;;   (dolist (community *population*)
-  ;;     (woof community)))
+  ;; (dolist (community *population*)
+  ;;     (woof community))
+  (when (> *generations* 100)
+    (dolist (community *population*)
+      (woof community)))
 
   (multiple-value-bind (_ f) (agents-distribution *population* fitness-fn sort-fn)
     f))
@@ -997,6 +997,13 @@ series `real`."
                    (rest *rates*)
                    *rates*))
      *community-size*))
+
+(defun calc-trade-scale ()
+  (/ (mean (mapcar (lambda (curr)
+                     (access curr :close-bid))
+                   *rates*))
+     *community-size*))
+
 ;; (* 50 (calc-trade-scale))
 
 ;; (defun meow (agents iterations)
@@ -1286,10 +1293,10 @@ series `real`."
 
 (defun woof (agents)
   (ignore-errors
-    ;; Reset all agents' leverages to 1.
+    ;; Reset all agents' leverages to `(calc-trade-scale)`.
     (dolist (agent *agents-pool*)
       (setf (slot-value agent 'leverage)
-	    (iota *num-inputs* :start 1 :step 0)))
+    	    (iota *num-inputs* :start *trade-scale* :step 0)))
     
     (let* ((deltas (rest (get-real-data omper:*data-count*)))
            (trades (mapcar (lambda (agent)
@@ -1332,7 +1339,8 @@ series `real`."
           ;; Modifying leverages.
           (dotimes (j (length agents))
             (setf (slot-value (extract-agent-from-pool (nth j agents)) 'leverage)
-		  (iota *num-inputs* :start (realpart (magicl:ref sol-matrix j 0)) :step 0)
+		  (iota *num-inputs* :start (* (realpart (magicl:ref sol-matrix j 0))
+					       *trade-scale*) :step 0)
                   ;; (realpart (magicl:ref sol-matrix j 0))
 		  ))
           )))))
@@ -1434,9 +1442,9 @@ series `real`."
 	   ;; :rate (calc-trade-scale)
 	   :rate rate
 	   :max-steps max-steps))
-;; (descent-leverages *best* 6.0d-3 10 200)
+;; (descent-leverages *best* 6.0d-3 1000 10000)
 ;; (float (agents-corrects *best* nil))
-;; (validate-test 0.1)
+;; (validate-test 0.5)
 
 ;; Init using last entry (generations)
 ;; (init-from-database (access (first (with-postgres-connection (retrieve-all (select (:*) (from :populations) (order-by (:asc :mape)))))) :id))
@@ -1524,21 +1532,21 @@ series `real`."
 					    desc))))
     (access (nth idx desc) :id)))
 
-(defparameter *num-inputs* 5
+(defparameter *num-inputs* 20
   "Keeps track of how many generations have elapsed in an evolutionary process.")
 (defparameter *mutation-chance* 0.1
   "Keeps track of how many generations have elapsed in an evolutionary process.")
 (defparameter *moving-average-start* 5)
-(defparameter *moving-average-step* 20)
+(defparameter *moving-average-step* 5)
 ;; (iota *num-inputs* :start *moving-average-start* :step *moving-average-step*)
 
 (defun init ()
   (setf lparallel:*kernel* (lparallel:make-kernel 32))
-  (setf omper:*data-count* 301)
+  (setf omper:*data-count* 60)
   ;; (setf omper:*partition-size* 100)
-  (defparameter *community-size* 10
+  (defparameter *community-size* 70
     "Represents the number of agents in an 'individual' or solution. A simulation (a possible solution) will be generated using this number of agents.")
-  (defparameter *population-size* 100
+  (defparameter *population-size* 10
     "How many 'communities', 'individuals' or 'solutions' will be participating in the optimization process.")
   (defparameter *begin* (random-int *rand-gen* 0 (ceiling (- (length *all-rates*) (* *data-count* 4))))
     "The starting timestamp for the data used for training or testing.")
@@ -1546,6 +1554,7 @@ series `real`."
     "The ending timestamp for the data used for training or testing.")
   (defparameter *rates* (subseq *all-rates* *begin* *end*)
     "The rates used to generate the agents' perceptions.")
+  (defparameter *trade-scale* (calc-trade-scale))
   (defparameter *generations* 0
     "Keeps track of how many generations have elapsed in an evolutionary process.")
   (defparameter *num-pool-agents* 10000
@@ -1761,8 +1770,8 @@ evolutionary process."
    (rules :initarg :rules :initform (gen-rules *num-rules*) :accessor rules)
    ;; (leverage :initarg :leverage :initform 1)
    ;; (leverage :initarg :leverage :initform (calc-trade-scale))
-   ;; (leverage :initarg :leverage :initform (iota *num-inputs* :start (calc-trade-scale) :step 0))
-   (leverage :initarg :leverage :initform (iota *num-inputs* :start 1 :step 0))
+   (leverage :initarg :leverage :initform (iota *num-inputs* :start *trade-scale* :step 0))
+   ;; (leverage :initarg :leverage :initform (iota *num-inputs* :start 1 :step 0))
    ;; (rules-deltas :initarg :rules-deltas :initform (iota (* 2 *num-rules* *num-inputs*) :start 0 :step 0))
    ;; (trade-scale :initarg :trade-scale :initform (random-int *rand-gen* 1 100000))
    (trade-scale :initarg :trade-scale :initform 1)
@@ -2025,6 +2034,9 @@ history."
 (defparameter *stochastic-key-low* 3)
 (defparameter *stochastic-key-close* 3)
 
+(mapcar (stochastic 5 3 3)
+	(get-real-data 10))
+
 (defun get-stochastic-oscillator (periods)
   (remove nil
 	  (mapcar (stochastic *stochastic-key-high*
@@ -2106,6 +2118,28 @@ Bollinger band points."
 				  (lower (- avg 2std)))
 			     (list avg upper lower)))))
 
+(defun max-price (history &key key-high)
+  (apply #'max (mapcar key-high history)))
+
+(mapcar (lambda (rate)
+	  ) *rates*)
+(max-price *rates* :key-high (lambda (r) (access r :high-bid)))
+
+(mapcar (lambda ()))
+
+(mapcar (lambda (r) (access r :high-bid)) *rates*)
+
+(mapcar (make-history-function
+	 3
+	 (stochastic
+	  (lambda (rate)
+	    (access rate :bid-high))
+	  (lambda (rate)
+	    (access rate :bid-low))
+	  (lambda (rate)
+	    (access rate :bid-close))))
+	*rates*)
+
 (defun stochastic (key-high key-low key-close
 		   &key (%k-periods 5) (%d-periods 5))
   "Creates a function that computes the stochastic indicator over the
@@ -2116,8 +2150,8 @@ from each sample."
   (let ((%d-history (moving-average %d-periods)))
     (make-history-function %k-periods
 			   (lambda (history)
-			     (let* ((high (maximum history :key key-high))
-				    (low (minimum history :key key-low))
+			     (let* ((high (max-price history :key key-high))
+				    (low (min-price history :key key-low))
 				    (close (funcall key-close (elt history 0)))
 				    (%k (* 100 (/ (- close low)
 						  (- high low))))

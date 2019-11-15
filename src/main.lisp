@@ -258,29 +258,29 @@ agents parameters according to it."
 
 (defun check-zero-metric (sim real)
   (if (< (mean (mapcar (lambda (s r)
-			 (abs (/ (- r s) r)))
+			 (abs (/ (- r s) (1+ r))))
 		       sim real))
   	 0.001)
       t))
 
-(defun pmape (sim real &optional (zero-metric-constraint t))
+(defun pmape (sim real &optional (zero-metric-constraint nil))
   "Penalized MAPE. If a simulation has a different direction than that of the real price, it gets penalized with a weight."
   (if (and zero-metric-constraint
 	   (check-zero-metric sim real))
       most-positive-fixnum
-      (let ((last-real (first (rest real))))
+      (let ((last-real (first real)))
 	(/ (reduce #'+ (mapcar (lambda (s r)
 				 (prog1
 				     (if (>= (* (- r last-real)
 						(- s last-real))
 					     0)
-					 (abs (/ (- r s) r))
+					 (abs (/ (- r s) (1+ r)))
 					 (* 3
-					    (abs (/ (- r s) r))))
+					    (abs (/ (- r s) (1+ r)))))
 				   (setf last-real r)))
 			       sim
-			       (rest real)))
-	   (length (rest real))))))
+			       real))
+	   (length real)))))
 
 (defun mape (sim real &optional (zero-metric-constraint nil))
   "Mean absolute percentage error between a simulated time series `sim` and a real time series `real`."
@@ -304,8 +304,8 @@ agents parameters according to it."
   "Mean squared error between a simulated time series `sim` and a real time series `real`."
   (if (check-zero-metric sim real)
       most-positive-fixnum
-      (/ (reduce #'+ (mapcar (lambda (elt) (expt elt 2)) (mapcar #'- sim (rest real))))
-	 (length (rest real)))))
+      (/ (reduce #'+ (mapcar (lambda (elt) (expt elt 2)) (mapcar #'- sim real)))
+	 (length real))))
 
 (defun mae (sim real)
   "Mean absolute error between a simulated time series `sim` and a real time
@@ -315,8 +315,8 @@ series `real`."
       (/ (reduce #'+ (mapcar (lambda (s r)
 			       (abs (- s r)))
 			     sim
-			     (rest real)))
-	 (length (rest real)))))
+			     real))
+	 (length real))))
 
 (defun rmse (sim real)
   "Root mean square error between a simulated time series `sim` and a real time
@@ -325,7 +325,7 @@ series `real`."
 
 (defun revenue (sim real)
   "Currently it returns the agent profit at each trade."
-  (let ((real (rest real))
+  (let (;; (real (rest real))
 	;; we only need the real previous, as the simulated is based on the last real price at every moment
 	;; (prev (- (second real) (first real)))
 	(prev (first real)))
@@ -381,23 +381,31 @@ series `real`."
   (if (and mape-constraint (or ;; (> (mape sim real) 0.1)
 			    (check-zero-metric sim real)))
       (/ 1 (length real))
-      (let ((prev (first real))
-	    (real (rest real))
-	    ;; we only need the real previous, as the simulated is based on the last real price at every moment
-	    )
-	(/ (apply #'+ (mapcar (lambda (s r)
-				(let ((real-dir (- r prev))
-				      (sim-dir (- s prev)))
-				  ;; (format t "prev: ~a~t real: ~a~t sim: ~a~t real-dir: ~a~t sim-dir: ~a~t~%" prev r s real-dir sim-dir)
-				  (setq prev r)
-				  ;; (print real-dir)
-				  (if (> (* real-dir sim-dir) 0)
-				      1
-				      0)))
-			      ;; (rest sim)
-			      sim
-			      real))
-	   (length real)))))
+      (/ (apply #'+
+	     (mapcar (lambda (s r)
+		       (if (> (* s r) 0)
+			   1
+			   0))
+		     sim real))
+	 (length real))
+      ;; (let ((prev (first real))
+      ;; 	    (real (rest real))
+      ;; 	    ;; we only need the real previous, as the simulated is based on the last real price at every moment
+      ;; 	    )
+      ;; 	(/ (apply #'+ (mapcar (lambda (s r)
+      ;; 				(let ((real-dir (- r prev))
+      ;; 				      (sim-dir (- s prev)))
+      ;; 				  ;; (format t "prev: ~a~t real: ~a~t sim: ~a~t real-dir: ~a~t sim-dir: ~a~t~%" prev r s real-dir sim-dir)
+      ;; 				  (setq prev r)
+      ;; 				  ;; (print real-dir)
+      ;; 				  (if (> (* real-dir sim-dir) 0)
+      ;; 				      1
+      ;; 				      0)))
+      ;; 			      ;; (rest sim)
+      ;; 			      sim
+      ;; 			      real))
+      ;; 	   (length real)))
+      ))
 
 ;; (corrects '(9.5 9.7 9.5 9.4) '(10 9 10 9 10))
 
@@ -519,7 +527,7 @@ series `real`."
 ;; (defparameter *coco* (gen-rules 2))
 ;; (add-rules-deltas *coco* (iota 300 :start 2 :step 0))
 
-(defun agent-trades (agent &optional (perception-fn #'agent-stochastic-oscillator))
+(defun agent-trades (agent &optional (perception-fn #'agent-moving-average))
   "Creates a simulation of a single agent's trades."
   ;; (time (length (agent-trades (make-instance 'agent))))
   ;; (time (agent-trades (first (extract-agents-from-pool '(2)))))
@@ -563,7 +571,7 @@ series `real`."
 (defun agents-fitness (agents-indexes &optional (fitness-fn #'mape))
   (let ((sim (agents-indexes-simulation agents-indexes)))
     ;; (mse sim (get-real-data 3))
-    (funcall fitness-fn sim (get-real-data (length sim)))))
+    (funcall fitness-fn sim (get-real-data-deltas (length sim)))))
 
 (defun ifis-agents (inputs rules trade-scale leverage stdev)
   (let ((agent-ifss (mapcar (lambda (params)
@@ -632,11 +640,11 @@ series `real`."
 (defun agents-reproduce (&optional (fitness-fn #'mape) (sort-fn #'<))
   (agents-mutate)
   ;; Finding appropriate leverages.
-  ;; (dolist (community *population*)
-  ;;   (woof community))
-  (when (> *generations* 100)
-    (dolist (community *population*)
-      (woof community)))
+  (dolist (community *population*)
+    (woof community))
+  ;; (when (> *generations* 100)
+  ;;   (dolist (community *population*)
+  ;;     (woof community)))
 
   (let ((x (agents-selectone (agents-distribution *population* fitness-fn sort-fn)))
 	(y (agents-selectone (agents-distribution *population* fitness-fn sort-fn))))
@@ -657,11 +665,11 @@ series `real`."
 	)))
 
   ;; Finding appropriate leverages.
-  ;; (dolist (community *population*)
-  ;;     (woof community))
-  (when (> *generations* 100)
-    (dolist (community *population*)
-      (woof community)))
+  (dolist (community *population*)
+      (woof community))
+  ;; (when (> *generations* 100)
+  ;;   (dolist (community *population*)
+  ;;     (woof community)))
 
   (multiple-value-bind (_ f) (agents-distribution *population* fitness-fn sort-fn)
     f))
@@ -1002,12 +1010,6 @@ series `real`."
                    *rates*))
      *community-size*))
 
-(defun calc-trade-scale ()
-  (/ (mean (mapcar (lambda (curr)
-                     (access curr :close-bid))
-                   *rates*))
-     *community-size*))
-
 ;; (* 50 (calc-trade-scale))
 
 ;; (defun meow (agents iterations)
@@ -1149,8 +1151,7 @@ series `real`."
 ;;   	#'< :key #'cdr)))
 
 (defun woof (agents)
-  (ignore-errors
-    ;; Reset all agents' leverages to 1.
+  ;; Reset all agents' leverages to 1.
     (dolist (agent *agents-pool*)
       (setf (slot-value agent 'leverage)
 	    (iota *num-inputs* :start 1 :step 0)))
@@ -1219,7 +1220,7 @@ series `real`."
 
       ;; (apply #'mapcar #'list trades)
       ;; trades
-      )))
+      ))
 
 (defun median-elt (sample)
   (nth (floor (/ (length sample) 2))
@@ -1294,60 +1295,63 @@ series `real`."
                 (setf (slot-value (extract-agent-from-pool (nth j agents)) 'leverage)
                       (realpart (magicl:ref sol-matrix j 0)))))
           )))))
-
+ 
 (defun woof (agents)
   (ignore-errors
-    ;; Reset all agents' leverages to `(calc-trade-scale)`.
+    ;; Reset all agents' leverages to 1.
     (dolist (agent *agents-pool*)
       (setf (slot-value agent 'leverage)
-    	    (iota *num-inputs* :start *trade-scale* :step 0)))
+	    (iota *num-inputs* :start 1 :step 0)))
     
-    (let* ((reals (get-real-data omper:*data-count*))
-           (trades (mapcar (lambda (agent)
-                             (butlast (agent-trades agent))
-                             )
-                           (extract-agents-from-pool agents)))
-           (deltas (mapcar (lambda (next curr)
-                             (- next curr))
-                           (rest reals) reals))
+    (let* ( ;; (reals (get-real-data omper:*data-count*))
+	   (trades (mapcar (lambda (agent)
+			     (butlast (agent-trades agent))
+			     )
+			   (extract-agents-from-pool agents)))
+	   ;; (deltas (mapcar (lambda (next curr)
+	   ;;                   (- next curr))
+	   ;;                 (rest reals) reals))
+	   (deltas (get-real-data-deltas omper:*data-count*))
 	   )
 
       ;; Clustered deltas.
       (let* ((delta-clusters (mapcar #'flatten (km (mapcar #'list deltas) (length agents))))
-             (trade-clusters (make-hash-table :size (length agents)))
-             (mean-deltas (mapcar #'mean delta-clusters)))
+	     (trade-clusters (make-hash-table :size (length agents)))
+	     (idxs (mapcar #'median-elt-idx delta-clusters))
+	     (mean-deltas (mapcar #'mean delta-clusters)))
 
-        ;; Clustering deltas and trades.
-        (dotimes (i (length deltas))
-          ;; `num-cluster` is the number of the cluster in which we found the `ith` delta.
-          (let ((num-cluster (position (nth i deltas) delta-clusters :test #'find)))
-            ;; We save the slice of trades (different trades by different agents)
-            ;; in its corresponding cluster.
-            (push (mapcar (lambda (trade)
-                            (nth i trade))
-                          trades)
-                  (gethash num-cluster trade-clusters))))
+	;; Clustering deltas and trades.
+	(dotimes (i (length deltas))
+	  ;; `num-cluster` is the number of the cluster in which we found the `ith` delta.
+	  (let ((num-cluster (position (nth i deltas) delta-clusters :test #'find)))
+	    ;; We save the slice of trades (different trades by different agents)
+	    ;; in its corresponding cluster.
+	    (push (mapcar (lambda (trade)
+			    (nth i trade))
+			  trades)
+		  (gethash num-cluster trade-clusters))))
 
-        (let* ((mean-trades (apply #'mapcar #'list
-                                   (mapcar (lambda (trades)
-                                             (apply #'mapcar (lambda (&rest nums)
+	(let* ((mean-trades (apply #'mapcar #'list
+				   (mapcar (lambda (idx trades)
+					     (apply #'mapcar (lambda (&rest nums)
 							       (mean nums)
+							       ;; (nth idx nums)
 							       )
-                                                    (cdr trades)))
-                                           (sort (copy-sequence 'list (hash-table-alist trade-clusters)) #'< :key #'first))))
-               (A (magicl:make-complex-matrix (length mean-deltas) (length mean-deltas) (flatten mean-trades)))
-               (B (magicl:make-complex-matrix (length mean-deltas) 1 mean-deltas))
-               (sol-matrix (magicl:multiply-complex-matrices
-                            (magicl:inv A)
-                            B)))
-          ;; Modifying leverages.
-          (dotimes (j (length agents))
-            (setf (slot-value (extract-agent-from-pool (nth j agents)) 'leverage)
-		  (iota *num-inputs* :start (* (realpart (magicl:ref sol-matrix j 0))
-					       *trade-scale*) :step 0)
-                  ;; (realpart (magicl:ref sol-matrix j 0))
+						    (cdr trades)))
+					   idxs
+					   (sort (copy-sequence 'list (hash-table-alist trade-clusters)) #'< :key #'first))))
+	       (A (magicl:make-complex-matrix (length mean-deltas) (length mean-deltas) (flatten mean-trades)))
+	       (B (magicl:make-complex-matrix (length mean-deltas) 1 mean-deltas))
+	       (sol-matrix (magicl:multiply-complex-matrices
+			    (magicl:inv A)
+			    B)))
+	  ;; Modifying leverages.
+	  (dotimes (j (length agents))
+	    (setf (slot-value (extract-agent-from-pool (nth j agents)) 'leverage)
+		  (iota *num-inputs* :start (realpart (magicl:ref sol-matrix j 0)) :step 0)
+		  ;; (realpart (magicl:ref sol-matrix j 0))
 		  ))
-          )))))
+	  )))))
 
 ;; (progn
 ;;   (setf omper:*data-count* 61)
@@ -1446,7 +1450,7 @@ series `real`."
 	   ;; :rate (calc-trade-scale)
 	   :rate rate
 	   :max-steps max-steps))
-;; (descent-leverages *best* 6.0d-3 1000 10000)
+;; (descent-leverages *best* 6.0d-3 1d-3 1000)
 ;; (float (agents-corrects *best* nil))
 ;; (validate-test 0.5)
 
@@ -1462,19 +1466,19 @@ series `real`."
 ;; Print current leverages
 ;; (dolist (agent *best*) (print (slot-value (extract-agent-from-pool agent) 'leverage)))
 
-(defun validate-test (ratio)
+(defun validate-test (community ratio)
   (let ((omper:*data-count* (ceiling (* omper:*data-count* ratio))))
     (list
      (float
       (accesses
        (agents-test (extract-agents-from-pool
-		     *best*)
+		     community)
 		    (subseq *all-rates* *begin* (+ *end* omper:*data-count*)))
        :performance-metrics :corrects))
      (float
       (accesses
        (agents-test (extract-agents-from-pool
-		     *best*)
+		     community)
 		    (subseq *all-rates* *begin* (+ *end* (* 2 omper:*data-count*))))
        :performance-metrics :corrects)))))
 
@@ -1544,13 +1548,19 @@ series `real`."
 (defparameter *moving-average-step* 5)
 ;; (iota *num-inputs* :start *moving-average-start* :step *moving-average-step*)
 
+(defun wrap1 ()
+  (init)
+  (with-postgres-connection (execute (delete-from :populations)))
+  (with-postgres-connection (execute (delete-from :populations-closure)))
+  (time (train 100000 100 :fitness-fn #'mape :sort-fn #'< :save-every 1 :epsilon 0.02 :gd-epsilon 0.006)))
+
 (defun init ()
   (setf lparallel:*kernel* (lparallel:make-kernel 32))
-  (setf omper:*data-count* 60)
+  (setf omper:*data-count* 101)
   ;; (setf omper:*partition-size* 100)
-  (defparameter *community-size* 10
+  (defparameter *community-size* 100
     "Represents the number of agents in an 'individual' or solution. A simulation (a possible solution) will be generated using this number of agents.")
-  (defparameter *population-size* 10
+  (defparameter *population-size* 2
     "How many 'communities', 'individuals' or 'solutions' will be participating in the optimization process.")
   (defparameter *begin* (random-int *rand-gen* 0 (ceiling (- (length *all-rates*) (* *data-count* 5))))
     "The starting timestamp for the data used for training or testing.")
@@ -1581,10 +1591,8 @@ series `real`."
   (defparameter *fitnesses* nil
     "List of fitnesses obtained after evolving a population.")
   (defparameter *fitness-fn* :mape))
-;; (init)
+;; (wrap1)
 
-;; (with-postgres-connection (execute (delete-from :populations)))
-;; (with-postgres-connection (execute (delete-from :populations-closure)))
 ;; (time (train 100000 :fitness-fn #'corrects :sort-fn #'> :save-every 10 :epsilon 1.8))
 ;; (time (train 100000 100 :fitness-fn #'mape :sort-fn #'< :save-every 1 :epsilon 0.02 :gd-epsilon 0.006))
 ;; *cached-agents*
@@ -1592,7 +1600,7 @@ series `real`."
 ;; *generations*
 
 ;; (filter-reports *results*)
-;; (defparameter *results* (get-reports 1))
+;; (defparameter *results* (get-reports 100))
 
 ;; Init using last entry (generations)
 ;; (init-from-database (access (first (with-postgres-connection (retrieve-all (select (:*) (from :populations) (order-by (:asc :mape)))))) :id))
@@ -1661,6 +1669,7 @@ series `real`."
 ;;                (subseq *all-rates* *begin* (+ *end* omper:*data-count*))))
 
 ;; (agents-indexes-simulation (agents-best (agents-distribution *population*)))
+;; (get-real-data-deltas omper:*data-count*)
 ;; (agents-corrects (agents-best (agents-distribution *population*)))
 ;; (mapcar (lambda (agent)
 ;;           (slot-value agent 'leverage))
@@ -1713,11 +1722,11 @@ evolutionary process."
   (if (string= starting-population "")
       ;; Resetting some globals like the population, agents, the cache table, etc.
       (progn
-	(setf *agents-pool* (gen-agents *num-pool-agents*))
-	(setf *population* (gen-communities *community-size* *population-size*))
-	(setf *cached-agents* (make-hash-table :test #'equal :size 2000 :synchronized t))
-	(setf *generations* 0)
-	(setf *fitnesses* nil)
+	;; (setf *agents-pool* (gen-agents *num-pool-agents*))
+	;; (setf *population* (gen-communities *community-size* *population-size*))
+	;; (setf *cached-agents* (make-hash-table :test #'equal :size 2000 :synchronized t))
+	;; (setf *generations* 0)
+	;; (setf *fitnesses* nil)
 	;; Reset all agents' leverages to 1.
 	;; (dolist (agent *agents-pool*)
 	;;   (setf (slot-value agent 'leverage) 1))
@@ -1730,10 +1739,16 @@ evolutionary process."
       ;; (when (and (access *rules-config* :mf-mean-adjusting)
       ;; 		 (< (random-float *rand-gen* 0 1) 0.20))
       ;; 	(agents-mf-adjust (extract-agents-from-pool (agents-best (agents-distribution *population*))) 10))
-      (let* ((fitness (agents-reproduce fitness-fn sort-fn)))
+      
+      (let* ((fitness-training (agents-reproduce fitness-fn sort-fn))
+	     (fitness (first (validate-test (agents-best (agents-distribution *population*))
+					    0.1))))
         (when (or (null *fitnesses*)
                   ;; (> fitness 0.6)
-                  (funcall sort-fn fitness (first *fitnesses*)))
+                  ;; (funcall sort-fn fitness (first *fitnesses*))
+		  (and (< fitness-training 0.1)
+		       (> fitness (first *fitnesses*)))
+		  )
           (when (and can-save?)
 	    (setf parent-id (insert-best-agents parent-id "" fitness-fn sort-fn))
 	    (setf can-save? nil)
@@ -1774,7 +1789,7 @@ evolutionary process."
    (rules :initarg :rules :initform (gen-rules *num-rules*) :accessor rules)
    ;; (leverage :initarg :leverage :initform 1)
    ;; (leverage :initarg :leverage :initform (calc-trade-scale))
-   (leverage :initarg :leverage :initform (iota *num-inputs* :start *trade-scale* :step 0))
+   (leverage :initarg :leverage :initform (iota *num-inputs* :start (calc-trade-scale) :step 0))
    ;; (leverage :initarg :leverage :initform (iota *num-inputs* :start 1 :step 0))
    ;; (rules-deltas :initarg :rules-deltas :initform (iota (* 2 *num-rules* *num-inputs*) :start 0 :step 0))
    ;; (trade-scale :initarg :trade-scale :initform (random-int *rand-gen* 1 100000))
@@ -2245,7 +2260,7 @@ from each sample."
   "Runs a simulation of a market defined by `rates` using `agents`. Returns multiple performance metrics."
   (let* ((*rates* rates)
          (sim (agents-simulation agents))
-         (real (get-real-data (length sim)))
+         (real (get-real-data-deltas (length sim)))
          
          (mae (mae sim real))
 	 (mse (mse sim real))
@@ -2397,9 +2412,11 @@ extracted from `*agents-pool*` using the indexes stored in `agents-indexes`."
 (defun agent-simulation (agent)
   "Returns a simulation of a single agent trading a dataset."
   (let ((deltas (agent-trades agent)))
-    (mapcar #'+
-	    deltas
-	    (get-real-data (length deltas)))))
+    deltas
+    ;; (mapcar #'+
+    ;; 	    deltas
+    ;; 	    (get-real-data (length deltas)))
+    ))
 
 ;; (length (agent-simulation (first *agents-pool*)))
 
@@ -2478,7 +2495,7 @@ extracted from `*agents-pool*` using the indexes stored in `agents-indexes`."
   "Uses the market simulation created by the agents represented by `agents-indexes` to generate a list of profits generated by comparing the simulation against the real market data."
   ;; (agents-profit '(1 2 4))
   (let ((sim (agents-indexes-simulation agents-indexes)))
-    (revenue sim (get-real-data (length sim)))))
+    (revenue sim (get-real-data-deltas (length sim)))))
 
 (defun agents-describe (agents-indexes)
   (let* ((fibos (mapcar (lambda (agent-index)
@@ -2799,51 +2816,53 @@ extracted from `*agents-pool*` using the indexes stored in `agents-indexes`."
 each point in the real prices."
   ;; (agents-revenue (first *population*))
   (let ((sim (agents-indexes-simulation agents-indexes)))
-    (revenue sim (get-real-data (length sim)))))
+    (revenue sim (get-real-data-deltas (length sim)))))
 
 (defun agents-corrects (agents-indexes &optional (mape-constraint nil))
   "Returns the number of correct direction predictions made by the agents in
 `agents-indexes` for the real prices."
   ;; (agents-corrects (first *population*))
   (let ((sim (agents-indexes-simulation agents-indexes)))
-    (corrects sim (get-real-data (length sim)) mape-constraint)))
+    (corrects sim (get-real-data-deltas (length sim)) mape-constraint)))
 
 (defun agents-pmape (agents-indexes &optional (zero-metric-constraint t))
   "Returns the penalized mean absolute percentage error obtained by the agents' simulation in
 `agents-indexes` for the real prices."
   ;; (agents-mse (first *population*))
   (let ((sim (agents-indexes-simulation agents-indexes)))
-    (pmape sim (get-real-data (length sim)) zero-metric-constraint)))
+    (pmape sim (get-real-data-deltas (length sim)) zero-metric-constraint)))
 
 (defun agents-mape (agents-indexes &optional (zero-metric-constraint nil))
   "Returns the mean absolute percentage error obtained by the agents' simulation in
 `agents-indexes` for the real prices."
   ;; (agents-mse (first *population*))
   (let ((sim (agents-indexes-simulation agents-indexes)))
-    (mape (butlast sim) (get-real-data-deltas (length sim)) zero-metric-constraint)))
+    (mape sim (get-real-data-deltas (length sim)) zero-metric-constraint)))
 
 ;; (agents-mape (second *population*))
+;; (get-real-data-deltas 10)
+;; (agents-indexes-simulation (first *population*))
 
 (defun agents-rmse (agents-indexes)
   "Returns the root mean square error obtained by the agents' simulation in
 `agents-indexes` for the real prices."
   ;; (agents-mse (first *population*))
   (let ((sim (agents-indexes-simulation agents-indexes)))
-    (rmse sim (get-real-data (length sim)))))
+    (rmse sim (get-real-data-deltas (length sim)))))
 
 (defun agents-mae (agents-indexes)
   "Returns the mean absolute error obtained by the agents' simulation in
 `agents-indexes` for the real prices."
   ;; (agents-mse (first *population*))
   (let ((sim (agents-indexes-simulation agents-indexes)))
-    (mae sim (get-real-data (length sim)))))
+    (mae sim (get-real-data-deltas (length sim)))))
 
 (defun agents-mse (agents-indexes)
   "Returns the mean squared error obtained by the agents' simulation in
 `agents-indexes` for the real prices."
   ;; (agents-mse (first *population*))
   (let ((sim (agents-indexes-simulation agents-indexes)))
-    (mse sim (get-real-data (length sim)))))
+    (mse sim (get-real-data-deltas (length sim)))))
 
 (defun plot-mfs ()
   "Returns an `alist` with the plots (y-values) of all the membership"
@@ -2888,6 +2907,9 @@ each point in the real prices."
               (- next curr))
             reals
             (rest reals))))
+
+;; (get-real-data-deltas 10)
+;; (get-real-data 10)
 
 (defun get-real-data (count)
   (reverse (subseq (reverse (mapcar (lambda (rate) (cdr (assoc :close-bid rate))) *rates*)) 0 count)))

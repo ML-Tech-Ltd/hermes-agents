@@ -527,7 +527,7 @@ series `real`."
 ;; (defparameter *coco* (gen-rules 2))
 ;; (add-rules-deltas *coco* (iota 300 :start 2 :step 0))
 
-(defun agent-trades (agent &optional (perception-fn #'agent-moving-average))
+(defun agent-trades (agent &optional (perception-fn #'agent-perception))
   "Creates a simulation of a single agent's trades."
   ;; (time (length (agent-trades (make-instance 'agent))))
   ;; (time (agent-trades (first (extract-agents-from-pool '(2)))))
@@ -640,11 +640,15 @@ series `real`."
 (defun agents-reproduce (&optional (fitness-fn #'mape) (sort-fn #'<))
   (agents-mutate)
   ;; Finding appropriate leverages.
-  (dolist (community *population*)
-    (woof community))
-  ;; (when (> *generations* 100)
-  ;;   (dolist (community *population*)
-  ;;     (woof community)))
+  ;; (dolist (community *population*)
+  ;;   (woof community))
+  (when (> *generations* 300)
+    (dolist (community *population*)
+      (woof community)))
+  ;; Reset all agents' leverages to 1.
+  ;; (dolist (agent *agents-pool*)
+  ;;     (setf (slot-value agent 'leverage)
+  ;; 	    (iota *num-inputs* :start 1 :step 0)))
 
   (let ((x (agents-selectone (agents-distribution *population* fitness-fn sort-fn)))
 	(y (agents-selectone (agents-distribution *population* fitness-fn sort-fn))))
@@ -665,11 +669,11 @@ series `real`."
 	)))
 
   ;; Finding appropriate leverages.
-  (dolist (community *population*)
-      (woof community))
-  ;; (when (> *generations* 100)
-  ;;   (dolist (community *population*)
-  ;;     (woof community)))
+  ;; (dolist (community *population*)
+  ;;     (woof community))
+  (when (> *generations* 300)
+    (dolist (community *population*)
+      (woof community)))
 
   (multiple-value-bind (_ f) (agents-distribution *population* fitness-fn sort-fn)
     f))
@@ -1318,7 +1322,7 @@ series `real`."
       (let* ((delta-clusters (mapcar #'flatten (km (mapcar #'list deltas) (length agents))))
 	     (trade-clusters (make-hash-table :size (length agents)))
 	     (idxs (mapcar #'median-elt-idx delta-clusters))
-	     (mean-deltas (mapcar #'mean delta-clusters)))
+	     (mean-deltas (mapcar #'median-elt delta-clusters)))
 
 	;; Clustering deltas and trades.
 	(dotimes (i (length deltas))
@@ -1334,8 +1338,9 @@ series `real`."
 	(let* ((mean-trades (apply #'mapcar #'list
 				   (mapcar (lambda (idx trades)
 					     (apply #'mapcar (lambda (&rest nums)
-							       (mean nums)
-							       ;; (nth idx nums)
+							       ;; (mean nums)
+							       ;; (random-elt nums)
+							       (nth idx nums)
 							       )
 						    (cdr trades)))
 					   idxs
@@ -1352,6 +1357,234 @@ series `real`."
 		  ;; (realpart (magicl:ref sol-matrix j 0))
 		  ))
 	  )))))
+
+(defun cluster-trades-deltas (trades deltas)
+  (let (final-trades final-deltas)
+    (dotimes (j (length trades))
+      (let* ((delta-clusters (mapcar #'flatten (km (mapcar #'list (nth j deltas)) 2)))
+	     (trade-clusters (make-hash-table :size 2)))
+
+	;; Clustering deltas and trades.
+	(dotimes (i (length (nth j deltas)))
+	  ;; `num-cluster` is the number of the cluster in which we found the `ith` delta.
+	  (let ((num-cluster (position (nth i (nth j deltas)) delta-clusters :test #'find)))
+	    ;; We save the slice of trades (different trades by different agents)
+	    ;; in its corresponding cluster.
+	    (push (mapcar (lambda (trade)
+			    (nth i trade))
+			  (nth j trades))
+		  (gethash num-cluster trade-clusters))))
+
+	(mapcar (lambda (trades)
+		  (push (cdr trades) final-trades))
+		(sort (copy-sequence 'list (hash-table-alist trade-clusters)) #'< :key #'first))
+	(mapcar (lambda (deltas)
+		  (push deltas final-deltas))
+		delta-clusters)
+	))
+    (values (nreverse final-trades)
+	    (nreverse final-deltas))))
+
+(multiple-value-bind (trades deltas) (cluster-trades-deltas (list *trades*) (list *deltas*))
+  (cluster-trades-deltas trades deltas))
+
+(list *trades*)
+(multiple-value-call #'cluster-trades-deltas (cluster-trades-deltas (list *trades*) (list *deltas*)))
+
+(defparameter *trades*
+  '((20.689842074993457d0 13.348823834009632d0 -5.012851137491647d0
+     -4.657944033687528d0 10.045688067152883d0 9.391830848568059d0
+     -7.28808537848641d0 4.471142584830362d0 -9.534880355479922d0
+     -9.07680179169738d0 -18.190341796833934d0 -6.209788351922514d0
+     -7.385048390000593d0 -11.940474712125829d0 -18.85117995916702d0
+     -0.09028979678284291d0 -1.0186776496687904d0 -2.243023463300048d0
+     -0.6987578470785536d0 3.3960282507026887d0 11.826085295029669d0
+     13.718252565918764d0 12.77967370766655d0 12.744058795503008d0
+     12.753982304648108d0 12.870057493783678d0 -0.11464644160696887d0
+     -10.914480336040972d0 7.828158772161272d0 -29.994885938233008d0
+     -27.747141736101963d0 -27.85622471518756d0 2.1162765154722303d0
+     -35.88886082508524d0 -38.589929388572855d0 -13.407797862282367d0
+     -14.999212732486095d0 -6.280794532975967d0 -6.254251087577627d0
+     -7.070394387893161d0)
+    (8.35763249191798d0 8.33147437731015d0 -26.58448855413735d0
+     -26.658669007098506d0 4.482058791806371d0 4.366540932161153d0
+     -25.180283957346457d0 2.004450993577531d0 -24.455798427694194d0
+     -23.58596772906399d0 -24.925797801659122d0 -10.711407760938872d0
+     -17.723068509742166d0 -20.715498414639182d0 -22.76404546092118d0
+     3.646071561686609d0 3.93066426633483d0 -14.677244755874154d0
+     -11.12103158206387d0 -9.863331103348003d0 0.8094250950267394d0
+     -23.0978046798874d0 -9.95112253818685d0 -27.728682920231538d0
+     -24.86570433675609d0 -26.940004855371065d0 -6.549533785667559d0
+     -10.133754925864366d0 -14.52746163336183d0 -20.390240775945113d0
+     -17.94175856913917d0 -24.0335900552135d0 -13.31543929309485d0
+     -24.246502821980616d0 -21.77120567094826d0 -11.19848339603816d0
+     -11.197844076766401d0 -19.204380257573916d0 -16.70612441809403d0
+     -20.098967456597563d0)
+    (11.863266486544248d0 9.02254372883075d0 -8.59865126261258d0
+     -9.059222118588396d0 -14.95647986178862d0 -13.89705963971487d0
+     -18.022098113137968d0 5.695724306470948d0 -17.03159658769265d0
+     -17.43660023653431d0 -17.293301743096862d0 3.8611967228460395d0
+     3.818526309580043d0 3.800852040265785d0 -15.106537802804809d0
+     -8.696079222619643d0 -8.680180336517365d0 -1.7923153066438533d0
+     8.366723122697952d0 10.131327808186184d0 -11.32133793859929d0
+     -9.37262174117637d0 10.72782999252784d0 -9.919082394545345d0
+     -9.655706528935834d0 -9.796960968813238d0 -6.535914087581925d0
+     -6.130745943248838d0 10.807634558194522d0 -5.5704602907012895d0
+     -4.762653608110256d0 -3.6340193334642357d0 12.002775346337028d0
+     1.2083592712359479d0 4.377907123428634d0 -1.5840985774900287d0
+     -1.5531954601891687d0 -1.6181696129715257d0 -1.3098711997052541d0
+     -1.2109370182848542d0)
+    (-6.84823130727374d0 -6.7862007338436126d0 8.260208754349508d0
+     8.241975369858475d0 10.660046799626809d0 7.495143129622842d0
+     11.330789992048263d0 -2.9872775578570434d0 11.66733039607407d0
+     11.846338666292164d0 10.699120453600782d0 -2.1504757573385933d0
+     -2.1745722172620554d0 -2.2790418325573074d0 2.894936568499376d0
+     3.2648946899925346d0 1.847357635530031d0 -6.51566720453079d0
+     -6.853897646991588d0 -6.8774942315211245d0 -12.601709494655571d0
+     2.2824330861967286d0 -6.4027516877007145d0 2.3820664349425402d0
+     3.0788095104311872d0 3.0788095104311872d0 -7.6121884694509685d0
+     -8.367335205068285d0 -7.823621120410585d0 -8.979651544751732d0
+     -9.505783668525266d0 -12.567521298219813d0 -8.681724531287445d0
+     -16.96612331188501d0 -17.188908228447097d0 -33.93901616874125d0
+     -34.33973104153095d0 -2.8070966633527883d0 -2.7975871180924474d0
+     -3.1414357707045855d0)
+    (20.521732337319186d0 18.07993133269675d0 5.977846489502206d0
+     9.577438482281115d0 -8.290011522814465d0 -8.320686149849374d0
+     5.838706009859869d0 18.32213670910578d0 7.319568010763224d0
+     8.891672510784954d0 9.902687803216736d0 14.896022446266008d0
+     14.900120951865063d0 14.906633304355207d0 25.198686278747328d0
+     17.64420406971035d0 21.925076121322892d0 5.295032125774719d0
+     9.561307770280928d0 9.513665899566211d0 15.76947738017932d0
+     -0.25211352651527463d0 13.2639746738504d0 4.773578929390624d0
+     9.589244604884966d0 9.614374150702147d0 30.62236838897467d0
+     31.725400694695708d0 17.181481655617436d0 24.73088154217566d0
+     18.654566489278107d0 18.891284620175814d0 19.52872949202205d0
+     18.544491915650855d0 18.33643538181205d0 13.352120758448295d0
+     12.328084858555588d0 16.005538384376102d0 19.29792981452164d0
+     10.315073924749422d0)
+    (10.042684524974387d0 12.455387942854836d0 16.720631820650546d0
+     15.019079206084617d0 4.301479038970197d0 8.184587787641727d0
+     14.775287437208013d0 21.42757545245697d0 13.697880245549998d0
+     13.132806136962163d0 17.00629467235864d0 20.92437804348677d0
+     22.611182564951346d0 23.000919744861385d0 36.07288600643824d0
+     24.06395986433705d0 23.667795326925575d0 22.67833970742632d0
+     22.543129501448416d0 24.573808500740476d0 2.01868865436881d0
+     31.390004349967054d0 27.0768010454678d0 33.67958670708616d0
+     30.84611482993494d0 30.90459265422325d0 31.918010289224032d0
+     27.132023086630902d0 30.98882406197748d0 27.508190260818917d0
+     27.69819818768841d0 27.218469423953557d0 30.814261403263988d0
+     27.328740040882995d0 27.577760929987075d0 37.16823457406638d0
+     37.19327666921236d0 -11.045173434111891d0 -11.828083294947008d0
+     -11.691932953698881d0)
+    (13.245429742959187d0 9.710267857173184d0 0.977798184753763d0
+     21.66058532781236d0 29.697568101104878d0 29.019662393633926d0
+     28.788769395064644d0 -7.602901572533511d0 28.90052155477644d0
+     32.52110802386253d0 30.69031054986737d0 -14.930658176978309d0
+     -15.372325793051674d0 -18.328409862721454d0 24.978099954580422d0
+     17.87306546503667d0 17.432377654028347d0 -12.034779418425183d0
+     -17.516462647318544d0 -17.52649914947577d0 5.754809967416674d0
+     21.583853133623617d0 -19.573561789309714d0 24.222616521241275d0
+     25.044226859283953d0 25.043101996374585d0 -5.542870052455876d0
+     -13.916441557638578d0 -37.37475594342976d0 -20.920106938854136d0
+     -21.048964849133746d0 -23.175788473028234d0 -23.518143820761413d0
+     -24.527507774703803d0 -25.485645602546278d0 7.1489268912770365d0
+     5.700243184644436d0 41.13551344400447d0 41.13896626806653d0
+     40.92007680818583d0)
+    (-18.244567716134302d0 -13.971530497131308d0 -16.40438127671486d0
+     -16.301904876634893d0 -15.574922318416707d0 -8.653077841684956d0
+     -15.981360526727823d0 -15.790533634816567d0 -14.358166216758123d0
+     -14.059124262556287d0 -7.115107553732449d0 -18.668310262796098d0
+     -21.11395758704297d0 -21.25115597015185d0 -0.7688485473261498d0
+     -3.0276646948565764d0 -3.0174824194834122d0 -7.04057825762378d0
+     -9.26590290820713d0 -10.595808744633047d0 0.13469473263790072d0
+     -27.69728550140125d0 -11.155489651064821d0 -27.62856139477518d0
+     -25.575425567523432d0 -25.173743156861764d0 5.2540390102518995d0
+     5.34284680972641d0 -13.97970938124595d0 5.385482122176912d0
+     4.583558209664728d0 3.661352426510704d0 -28.067299023243987d0
+     2.4740669435843046d0 0.5063773271163784d0 19.101250871351166d0
+     19.03563578501967d0 -10.557133140745103d0 -10.535460836605788d0
+     -10.515345357417493d0)
+    (-4.982436909889218d0 -4.609512149366968d0 -16.51206983475269d0
+     -16.9329409013527d0 -15.919466993438336d0 -17.58964375656983d0
+     -16.82166820085383d0 -1.8924700466683706d0 -16.2577945406082d0
+     -19.484234001357983d0 -20.121513475897434d0 4.669177775452901d0
+     12.038898109635161d0 10.993216144784968d0 -5.249946569093153d0
+     -24.890469621928826d0 -24.923504110940762d0 10.176535538764602d0
+     13.387078693101492d0 13.70756225952984d0 0.28767800928328313d0
+     25.925383939306148d0 15.32779969959808d0 23.58444303200476d0
+     22.884372128604905d0 21.910584782963547d0 -6.990455747762484d0
+     -6.880834344781718d0 15.822627686219894d0 -0.9598095865086265d0
+     0.44795281772748907d0 2.4230094669428865d0 13.512233720895777d0
+     6.884264182786376d0 10.231096363476686d0 -3.6118419926071863d0
+     -3.5609756796777248d0 -3.4714564610584446d0 -9.41937514723647d0
+     -10.036319396268032d0)
+    (11.863266486544248d0 9.02254372883075d0 -8.59865126261258d0
+     -9.059222118588396d0 -14.95647986178862d0 -13.89705963971487d0
+     -18.022098113137968d0 5.695724306470948d0 -17.03159658769265d0
+     -17.43660023653431d0 -17.293301743096862d0 3.8611967228460395d0
+     3.818526309580043d0 3.800852040265785d0 -15.106537802804809d0
+     -8.696079222619643d0 -8.680180336517365d0 -1.7923153066438533d0
+     8.366723122697952d0 10.131327808186184d0 -11.32133793859929d0
+     -9.37262174117637d0 10.72782999252784d0 -9.919082394545345d0
+     -9.655706528935834d0 -9.796960968813238d0 -6.535914087581925d0
+     -6.130745943248838d0 10.807634558194522d0 -5.5704602907012895d0
+     -4.762653608110256d0 -3.6340193334642357d0 12.002775346337028d0
+     1.2083592712359479d0 4.377907123428634d0 -1.5840985774900287d0
+     -1.5531954601891687d0 -1.6181696129715257d0 -1.3098711997052541d0
+     -1.2109370182848542d0)))
+
+(defparameter *deltas*
+  '(-40.59961 -26.600586 -88.200195 -30.399414 18.5 19.899414 146.10059 -71.299805
+    -82.0 60.09961 39.200195 23.799805 6.2998047 -95.700195 -71.5 -27.5 -132.69922
+    -5.0 22.299805 -165.2998 61.5 141.19922 -123.399414 -42.90039 95.600586
+    191.39941 -65.0 -63.09961 66.399414 0.0 -24.899414 -84.600586 111.700195
+    54.40039 84.5 31.09961 18.0 -12.299805 60.59961 -36.09961))
+
+(defun woof (agents)
+  "Repeatedly clusters deltas and trades."
+  (ignore-errors
+    ;; Reset all agents' leverages to 1.
+    (dolist (agent *agents-pool*)
+      (setf (slot-value agent 'leverage)
+	    (iota *num-inputs* :start 1 :step 0)))
+
+    (let* ( ;; (reals (get-real-data omper:*data-count*))
+	   (trades (mapcar (lambda (agent)
+			     (butlast (agent-trades agent))
+			     )
+			   (extract-agents-from-pool agents)))
+	   ;; (deltas (mapcar (lambda (next curr)
+	   ;;                   (- next curr))
+	   ;;                 (rest reals) reals))
+	   (deltas (get-real-data-deltas omper:*data-count*))
+	   )
+
+      
+
+      (let* ((mean-trades (apply #'mapcar #'list
+				   (mapcar (lambda (idx trades)
+					     (apply #'mapcar (lambda (&rest nums)
+							       ;; (mean nums)
+							       ;; (random-elt nums)
+							       (nth idx nums)
+							       )
+						    (cdr trades)))
+					   idxs
+					   (sort (copy-sequence 'list (hash-table-alist trade-clusters)) #'< :key #'first))))
+	       (A (magicl:make-complex-matrix (length mean-deltas) (length mean-deltas) (flatten mean-trades)))
+	       (B (magicl:make-complex-matrix (length mean-deltas) 1 mean-deltas))
+	       (sol-matrix (magicl:multiply-complex-matrices
+			    (magicl:inv A)
+			    B)))
+	  ;; Modifying leverages.
+	  (dotimes (j (length agents))
+	    (setf (slot-value (extract-agent-from-pool (nth j agents)) 'leverage)
+		  (iota *num-inputs* :start (realpart (magicl:ref sol-matrix j 0)) :step 0)
+		  ;; (realpart (magicl:ref sol-matrix j 0))
+		  ))
+	  )
+      
+      )))
 
 ;; (progn
 ;;   (setf omper:*data-count* 61)
@@ -1450,9 +1683,9 @@ series `real`."
 	   ;; :rate (calc-trade-scale)
 	   :rate rate
 	   :max-steps max-steps))
-;; (descent-leverages *best* 6.0d-3 1d-3 1000)
+;; (dotimes (i 100) (descent-leverages *best* 6.0d-3 1d-2 3))
 ;; (float (agents-corrects *best* nil))
-;; (validate-test 0.5)
+;; (validate-test *best* 0.1 :corrects)
 
 ;; Init using last entry (generations)
 ;; (init-from-database (access (first (with-postgres-connection (retrieve-all (select (:*) (from :populations) (order-by (:asc :mape)))))) :id))
@@ -1466,7 +1699,7 @@ series `real`."
 ;; Print current leverages
 ;; (dolist (agent *best*) (print (slot-value (extract-agent-from-pool agent) 'leverage)))
 
-(defun validate-test (community ratio)
+(defun validate-test (community ratio metric-kw)
   (let ((omper:*data-count* (ceiling (* omper:*data-count* ratio))))
     (list
      (float
@@ -1474,13 +1707,13 @@ series `real`."
        (agents-test (extract-agents-from-pool
 		     community)
 		    (subseq *all-rates* *begin* (+ *end* omper:*data-count*)))
-       :performance-metrics :corrects))
+       :performance-metrics metric-kw))
      (float
       (accesses
        (agents-test (extract-agents-from-pool
 		     community)
 		    (subseq *all-rates* *begin* (+ *end* (* 2 omper:*data-count*))))
-       :performance-metrics :corrects)))))
+       :performance-metrics metric-kw)))))
 
 ;; (float 68/125)
 
@@ -1540,7 +1773,7 @@ series `real`."
 					    desc))))
     (access (nth idx desc) :id)))
 
-(defparameter *num-inputs* 20
+(defparameter *num-inputs* 7
   "Keeps track of how many generations have elapsed in an evolutionary process.")
 (defparameter *mutation-chance* 0.1
   "Keeps track of how many generations have elapsed in an evolutionary process.")
@@ -1552,15 +1785,22 @@ series `real`."
   (init)
   (with-postgres-connection (execute (delete-from :populations)))
   (with-postgres-connection (execute (delete-from :populations-closure)))
-  (time (train 100000 100 :fitness-fn #'mape :sort-fn #'< :save-every 1 :epsilon 0.02 :gd-epsilon 0.006)))
+  ;; (time (train 100000 100 :fitness-fn #'corrects :sort-fn #'> :save-every 1 :epsilon 1.8))
+  (train 100000 100 :fitness-fn #'mape :sort-fn #'< :save-every 1 :epsilon 0.00 :gd-epsilon 0.000)
+  )
+;; (wrap1)
+;; (agents-corrects (agents-best (agents-distribution *population* #'corrects #'>) #'>))
+;; (dolist (pop *population*)
+;;   (print (float (agents-corrects pop))))
+
 
 (defun init ()
   (setf lparallel:*kernel* (lparallel:make-kernel 32))
-  (setf omper:*data-count* 101)
-  ;; (setf omper:*partition-size* 100)
-  (defparameter *community-size* 100
+  (setf omper:*data-count* 41)
+  (setf omper:*partition-size* 100)
+  (defparameter *community-size* 10
     "Represents the number of agents in an 'individual' or solution. A simulation (a possible solution) will be generated using this number of agents.")
-  (defparameter *population-size* 2
+  (defparameter *population-size* 10
     "How many 'communities', 'individuals' or 'solutions' will be participating in the optimization process.")
   (defparameter *begin* (random-int *rand-gen* 0 (ceiling (- (length *all-rates*) (* *data-count* 5))))
     "The starting timestamp for the data used for training or testing.")
@@ -1590,17 +1830,20 @@ series `real`."
     "Used for memoizing an agent's simulation.")
   (defparameter *fitnesses* nil
     "List of fitnesses obtained after evolving a population.")
+  (defparameter *fitnesses-validation* nil
+    "List of fitnesses in the validation stage obtained after evolving a population.")
   (defparameter *fitness-fn* :mape))
+;; (init)
 ;; (wrap1)
 
-;; (time (train 100000 :fitness-fn #'corrects :sort-fn #'> :save-every 10 :epsilon 1.8))
-;; (time (train 100000 100 :fitness-fn #'mape :sort-fn #'< :save-every 1 :epsilon 0.02 :gd-epsilon 0.006))
+;; (time (train 100000 100 :fitness-fn #'corrects :sort-fn #'> :save-every 10 :epsilon 1.8))
+;; (time (train 100000 100 :fitness-fn #'mape :sort-fn #'< :save-every 1 :epsilon 0.00 :gd-epsilon 0.000))
 ;; *cached-agents*
 ;; *population*
 ;; *generations*
 
 ;; (filter-reports *results*)
-;; (defparameter *results* (get-reports 100))
+;; (defparameter *results* (get-reports 10 0.1))
 
 ;; Init using last entry (generations)
 ;; (init-from-database (access (first (with-postgres-connection (retrieve-all (select (:*) (from :populations) (order-by (:asc :mape)))))) :id))
@@ -1741,23 +1984,25 @@ evolutionary process."
       ;; 	(agents-mf-adjust (extract-agents-from-pool (agents-best (agents-distribution *population*))) 10))
       
       (let* ((fitness-training (agents-reproduce fitness-fn sort-fn))
-	     (fitness (first (validate-test (agents-best (agents-distribution *population*))
-					    0.1))))
+	     (fitness-validation (first (validate-test (agents-best (agents-distribution *population*))
+	     					       1.0 :mape)))
+	     )
         (when (or (null *fitnesses*)
                   ;; (> fitness 0.6)
-                  ;; (funcall sort-fn fitness (first *fitnesses*))
-		  (and (< fitness-training 0.1)
-		       (> fitness (first *fitnesses*)))
+                  (funcall sort-fn fitness-training (first *fitnesses*))
+		  ;; (and (funcall sort-fn fitness-training (first *fitnesses*))
+		  ;;      (funcall sort-fn fitness-validation (first *fitnesses-validation*)))
 		  )
           (when (and can-save?)
 	    (setf parent-id (insert-best-agents parent-id "" fitness-fn sort-fn))
 	    (setf can-save? nil)
 	    )
 	  
-          (push fitness *fitnesses*)
-          (format t "~%~a: ~a" *generations* (float fitness)))
+          (push fitness-training *fitnesses*)
+	  (push fitness-validation *fitnesses-validation*)
+          (format t "~%~a: ~a, ~a" *generations* (float fitness-training) (float fitness-validation)))
 	;; Checking if error threshold is met.
-	(when (or (funcall sort-fn fitness epsilon)
+	(when (or (funcall sort-fn fitness-training epsilon)
 		  (= gen (1- generations)))
 	  (descent-leverages (agents-best (agents-distribution *population* fitness-fn sort-fn) sort-fn)
 			     gd-epsilon 1000 gd-iterations)
@@ -1983,15 +2228,25 @@ granularity `timeframe`."
   (let (best)
     (dotimes (_ iterations)
       (let ((community (subseq (shuffle (iota *num-pool-agents*)) 0 num-agents)))
-	(woof community)
+	;; (woof community)
 	(when (or (null best)
-		  (< (agents-pmape community)
-		     (agents-pmape best)))
-	  (print (agents-pmape community))
+		  (> (abs (- (agents-corrects community) 0.5))
+		     (abs (- (agents-corrects best) 0.5))))
+	  (print (float (agents-corrects community)))
 	  (setf best community))))
     best))
-;; (agents-random-search 10 1000)
+;; (defparameter *best* (agents-random-search 30 10))
+;; (dotimes (i 10) (descent-leverages *best* 6.0d-3 1d3 2))
+
+;; (float (agents-corrects *best*))
 ;; *cached-agents*
+
+;; (dolist (agent *best*)
+;;   (print (slot-value (extract-agent-from-pool agent) 'leverage)))
+
+;; Reset leverages.
+;; (dolist (agent *agents-pool*)
+;;   (setf (slot-value agent 'leverage) (iota *num-inputs* :start -1 :step 0)))
 
 ;; (reset-leverages)
 
@@ -2115,6 +2370,7 @@ history."
                            (get-stochastic-oscillator i i))
                          (iota *num-inputs* :start 5 :step 1)))
           (mapcar #'list (get-real-data omper:*data-count*))))
+;; (agent-stochastic-oscillator nil)
 
 (defun ta-average (sequence &key (key #'identity))
   (let ((len 1))
@@ -2178,10 +2434,8 @@ from each sample."
 			       ;; (list %k %d)
                                %d)))))
 
-
-
-(defun get-reports (count)
-  (let* ((omper:*data-count* (ceiling (* omper:*data-count* 0.1))))
+(defun get-reports (count &optional (ratio 0.1))
+  (let* ((omper:*data-count* (ceiling (* omper:*data-count* ratio))))
     (mapcar (lambda (db-pop)
 	      (let* ((validation (market-report db-pop
 						*instrument* *timeframe*
@@ -2341,6 +2595,23 @@ from each sample."
 
 (defun agents-crossover (x y &optional (chance 0.6))
   (if (<= (random-float *rand-gen* 0 1.0) chance)
+      (let* ((lenx1 (* 2 (ceiling (/ (random-int *rand-gen* 1 (1- (length x))) 2))))
+             (lenx2 (* 2 (ceiling (/ (random-int *rand-gen* 1 (1- (length x))) 2))))
+             (leny1 (* 2 (ceiling (/ (random-int *rand-gen* 1 (1- (length y))) 2))))
+             (leny2 (* 2 (ceiling (/ (random-int *rand-gen* 1 (1- (length y))) 2))))
+             (x1 (subseq (shuffle x) 0 lenx1))
+	     (x2 (subseq (shuffle x) 0 lenx2))
+	     (y1 (subseq (shuffle y) 0 leny1))
+	     (y2 (subseq (shuffle y) 0 leny2)))
+	(let ((newx (append x1 y2))
+	      (newy (append y1 x2)))
+	  (values newx
+		  newy)))
+      ;; no change
+      (values x y)))
+
+(defun agents-crossover (x y &optional (chance 0.6))
+  (if (<= (random-float *rand-gen* 0 1.0) chance)
       (let* ((x (shuffle x))
              (y (shuffle y))
              (site (random-int *rand-gen* 1 (1- *community-size*)))
@@ -2353,23 +2624,6 @@ from each sample."
 	  ;; Performing gradient descent to improve agents' leverages.
 	  ;; (agents-descent newx)
 	  ;; (agents-descent newy)
-	  (values newx
-		  newy)))
-      ;; no change
-      (values x y)))
-
-(defun agents-crossover (x y &optional (chance 0.6))
-  (if (<= (random-float *rand-gen* 0 1.0) chance)
-      (let* ((lenx1 (* 2 (ceiling (/ (random-int *rand-gen* 1 (1- (length x))) 2))))
-             (lenx2 (* 2 (ceiling (/ (random-int *rand-gen* 1 (1- (length x))) 2))))
-             (leny1 (* 2 (ceiling (/ (random-int *rand-gen* 1 (1- (length y))) 2))))
-             (leny2 (* 2 (ceiling (/ (random-int *rand-gen* 1 (1- (length y))) 2))))
-             (x1 (subseq (shuffle x) 0 lenx1))
-	     (x2 (subseq (shuffle x) 0 lenx2))
-	     (y1 (subseq (shuffle y) 0 leny1))
-	     (y2 (subseq (shuffle y) 0 leny2)))
-	(let ((newx (append x1 y2))
-	      (newy (append y1 x2)))
 	  (values newx
 		  newy)))
       ;; no change

@@ -374,14 +374,14 @@ series `real`."
   "How many trades were correct."
   ;; (corrects (agents-indexes-simulation (agents-best (agents-distribution *population*))) (get-real-data))
   (/ (apply #'+
-	     (mapcar (lambda (s r)
-		       (if (> (* s r) 0)
-			   1
-			   0))
-		     sim real))
-	 (if mape-constraint
-	     (* (length real) (mape sim real nil))
-	     (length real))))
+	    (mapcar (lambda (s r)
+		      (if (> (* s r) 0)
+			  1
+			  0))
+		    sim real))
+     (if mape-constraint
+	 (* (length real) (mape sim real nil))
+	 (length real))))
 
 ;; (corrects '(9.5 9.7 9.5 9.4) '(10 9 10 9 10))
 
@@ -616,8 +616,8 @@ series `real`."
 (defun agents-reproduce (&optional (fitness-fn #'mape) (sort-fn #'<))
   (agents-mutate)
   ;; Finding appropriate leverages.
-  ;; (dolist (community *population*)
-  ;;   (woof community))
+  (dolist (community *population*)
+    (woof community))
   ;; (when (> *generations* 300)
   ;;   (dolist (community *population*)
   ;;     (woof community)))
@@ -645,8 +645,8 @@ series `real`."
 	)))
 
   ;; Finding appropriate leverages.
-  ;; (dolist (community *population*)
-  ;;     (woof community))
+  (dolist (community *population*)
+      (woof community))
   ;; (when (> *generations* 300)
   ;;   (dolist (community *population*)
   ;;     (woof community)))
@@ -1693,7 +1693,7 @@ series `real`."
   (setf lparallel:*kernel* (lparallel:make-kernel 32))
   (setf omper:*data-count* 101)
   (setf omper:*partition-size* 100)
-  (defparameter *community-size* 4
+  (defparameter *community-size* 10
     "Represents the number of agents in an 'individual' or solution. A simulation (a possible solution) will be generated using this number of agents.")
   (defparameter *population-size* 10
     "How many 'communities', 'individuals' or 'solutions' will be participating in the optimization process.")
@@ -3124,7 +3124,7 @@ each point in the real prices."
 			 :rmse (float (agents-rmse best))
 			 :mae (float (agents-mae best))
 			 :mse (float (agents-mse best))
-			 :corrects (float (agents-corrects best))
+			 :corrects (float (agents-corrects best nil))
 			 :revenue (float (agents-revenue best))
 			 ))))
     id))

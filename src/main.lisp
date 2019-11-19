@@ -268,19 +268,14 @@ agents parameters according to it."
   (if (and zero-metric-constraint
 	   (check-zero-metric sim real))
       most-positive-fixnum
-      (let ((last-real (first real)))
-	(/ (reduce #'+ (mapcar (lambda (s r)
-				 (prog1
-				     (if (>= (* (- r last-real)
-						(- s last-real))
-					     0)
-					 (abs (/ (- r s) (1+ r)))
-					 (* 3
-					    (abs (/ (- r s) (1+ r)))))
-				   (setf last-real r)))
-			       sim
-			       real))
-	   (length real)))))
+      (/ (reduce #'+ (mapcar (lambda (s r)
+			       (if (>= (* r s) 0)
+				       (abs (/ (- r s) (1+ (abs r))))
+				       (* 3
+					  (abs (/ (- r s) (1+ (abs r)))))))
+			     sim
+			     real))
+	 (length real))))
 
 (defun mape (sim real &optional (zero-metric-constraint nil))
   "Mean absolute percentage error between a simulated time series `sim` and a real time series `real`."
@@ -375,37 +370,18 @@ series `real`."
 ;; 	     (agents-indexes-simulation (agents-best (agents-distribution *population*)))
 ;; 	     (get-real-data 501)))
 
-(defun corrects (sim real &optional (mape-constraint nil))
+(defun corrects (sim real &optional (mape-constraint t))
   "How many trades were correct."
   ;; (corrects (agents-indexes-simulation (agents-best (agents-distribution *population*))) (get-real-data))
-  (if (and mape-constraint (or ;; (> (mape sim real) 0.1)
-			    (check-zero-metric sim real)))
-      (/ 1 (length real))
-      (/ (apply #'+
+  (/ (apply #'+
 	     (mapcar (lambda (s r)
 		       (if (> (* s r) 0)
 			   1
 			   0))
 		     sim real))
-	 (length real))
-      ;; (let ((prev (first real))
-      ;; 	    (real (rest real))
-      ;; 	    ;; we only need the real previous, as the simulated is based on the last real price at every moment
-      ;; 	    )
-      ;; 	(/ (apply #'+ (mapcar (lambda (s r)
-      ;; 				(let ((real-dir (- r prev))
-      ;; 				      (sim-dir (- s prev)))
-      ;; 				  ;; (format t "prev: ~a~t real: ~a~t sim: ~a~t real-dir: ~a~t sim-dir: ~a~t~%" prev r s real-dir sim-dir)
-      ;; 				  (setq prev r)
-      ;; 				  ;; (print real-dir)
-      ;; 				  (if (> (* real-dir sim-dir) 0)
-      ;; 				      1
-      ;; 				      0)))
-      ;; 			      ;; (rest sim)
-      ;; 			      sim
-      ;; 			      real))
-      ;; 	   (length real)))
-      ))
+	 (if mape-constraint
+	     (* (length real) (mape sim real nil))
+	     (length real))))
 
 ;; (corrects '(9.5 9.7 9.5 9.4) '(10 9 10 9 10))
 
@@ -640,8 +616,8 @@ series `real`."
 (defun agents-reproduce (&optional (fitness-fn #'mape) (sort-fn #'<))
   (agents-mutate)
   ;; Finding appropriate leverages.
-  (dolist (community *population*)
-    (woof community))
+  ;; (dolist (community *population*)
+  ;;   (woof community))
   ;; (when (> *generations* 300)
   ;;   (dolist (community *population*)
   ;;     (woof community)))
@@ -669,8 +645,8 @@ series `real`."
 	)))
 
   ;; Finding appropriate leverages.
-  (dolist (community *population*)
-      (woof community))
+  ;; (dolist (community *population*)
+  ;;     (woof community))
   ;; (when (> *generations* 300)
   ;;   (dolist (community *population*)
   ;;     (woof community)))
@@ -1299,7 +1275,146 @@ series `real`."
                 (setf (slot-value (extract-agent-from-pool (nth j agents)) 'leverage)
                       (realpart (magicl:ref sol-matrix j 0)))))
           )))))
- 
+
+(defun cluster-trades-deltas (trades deltas agents-count)
+  (let* (final-trades final-deltas)
+      (let ((delta-clusters (mapcar #'flatten (km (mapcar #'list deltas) 2)))
+	    (trade-clusters (make-hash-table :size 2)))
+
+	(let* ((min-delta-clusters-size (min (length (nth 0 delta-clusters))
+					     (length (nth 1 delta-clusters))))
+	       (0-cluster-size (length (nth 0 delta-clusters)))
+	       (1-cluster-size (length (nth 1 delta-clusters)))
+	       (first-half-size (if (< min-delta-clusters-size (/ agents-count 2))
+				    (if (< 0-cluster-size (/ agents-count 2))
+					0-cluster-size
+					(- agents-count min-delta-clusters-size))
+				    (floor agents-count 2)))
+	       (second-half-size (if (< min-delta-clusters-size (/ agents-count 2))
+				     (if (< 1-cluster-size (/ agents-count 2))
+					 1-cluster-size
+					 (- agents-count first-half-size))
+				     (+ first-half-size (rem agents-count 2)))))
+
+	  ;;(format t "~a,~a~%" (length (nth 0 delta-clusters)) (length (nth 1 delta-clusters)))
+
+	  ;; Clustering deltas and trades.
+	  (dotimes (i (length deltas))
+	    ;; `num-cluster` is the number of the cluster in which we found the `ith` delta.
+	    (let ((num-cluster (position (nth i deltas) delta-clusters
+					 :test (lambda (elt seq)
+						 (find elt seq :test #'equal)))))
+	      ;; We save the slice of trades (different trades by different agents)
+	      ;; in its corresponding cluster.
+	      (push (mapcar (lambda (trade)
+			      (nth i trade))
+			    trades)
+		    (gethash num-cluster trade-clusters))))
+
+	  ;; First half.
+	  (let* ((r-trade-cluster (reverse (gethash 0 trade-clusters)))
+		 (inner-trade-clusters (km r-trade-cluster first-half-size))
+		 (inner-delta-clusters (make-hash-table :size first-half-size)))
+	    ;; Clustering trades and deltas.
+	    (dotimes (i (length r-trade-cluster))
+	      ;; `num-cluster` is the number of the cluster in which we found the `ith` delta.
+	      (let ((num-cluster (position (nth i r-trade-cluster) inner-trade-clusters
+					   :test (lambda (elt seq)
+						   (find elt seq :test #'equal)))))
+		;; We save the slice of trades (different trades by different agents)
+		;; in its corresponding cluster.
+		(push (nth i (nth 0 delta-clusters))
+		      (gethash num-cluster inner-delta-clusters))))
+	    ;; Saving results.
+	    ;; (format t "First half: ~a~%" inner-trade-clusters)
+	    (push inner-trade-clusters final-trades)
+	    (push (mapcar #'reverse (mapcar #'cdr (sort (copy-sequence 'list (hash-table-alist inner-delta-clusters)) #'< :key #'first)))
+		  final-deltas)
+	    )
+
+	  ;; Second half.
+	  (let* ((r-trade-cluster (reverse (gethash 1 trade-clusters)))
+		 (inner-trade-clusters (km r-trade-cluster second-half-size))
+		 (inner-delta-clusters (make-hash-table :size second-half-size)))
+	    ;; Clustering trades and deltas.
+	    (dotimes (i (length r-trade-cluster))
+	      ;; `num-cluster` is the number of the cluster in which we found the `ith` delta.
+	      (let ((num-cluster (position (nth i r-trade-cluster) inner-trade-clusters
+					   :test (lambda (elt seq)
+						   (find elt seq :test #'equal)))))
+		;; We save the slice of trades (different trades by different agents)
+		;; in its corresponding cluster.
+		(push (nth i (nth 1 delta-clusters))
+		      (gethash num-cluster inner-delta-clusters))))
+	    ;; (format t "Second half: ~a~%" inner-trade-clusters)
+	    (push inner-trade-clusters final-trades)
+	    (push (mapcar #'reverse (mapcar #'cdr (sort (copy-sequence 'list (hash-table-alist inner-delta-clusters)) #'< :key #'first)))
+		  final-deltas))
+
+	  ;; (format t "~a~%" final-trades)
+	  ;; (defparameter *coco* final-trades)
+
+	  ;; (values (mapcar (lambda (cluster)
+	  ;; 		    (apply #'mapcar (lambda (&rest trades)
+	  ;; 				      (mean trades))
+	  ;; 			   cluster))
+	  ;; 		  (apply #'concatenate 'list (reverse final-trades)))
+	  ;; 	  (mapcar #'mean (apply #'concatenate 'list (reverse final-deltas))))
+
+	  ;; (format t "delta-clusters: ~a~%" delta-clusters)
+	  ;; (format t "trade-clusers: ~a~%" (hash-table-values trade-clusters))
+	  ;; (format t "r-final-deltas: ~a~%" (reverse final-deltas))
+	  ;; (format t "r-final-trades: ~a~%" (reverse final-trades))
+	  ;; (break "")
+	  
+	  (let* ((r-final-deltas (reverse final-deltas))
+		 (r-final-trades (reverse final-trades))
+		 ;; (idxs (mapcar #'median-elt-idx r-final-deltas))
+		 )
+	    (values (mapcar (lambda (cluster)
+			      (apply #'mapcar (lambda (&rest trades)
+						(mean trades)
+						;; (nth idx trades)
+						)
+				     cluster))
+			    ;; idxs
+			    (apply #'concatenate 'list r-final-trades))
+		    (mapcar #'mean (apply #'concatenate 'list r-final-deltas)))))
+	)))
+;; (cluster-trades-deltas *trades* *deltas* 10)
+
+(defun woof (agents)
+  "Repeatedly clusters deltas and trades."
+  (ignore-errors
+    ;; Reset all agents' leverages to 1.
+    (dolist (agent *agents-pool*)
+      (setf (slot-value agent 'leverage)
+	    (iota *num-inputs* :start 1 :step 0)))
+    (let* ((trades (mapcar (lambda (agent)
+			     (butlast (agent-trades agent))
+			     )
+			   (extract-agents-from-pool agents)))
+	   (deltas (get-real-data-deltas omper:*data-count*)))
+
+      (multiple-value-bind (mean-trades mean-deltas)
+	  (cluster-trades-deltas trades deltas (length agents))
+	;; (format t "~a~%~a~%" mean-trades mean-deltas)
+	;; (format t "~a~%" mean-deltas)
+	;; (format t "~a~%" mean-trades)
+	(let* ((A (magicl:make-complex-matrix (length mean-deltas) (length mean-deltas) (flatten mean-trades)))
+	       (B (magicl:make-complex-matrix (length mean-deltas) 1 mean-deltas))
+	       (sol-matrix (magicl:multiply-complex-matrices
+			    (magicl:inv A)
+			    B)))
+	  ;; (format t ".")
+	  ;; Modifying leverages.
+	  (dotimes (j (length agents))
+	    ;; (format t "~a" (realpart (magicl:ref sol-matrix j 0)))
+	    (setf (slot-value (extract-agent-from-pool (nth j agents)) 'leverage)
+		  (iota *num-inputs* :start (realpart (magicl:ref sol-matrix j 0)) :step 0)
+		  ;; (realpart (magicl:ref sol-matrix j 0))
+		  )))))))
+
 (defun woof (agents)
   (ignore-errors
     ;; Reset all agents' leverages to 1.
@@ -1322,7 +1437,7 @@ series `real`."
       (let* ((delta-clusters (mapcar #'flatten (km (mapcar #'list deltas) (length agents))))
 	     (trade-clusters (make-hash-table :size (length agents)))
 	     (idxs (mapcar #'median-elt-idx delta-clusters))
-	     (mean-deltas (mapcar #'median-elt delta-clusters)))
+	     (mean-deltas (mapcar #'mean delta-clusters)))
 
 	;; Clustering deltas and trades.
 	(dotimes (i (length deltas))
@@ -1338,9 +1453,9 @@ series `real`."
 	(let* ((mean-trades (apply #'mapcar #'list
 				   (mapcar (lambda (idx trades)
 					     (apply #'mapcar (lambda (&rest nums)
-							       ;; (mean nums)
+							       (mean nums)
 							       ;; (random-elt nums)
-							       (nth idx nums)
+							       ;; (nth idx nums)
 							       )
 						    (cdr trades)))
 					   idxs
@@ -1358,104 +1473,13 @@ series `real`."
 		  ))
 	  )))))
 
-(defun cluster-trades-deltas (trades deltas agents-count)
-  (ignore-errors
-    (let* (final-trades final-deltas)
-      (let ((delta-clusters (mapcar #'flatten (km (mapcar #'list deltas) 2)))
-	    (trade-clusters (make-hash-table :size 2)))
-      
-	(let* ((min-delta-clusters-size (min (length (nth 0 delta-clusters))
-					     (length (nth 1 delta-clusters))))
-	       (first-half-size (if (< min-delta-clusters-size (/ agents-count 2))
-				    min-delta-clusters-size
-				    (floor agents-count 2)))
-	       (second-half-size (if (< min-delta-clusters-size (/ agents-count 2))
-				     (- agents-count first-half-size)
-				     (+ first-half-size (rem agents-count 2)))
-		 )) ;; Clustering deltas and trades.
-	  (dotimes (i (length deltas))
-	    ;; `num-cluster` is the number of the cluster in which we found the `ith` delta.
-	    (let ((num-cluster (position (nth i deltas) delta-clusters :test #'find)))
-	      ;; We save the slice of trades (different trades by different agents)
-	      ;; in its corresponding cluster.
-	      (push (mapcar (lambda (trade)
-			      (nth i trade))
-			    trades)
-		    (gethash num-cluster trade-clusters))))
+;; (dotimes (i (length *population*))
+;;   (multiple-value-bind (res err)
+;;       (woof
+;;        (nth i *population*))
+;;     (print err))
+;;   )
 
-
-	  ;; First half.
-	  (let* ((r-trade-cluster (reverse (gethash 0 trade-clusters)))
-		 (inner-trade-clusters (km r-trade-cluster first-half-size))
-		 (inner-delta-clusters (make-hash-table :size first-half-size)))
-	    ;; Clustering trades and deltas.
-	    (dotimes (i (length r-trade-cluster))
-	      ;; `num-cluster` is the number of the cluster in which we found the `ith` delta.
-	      (let ((num-cluster (position (nth i r-trade-cluster) inner-trade-clusters :test #'find)))
-		;; We save the slice of trades (different trades by different agents)
-		;; in its corresponding cluster.
-		(push (nth i (nth 0 delta-clusters))
-		      (gethash num-cluster inner-delta-clusters))))
-	    ;; Saving results.
-	    (push inner-trade-clusters final-trades)
-	    (push (reverse (mapcar #'cdr (sort (copy-sequence 'list (hash-table-alist inner-delta-clusters)) #'< :key #'first)))
-		  final-deltas)
-	    )
-
-	  ;; Second half.
-	  (let* ((r-trade-cluster (reverse (gethash 1 trade-clusters)))
-		 (inner-trade-clusters (km r-trade-cluster second-half-size))
-		 (inner-delta-clusters (make-hash-table :size second-half-size)))
-	    ;; Clustering trades and deltas.
-	    (dotimes (i (length r-trade-cluster))
-	      ;; `num-cluster` is the number of the cluster in which we found the `ith` delta.
-	      (let ((num-cluster (position (nth i r-trade-cluster) inner-trade-clusters :test #'find)))
-		;; We save the slice of trades (different trades by different agents)
-		;; in its corresponding cluster.
-		(push (nth i (nth 1 delta-clusters))
-		      (gethash num-cluster inner-delta-clusters))))
-	    (push inner-trade-clusters final-trades)
-	    (push (reverse (mapcar #'cdr (sort (copy-sequence 'list (hash-table-alist inner-delta-clusters)) #'< :key #'first)))
-		  final-deltas))
-
-	  (values (mapcar (lambda (cluster)
-			    (apply #'mapcar (lambda (&rest trades)
-					      (mean trades))
-				   cluster))
-			  (apply #'concatenate 'list (nreverse final-trades)))
-		  (mapcar #'mean (apply #'concatenate 'list (nreverse final-deltas)))))
-	))))
-;; (cluster-trades-deltas *trades* *deltas* 10)
-
-(defun woof (agents)
-  (ignore-errors
-    "Repeatedly clusters deltas and trades."
-    ;; Reset all agents' leverages to 1.
-    (dolist (agent *agents-pool*)
-      (setf (slot-value agent 'leverage)
-	    (iota *num-inputs* :start 1 :step 0)))
-    (let* ((trades (mapcar (lambda (agent)
-			     (butlast (agent-trades agent))
-			     )
-			   (extract-agents-from-pool agents)))
-	   (deltas (get-real-data-deltas omper:*data-count*))
-	   )
-
-      (multiple-value-bind (mean-trades mean-deltas)
-	  (cluster-trades-deltas trades deltas (length agents))
-	(let* (
-	       (A (magicl:make-complex-matrix (length mean-deltas) (length mean-deltas) (flatten mean-trades)))
-	       (B (magicl:make-complex-matrix (length mean-deltas) 1 mean-deltas))
-	       (sol-matrix (magicl:multiply-complex-matrices
-			    (magicl:inv A)
-			    B)))
-	  ;; Modifying leverages.
-	  (dotimes (j (length agents))
-	    (setf (slot-value (extract-agent-from-pool (nth j agents)) 'leverage)
-		  (iota *num-inputs* :start (realpart (magicl:ref sol-matrix j 0)) :step 0)
-		  ;; (realpart (magicl:ref sol-matrix j 0))
-		  ))
-	  )))))
 
 ;; (progn
 ;;   (setf omper:*data-count* 61)
@@ -1656,8 +1680,8 @@ series `real`."
   (init)
   (with-postgres-connection (execute (delete-from :populations)))
   (with-postgres-connection (execute (delete-from :populations-closure)))
-  ;; (time (train 100000 100 :fitness-fn #'corrects :sort-fn #'> :save-every 1 :epsilon 1.8))
-  (train 100000 100 :fitness-fn #'mape :sort-fn #'< :save-every 1 :epsilon 0.00 :gd-epsilon 0.000)
+  (time (train 100000 100 :fitness-fn #'corrects :sort-fn #'> :save-every 1 :epsilon 1.8))
+  ;; (train 100000 100 :fitness-fn #'pmape :sort-fn #'< :save-every 1 :epsilon 0.00 :gd-epsilon 0.000)
   )
 ;; (wrap1)
 ;; (agents-corrects (agents-best (agents-distribution *population* #'corrects #'>) #'>))
@@ -1667,9 +1691,9 @@ series `real`."
 
 (defun init ()
   (setf lparallel:*kernel* (lparallel:make-kernel 32))
-  (setf omper:*data-count* 201)
+  (setf omper:*data-count* 101)
   (setf omper:*partition-size* 100)
-  (defparameter *community-size* 40
+  (defparameter *community-size* 4
     "Represents the number of agents in an 'individual' or solution. A simulation (a possible solution) will be generated using this number of agents.")
   (defparameter *population-size* 10
     "How many 'communities', 'individuals' or 'solutions' will be participating in the optimization process.")
@@ -1855,8 +1879,8 @@ evolutionary process."
       ;; 	(agents-mf-adjust (extract-agents-from-pool (agents-best (agents-distribution *population*))) 10))
       
       (let* ((fitness-training (agents-reproduce fitness-fn sort-fn))
-	     (fitness-validation (first (validate-test (agents-best (agents-distribution *population*))
-	     					       1.0 :mape)))
+	     ;; (fitness-validation (first (validate-test (agents-best (agents-distribution *population*))
+	     ;; 					       1.0 :mape)))
 	     )
         (when (or (null *fitnesses*)
                   ;; (> fitness 0.6)
@@ -1870,8 +1894,9 @@ evolutionary process."
 	    )
 	  
           (push fitness-training *fitnesses*)
-	  (push fitness-validation *fitnesses-validation*)
-          (format t "~%~a: ~a, ~a" *generations* (float fitness-training) (float fitness-validation)))
+	  ;; (push fitness-validation *fitnesses-validation*)
+          ;; (format t "~%~a: ~a, ~a" *generations* (float fitness-training) (float fitness-validation)))
+	  (format t "~%~a: ~a" *generations* (float fitness-training)))
 	;; Checking if error threshold is met.
 	(when (or (funcall sort-fn fitness-training epsilon)
 		  (= gen (1- generations)))
@@ -2943,7 +2968,7 @@ each point in the real prices."
   (let ((sim (agents-indexes-simulation agents-indexes)))
     (revenue sim (get-real-data-deltas (length sim)))))
 
-(defun agents-corrects (agents-indexes &optional (mape-constraint nil))
+(defun agents-corrects (agents-indexes &optional (mape-constraint t))
   "Returns the number of correct direction predictions made by the agents in
 `agents-indexes` for the real prices."
   ;; (agents-corrects (first *population*))

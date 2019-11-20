@@ -449,14 +449,6 @@ series `real`."
 ;; here
 ;; (mapcar #'float (mapcar #'mean (mapcar #'centroid (km (mapcar #'butlast (agent-perception (extract-agent-from-pool 1))) 10))))
 
-;; (let* ((data (mapcar #'butlast (agent-perception (extract-agent-from-pool 1))))
-;;        (clusters (km data 10)))
-;;   (all-positions 0
-;;    (mapcar (lambda (datum)
-;; 	    (position datum clusters :test (lambda (datum cluster)
-;; 					     (find datum cluster :test #'equal))))
-;;   	  data)))
-
 (defun all-positions (needle haystack)
   (loop
      for element in haystack
@@ -479,7 +471,7 @@ series `real`."
 	      (mape inputs centroid nil))
 	    cluster-centroids))))
 
-;; (get-closest-cluster '(3689/285 1541/95 1315/57 9074/285 3327/95 2818/95 6167/285) *centroids*)
+;; (get-closest-cluster '(3689/285 1541/95 1315/57 9074/285 3327/95 2818/95 6167/285) (get-cluster-data))
 ;; (mapcar #'float (get-cluster-data))
 
 (defun agent-perception (agent)
@@ -1706,10 +1698,10 @@ series `real`."
 					    desc))))
     (access (nth idx desc) :id)))
 
-(defmacro param-singleton (sym value)
-  (print (find-symbol (symbol-name sym)))
-  (unless (find-symbol (symbol-name sym) :overmind-agents)
-    `(defparameter ,sym ,value)))
+;; (defmacro param-singleton (sym value)
+;;   (print (find-symbol (symbol-name sym)))
+;;   (unless (find-symbol (symbol-name sym) :overmind-agents)
+;;     `(defparameter ,sym ,value)))
 
 (defparameter *num-inputs* 7
   "Keeps track of how many generations have elapsed in an evolutionary process.")
@@ -1733,15 +1725,34 @@ series `real`."
 ;; (dolist (pop *population*)
 ;;   (print (float (agents-corrects pop))))
 
+(defun get-data-sample (validation-ratio testing-ratio)
+  (let* ((*end* (ceiling (+ *end* (* omper:*data-count* (+ validation-ratio testing-ratio)))))
+	 (omper:*data-count* (ceiling (* omper:*data-count* (+ 1 validation-ratio testing-ratio)))))
+    (mapcar #'butlast (funcall *perception-fn* (extract-agent-from-pool 1)))))
+
+(defun get-clustered-data-points (cluster-index)
+  (all-positions cluster-index
+		 (mapcar (lambda (datum)
+			   (position datum *data-sample-clusters*
+				     :test (lambda (datum cluster)
+					     (find datum cluster :test #'equal))))
+			 *data-sample*)))
+
+
+
+(defun extract-training-clustered-trades (trades)
+  (mapcar (lambda (idx)
+	    (nth idx trades))
+   (get-clustered-data-points *current-cluster*)))
+
 (defun init ()
   (setf lparallel:*kernel* (lparallel:make-kernel 32))
-  (setf omper:*data-count* 301)
+  (setf omper:*data-count* 1001)
   (setf omper:*partition-size* 100)
   (defparameter *community-size* 10
     "Represents the number of agents in an 'individual' or solution. A simulation (a possible solution) will be generated using this number of agents.")
   (defparameter *population-size* 10
     "How many 'communities', 'individuals' or 'solutions' will be participating in the optimization process.")
-  (defparameter *agents-cluster-size* 10)
   (defparameter *begin* (random-int *rand-gen* 0 (ceiling (- (length *all-rates*) (* *data-count* 5))))
     "The starting timestamp for the data used for training or testing.")
   (defparameter *end* (+ *begin* (ceiling (* *data-count* 4)))
@@ -1773,7 +1784,13 @@ series `real`."
   (defparameter *fitnesses-validation* nil
     "List of fitnesses in the validation stage obtained after evolving a population.")
   (defparameter *fitness-fn* :mape)
-  (defparameter "*CENTROID*" (get-cluster-data))
+  (defparameter *validation-ratio* 0.1)
+  (defparameter *testing-ratio* 0.1)
+  (defparameter *agents-cluster-size* 10)
+  (defparameter *perception-fn* #'agent-perception)
+  (defparameter *data-sample* (get-data-sample *validation-ratio* *testing-ratio*))
+  (defparameter *data-sample-clusters* (km *data-sample* *agents-cluster-size*))
+  (defparameter *current-cluster* 0)
   )
 ;; (init)
 ;; (wrap1)
@@ -1978,7 +1995,7 @@ evolutionary process."
    (rules :initarg :rules :initform (gen-rules *num-rules*) :accessor rules)
    ;; (leverage :initarg :leverage :initform 1)
    ;; (leverage :initarg :leverage :initform (calc-trade-scale))
-   (leverage :initarg :leverage :initform (iota *num-inputs* :start (calc-trade-scale) :step 0))
+   (leverage :initarg :leverage :initform (iota *num-inputs* :start 1 :step 0))
    ;; (leverage :initarg :leverage :initform (iota *num-inputs* :start 1 :step 0))
    ;; (rules-deltas :initarg :rules-deltas :initform (iota (* 2 *num-rules* *num-inputs*) :start 0 :step 0))
    ;; (trade-scale :initarg :trade-scale :initform (random-int *rand-gen* 1 100000))
@@ -2264,25 +2281,6 @@ history."
 		  (get-real-data
 		   (+ omper:*data-count*
 		      (1- periods))))))
-
-(defun agent-perception-percentages (agent)
-  "TODO: `agent` is unused"
-  (reverse
-   (remove nil
-	   (maplist (lambda (rates)
-		      (when (>= (length rates) (1+ *num-inputs*))
-			(let ((percentages (mapcar (lambda (rate)
-						     (+ 50
-							(* 1000
-							   (/ (- (first rates)
-								 rate)
-							      (first rates)))))
-						   (rest (subseq rates 0 (1+ *num-inputs*)))
-						   )))
-			  (reverse (push (first rates)
-					 percentages)))
-			))
-		    (reverse (get-real-data (+ omper:*data-count* *num-inputs*)))))))
 
 (defun agent-moving-average (agent)
   "TODO: `agent` is unused"
@@ -2595,7 +2593,8 @@ extracted from `*agents-pool*` using the indexes stored in `agents-indexes`."
   (let ((sim (apply #'mapcar (lambda (&rest trades)
 			       (apply #'+ trades))
 		    (mapcar (lambda (agent)
-			      (agent-trades agent))
+			      (extract-training-clustered-trades
+			       (agent-trades agent)))
 			    agents))))
     ;; (mapcar (lambda (sim real)
     ;; 	      ;; summing the current price + the sum of all trades to obtain next price

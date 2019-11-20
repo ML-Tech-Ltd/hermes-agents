@@ -445,9 +445,46 @@ series `real`."
   ;; (agents-without-worst (agents-distribution *population*))
   (mapcar #'cadr (cdr (reverse (sort (copy-tree distribution) sort-fn-for-best :key (lambda (elt) (first elt)))))))
 
+
+;; here
+;; (mapcar #'float (mapcar #'mean (mapcar #'centroid (km (mapcar #'butlast (agent-perception (extract-agent-from-pool 1))) 10))))
+
+;; (let* ((data (mapcar #'butlast (agent-perception (extract-agent-from-pool 1))))
+;;        (clusters (km data 10)))
+;;   (all-positions 0
+;;    (mapcar (lambda (datum)
+;; 	    (position datum clusters :test (lambda (datum cluster)
+;; 					     (find datum cluster :test #'equal))))
+;;   	  data)))
+
+(defun all-positions (needle haystack)
+  (loop
+     for element in haystack
+     and position from 0
+     when (eql element needle)
+     collect position))
+
+(defun get-cluster-data-indexes (agent &optional (perception-fn #'agent-perception))
+  (let ((data (funcall perception-fn agent)))
+    ))
+
+(defun get-cluster-data (&optional (perception-fn #'agent-perception))
+  (let ((data (mapcar #'butlast (apply #'concatenate 'list (mapcar #'butlast (mapcar perception-fn (flatten (extract-agents-from-pool (first *population*)))))))))
+    (mapcar #'centroid (km data *agents-cluster-size*))))
+
+(defun get-closest-cluster (inputs cluster-centroids)
+  (last-elt
+   (largest-number-indexes
+    (mapcar (lambda (centroid)
+	      (mape inputs centroid nil))
+	    cluster-centroids))))
+
+;; (get-closest-cluster '(3689/285 1541/95 1315/57 9074/285 3327/95 2818/95 6167/285) *centroids*)
+;; (mapcar #'float (get-cluster-data))
+
 (defun agent-perception (agent)
   "Generates the fibos of a market according to `agent`'s beliefs."
-  ;; (agents-perception (extract-agent-from-pool 1))
+  ;; (agent-perception (extract-agent-from-pool 1))
   (mapcar (lambda (heat)
             (let ((heat (cl21:gethash heat :heat))
                   (close (cl21:gethash heat :close)))
@@ -470,7 +507,6 @@ series `real`."
 		      ))))
           ;; TODO: generalize (get-data) so it doesn't need an `instrument`.
           (get-data *instrument* *rates* :levels (slot-value agent 'beliefs))))
-
 
 ;; Summarizing data.
 ;; (maphash (lambda (k v)
@@ -510,9 +546,7 @@ series `real`."
   (let ((sig (reduce #'+
 		     (append (flatten (slot-value agent 'beliefs))
 			     (flatten (slot-value agent 'rules))
-                             (mapcar (lambda (rate)
-                                       (access rate :close-bid))
-                                     (last *rates* 10))
+			     (get-real-data-deltas 10)
                              ))))
     (if (gethash sig *cached-agents*)
 	(mapcar (lambda (trades)
@@ -989,6 +1023,10 @@ series `real`."
                    (rest *rates*)
                    *rates*))
      *community-size*))
+
+(defun calc-stdev-deltas ()
+  (standard-deviation (get-real-data-deltas omper:*data-count*)))
+;; (calc-stdev-deltas)
 
 ;; (* 50 (calc-trade-scale))
 
@@ -1668,12 +1706,19 @@ series `real`."
 					    desc))))
     (access (nth idx desc) :id)))
 
+(defmacro param-singleton (sym value)
+  (print (find-symbol (symbol-name sym)))
+  (unless (find-symbol (symbol-name sym) :overmind-agents)
+    `(defparameter ,sym ,value)))
+
 (defparameter *num-inputs* 7
   "Keeps track of how many generations have elapsed in an evolutionary process.")
 (defparameter *mutation-chance* 0.1
   "Keeps track of how many generations have elapsed in an evolutionary process.")
 (defparameter *moving-average-start* 5)
 (defparameter *moving-average-step* 5)
+(defparameter *rates* nil
+    "The rates used to generate the agents' perceptions.")
 ;; (iota *num-inputs* :start *moving-average-start* :step *moving-average-step*)
 
 (defun wrap1 ()
@@ -1688,15 +1733,15 @@ series `real`."
 ;; (dolist (pop *population*)
 ;;   (print (float (agents-corrects pop))))
 
-
 (defun init ()
   (setf lparallel:*kernel* (lparallel:make-kernel 32))
-  (setf omper:*data-count* 101)
+  (setf omper:*data-count* 301)
   (setf omper:*partition-size* 100)
   (defparameter *community-size* 10
     "Represents the number of agents in an 'individual' or solution. A simulation (a possible solution) will be generated using this number of agents.")
   (defparameter *population-size* 10
     "How many 'communities', 'individuals' or 'solutions' will be participating in the optimization process.")
+  (defparameter *agents-cluster-size* 10)
   (defparameter *begin* (random-int *rand-gen* 0 (ceiling (- (length *all-rates*) (* *data-count* 5))))
     "The starting timestamp for the data used for training or testing.")
   (defparameter *end* (+ *begin* (ceiling (* *data-count* 4)))
@@ -1727,7 +1772,9 @@ series `real`."
     "List of fitnesses obtained after evolving a population.")
   (defparameter *fitnesses-validation* nil
     "List of fitnesses in the validation stage obtained after evolving a population.")
-  (defparameter *fitness-fn* :mape))
+  (defparameter *fitness-fn* :mape)
+  (defparameter "*CENTROID*" (get-cluster-data))
+  )
 ;; (init)
 ;; (wrap1)
 
@@ -1736,6 +1783,7 @@ series `real`."
 ;; *cached-agents*
 ;; *population*
 ;; *generations*
+;; *community-size*
 
 ;; (filter-reports *results*)
 ;; (defparameter *results* (get-reports 10 0.1))

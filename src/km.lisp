@@ -117,7 +117,7 @@
    Returns the Clusters-Map, or a list of cluster's indices."
   (let ((new-clusters (partition observations cs)))
     (if (equal clusters new-clusters)
-      clusters
+     clusters
       (lloyd-km observations
                 new-clusters
                 (re-centroids new-clusters observations k)

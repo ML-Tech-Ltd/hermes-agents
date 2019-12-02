@@ -517,7 +517,9 @@ series `real`."
 
 		(append (let ((mx (apply #'max res)))
 			  (mapcar (lambda (r)
-				    (* 100 (/ r mx)))
+				    ;;(* 100 (/ r mx))
+				    r
+				    )
 				  res))
 			(list close))
                 )))
@@ -586,26 +588,33 @@ series `real`."
 	(let* ((data (funcall perception-fn agent)))
 	  (let ((sim (ifis-agents data
                                   (slot-value agent 'rules)
-                                  (slot-value agent 'stdev))))
+				  (access *rules-config* :sd)
+                                  ;; (slot-value agent 'input-min)
+				  ;; (slot-value agent 'input-max)
+				  ;; (slot-value agent 'output-min)
+				  ;; (slot-value agent 'output-max)
+				  )))
 	    ;; (sb-ext:with-locked-hash-table (*cached-agents*)
 	    ;;   (setf (gethash sig *cached-agents*) sim))
 	    (setf (gethash sig *cached-agents*) sim)
-	    (mapcar (lambda (trade)
-		      (process-agent-output trade
-		      			    (slot-value agent 'leverage))
-		      ;; (let ((leverages (slot-value agent 'leverage)))
-		      ;; 	(mean (mapcar (lambda (trade leverage)
-		      ;; 			(process-agent-output trade
-		      ;; 					      leverage))
-		      ;; 		      trades
-		      ;; 		      leverages)))
-		      ;; (let ((leverage (slot-value agent 'leverage)))
-		      ;; 	(mean (mapcar (lambda (trade)
-		      ;; 			(process-agent-output trade
-		      ;; 					      leverage))
-		      ;; 		      trades)))
-		      )
-		    sim))))))
+	    ;; (mapcar (lambda (trade)
+	    ;; 	      (process-agent-output trade
+	    ;; 	      			    (slot-value agent 'leverage))
+	    ;; 	      ;; (let ((leverages (slot-value agent 'leverage)))
+	    ;; 	      ;; 	(mean (mapcar (lambda (trade leverage)
+	    ;; 	      ;; 			(process-agent-output trade
+	    ;; 	      ;; 					      leverage))
+	    ;; 	      ;; 		      trades
+	    ;; 	      ;; 		      leverages)))
+	    ;; 	      ;; (let ((leverage (slot-value agent 'leverage)))
+	    ;; 	      ;; 	(mean (mapcar (lambda (trade)
+	    ;; 	      ;; 			(process-agent-output trade
+	    ;; 	      ;; 					      leverage))
+	    ;; 	      ;; 		      trades)))
+	    ;; 	      )
+	    ;; 	    sim)
+	    sim
+	    )))))
 
 (defun agents-fitness (agents-indexes &optional (fitness-fn #'mape))
   (let ((sim (agents-indexes-simulation agents-indexes)))
@@ -658,7 +667,7 @@ series `real`."
 				(iota (length (butlast inp)))))))
 	    inputs)))
 
-(defun ifis-agents (inputs rules stdev act-threshold)
+(defun ifis-agents (inputs rules stdev)
   "This one considers an activation function."
   (let ((agent-ifss (mapcar (lambda (params)
 			      (mapcar (lambda (par)
@@ -674,13 +683,13 @@ series `real`."
 					    (reduce #'ifunion
 						    (mapcar (lambda (j)
 							      (rule
-							       (* 100 (/ (nth i inp) (+ 1 mx-inp)))
-							       ;; (nth i inp)
+							       ;; (* 100 (/ (nth i inp) (+ 1 mx-inp)))
+							       (nth i inp)
 							       (nth (* j 2) ifs)
 							       (nth (1+ (* j 2)) ifs)))
 							    (iota (floor (/ (length ifs) 2)))))))
 					(iota (length (butlast inp))))))
-		       30)
+		       50)
 		    (if-coa
 		     (reduce #'ifintersection
 			     (mapcar (lambda (i)
@@ -688,8 +697,8 @@ series `real`."
 					 (reduce #'ifunion
 						 (mapcar (lambda (j)
 							   (rule
-							    (* 100 (/ (nth i inp) (+ 1 mx-inp)))
-							    ;; (nth i inp)
+							    ;; (* 100 (/ (nth i inp) (+ 1 mx-inp)))
+							    (nth i inp)
 							    (nth (* j 2) ifs)
 							    (nth (1+ (* j 2)) ifs)))
 							 (iota (floor (/ (length ifs) 2)))))))
@@ -765,17 +774,20 @@ series `real`."
 		))
 	    inputs)))
 
+
+
+
 (defun ifis-agents (inputs rules
-		    perc-min perc-max delta-min delta-max)
+		    input-min input-max output-min output-max)
   "This one considers clustered perceptions and deltas."
-  (let ((agent-ifss (mapcar (lambda (i params)
-			      (mapcar (lambda (par)
+  (let ((agent-ifss (mapcar (lambda (params)
+			      (mapcar (lambda (i par)
 					(if (evenp i)
-					    (agents-ifs par stdev)
-					    (agents-ifs par stdev))
+					    (agents-ifs par input-min input-max)
+					    (agents-ifs par output-min output-max))
 					)
+				      (iota (length params))
 				      params))
-			    (iota (length rules))
 			    rules)))
     (mapcar (lambda (inp)
 	      (let ((mx-inp (apply #'max (butlast inp))))
@@ -916,7 +928,8 @@ series `real`."
 
 (defun gen-beliefs ()
   ;; (gen-beliefs)
-  (let ((options '(0.236 0.382 0.5 0.618 1 1.618)))
+  (let (;; (options '(0.236 0.382 0.5 0.618 1 1.618))
+	(options (iota 10)))
     (let ((nums (mapcar (lambda (fibo)
 			  (round-to (float (/ (random-int *rand-gen* 0 200) 100)) 3)
 			  )
@@ -941,12 +954,12 @@ series `real`."
   (mapcar (lambda (_)
             (let* ( ;; Number of antecedent and consequent membership functions
                    ;; that we'll consider.
-                   (num-mfs (random-int *rand-gen* 1 max-num-rules))
-		   ;; (num-mfs max-num-rules)
+                   ;; (num-mfs (random-int *rand-gen* 1 max-num-rules))
+		   (num-mfs max-num-rules)
                    ;; Number of antecedent and consequent non-membership functions
                    ;; that we'll consider.
-                   (num-nmfs (random-int *rand-gen* 1 max-num-rules))
-		   ;; (num-nmfs max-num-rules)
+                   ;; (num-nmfs (random-int *rand-gen* 1 max-num-rules))
+		   (num-nmfs max-num-rules)
                    ;; Separation between membership functions.
                    (sep (/ (+ 100 (access *rules-config* :sd)) max-num-rules))
                    ;; Random starting point for the first membership function of the
@@ -995,7 +1008,7 @@ series `real`."
                                              )
                                            ))
                              (cl21:iota num-mfs)))))
-          (cl21:iota (* 1 *num-inputs*))))
+          (cl21:iota (* 2 *num-inputs*))))
 
 ;; (defun gen-rules-adjust (num-rules num-rel sep armf arnmf crmf crnmf)
 ;;   (mapcar (lambda (_)
@@ -1043,38 +1056,52 @@ series `real`."
 ;;   (corrects sim
 ;;             (get-real-data (length sim)))))
 
+(defun agent-perception-deltas (agent)
+  (mapcar (lambda (percs close)
+	    (append percs (list close)))
+	  (remove nil
+		  (maplist (lambda (deltas)
+			     (when (>= (length deltas) *num-inputs*)
+			       (subseq deltas 0 *num-inputs*)))
+			   (get-real-data-deltas (+ *num-inputs* omper:*data-count*))
+			   ))
+	  (get-real-data omper:*data-count*)))
+
 (defun cluster-perceptions-deltas (perceptions deltas rules-count)
   (let ((assoc (mapcar (lambda (d p)
 			 `(,d . ,p))
 		       deltas perceptions))
-	(delta-clusters (mapcar #'flatten (km (mapcar #'list deltas) rules-count)))
-	(min-perc (apply #'min (flatten perceptions)))
-	(max-perc (apply #'max (flatten perceptions)))
-	(min-delta (apply #'min deltas))
-	(max-delta (apply #'max deltas)))
-    (print max-perc)
+	(delta-clusters (mapcar #'flatten (km (mapcar #'list deltas) rules-count))))
     (mapcar (lambda (input)
 	      (apply #'append input))
 	    (apply #'mapcar #'list
 		   (mapcar (lambda (cluster)
 			     (let ((perc-cluster (mapcar (lambda (delta)
-							   (access assoc delta))
-							 cluster)))
-			       ;; (apply #'mapcar #'list (mapcar #'mean (apply #'mapcar #'list perc-cluster)))
+				   			   (access assoc delta))
+				   			 cluster)))
 			       (mapcar (lambda (mean stdev)
 					 (list
-					  (list mean (/ stdev (* 2 2.355)) 0.0)
+					  (list mean
+						(/ stdev 1))
 					  (list (mean cluster)
-						(standard-deviation cluster)
-						0.0))
+						(/ (standard-deviation cluster) 1)
+						))
 					 )
 				       (mapcar #'float (mapcar #'mean (apply #'mapcar #'list perc-cluster)))
 				       (mapcar #'standard-deviation (apply #'mapcar #'list perc-cluster)))
-			       ;; (mapcar #'float )
 			       )
 			     )
 			   delta-clusters)))))
-(create-agents 2 4 #'agent-perception)
+
+;; (agent-perception-deltas nil)
+;; ;; here
+;; (float (mape (agents-simulation (create-agents 1 10 #'agent-perception-deltas))
+;; 	     (get-real-data-deltas omper:*data-count*)))
+;; (agent-moving-average nil)
+
+;; (slot-value (first (create-agents 1 3 #'agent-perception-deltas)) 'rules)
+
+;; (agent-trades (first (create-agents 1 4 #'agent-perception)))
 
 (defun create-agents (agents-count rules-count &optional (perception-fn #'agent-perception))
   (let* ((agents (gen-agents agents-count))
@@ -1085,20 +1112,47 @@ series `real`."
 	 (perceptions (mapcar (lambda (agent)
 				(mapcar #'butlast
 					(funcall perception-fn agent)))
-			      agents))
-	 ;;(perception-clusters (km perceptions rules-count))
-	 )
-    
-    ;; (mapcar (lambda (p d)
-    ;; 	      (cluster-perceptions-deltas p d rules-count))
-    ;; 	    perceptions
-    ;; 	    deltas)
+			      agents)))
 
-    (cluster-perceptions-deltas (first perceptions)
-				(first deltas)
-				rules-count)
-    
+    (mapcar (lambda (p d agent)
+    	      ;; Setting min and max inputs and outputs for the fuzzy systems.
+    	      (let ((fp (flatten p)))
+    		(setf (slot-value agent 'input-min) (apply #'min fp))
+    		(setf (slot-value agent 'input-max) (apply #'max fp))
+    		(setf (slot-value agent 'output-min) (apply #'min d))
+    		(setf (slot-value agent 'output-max) (apply #'max d)))
+
+    	      ;; Setting agent rules.
+    	      (setf (slot-value agent 'rules)
+    		    (cluster-perceptions-deltas p
+    						d
+    						rules-count)))
+    	    perceptions
+    	    deltas
+    	    agents)
+
+    agents
     ))
+
+;; (reduce #'+ (n-into-m-parts 777 10))
+
+(defun n-into-m-parts (m n)
+  (mapcar #'+
+	  (print (let ((lst (sort (append (mapcar (lambda (_)
+					     (random-float *rand-gen* 0 (* 10 m)))
+					   (iota (1- n)))
+				   `(0 ,(* 10 m)))
+			   #'<)))
+	    (mapcar #'-
+		    (rest lst) lst)))
+
+	  (print (let ((lst (sort (append (mapcar (lambda (_)
+					     (random-float *rand-gen* (- (* 9 m)) 0))
+					   (iota (1- n)))
+				   `(,(- (* 9 m)) 0))
+			   #'<)))
+	    (mapcar (lambda (n1 n2) (- (- n1 n2)))
+		    (rest lst) lst)))))
 
 (defun n-into-m-parts (n m)
   (let* ((rand-nums (mapcar (lambda (_)
@@ -1109,28 +1163,8 @@ series `real`."
 	      (* (/ num sum) n))
 	    rand-nums)))
 
-;; (reduce #'+ (n-into-m-parts 777 10))
-
-(defun n-into-m-parts (m n)
-  (mapcar #'+
-	  (let ((lst (sort (append (mapcar (lambda (_)
-					     (random-float *rand-gen* 0 (* 10 m)))
-					   (iota (1- n)))
-				   `(0 ,(* 10 m)))
-			   #'<)))
-	    (mapcar #'-
-		    (rest lst) lst))
-
-	  (let ((lst (sort (append (mapcar (lambda (_)
-					     (random-float *rand-gen* (- (* 9 m)) 0))
-					   (iota (1- n)))
-				   `(,(- (* 9 m)) 0))
-			   #'<)))
-	    (mapcar (lambda (n1 n2) (- (- n1 n2)))
-		    (rest lst) lst))))
-
 ;; (float (mean (mapcar (lambda (_)
-;; 		       (length (remove-if #'plusp (n-into-m-parts 11 10))))
+;; 		       (length (remove-if #'plusp (n-into-m-parts 11 1))))
 ;; 		     (iota 1000))))
 ;; (float (mean (mapcar (lambda (_)
 ;; 		       (length (remove-if #'minusp (n-into-m-parts 11 10))))
@@ -1821,14 +1855,6 @@ series `real`."
 	(push (nth i list) res)))
     (nreverse res)))
 
-(defparameter *num-inputs* 9)
-(defparameter *mutation-chance* 0.1)
-(defparameter *moving-average-start* 5)
-(defparameter *moving-average-step* 10)
-(defparameter *rates* nil
-    "The rates used to generate the agents' perceptions.")
-;; (iota *num-inputs* :start *moving-average-start* :step *moving-average-step*)
-
 (defun scale-sim (lst from to)
   (let ((mx (apply #'max lst))
 	(mn (apply #'min lst)))
@@ -1837,15 +1863,70 @@ series `real`."
 		 (* to (/ (- x mn) (- mx mn)))))
 	    lst)))
 
+
+(defun draw-optimization (iterations)
+  (init)
+  (let ((parent-id "")
+	;; (best (list (random-int *rand-gen* 0 *num-pool-agents*)))
+	;; (best (first *population*))
+	;; (best (first (gen-communities 10 1)))
+	;; (agents-list (copy-sequence 'list best))
+	)
+    (dotimes (i iterations)
+      (if (and (> (random-float *rand-gen* 0 1) 0.5)
+	       (> (length (first *population*)) 1))
+	  (let ((candidate (remove (random-elt (first *population*)) (first *population*))))
+	    (let ((cand-mape (agents-mape candidate))
+		  (best-mape (agents-mape (first *population*))))
+	      (when (< cand-mape
+		       best-mape)
+		(format t "~a: ~a, ~a~%"
+			i
+			(agents-mape candidate)
+			(float (agents-corrects candidate)))
+		;; (print (agents-mape candidate))
+		(setf parent-id (insert-best-agents parent-id "" #'mape #'<))
+		(setf (first *population*) candidate))))
+	  (let ((candidate (append 
+			    (first *population*)
+			    (list (random-int *rand-gen* 0 *num-pool-agents*)))))
+	    (agents-mape candidate)
+	    (let ((cand-mape (agents-mape candidate))
+		  (best-mape (agents-mape (first *population*))))
+	      (when (< cand-mape
+		       best-mape)
+		(format t "~a: ~a, ~a~%"
+			i
+			(agents-mape candidate)
+			(float (agents-corrects candidate)))
+		;; (print (agents-mape candidate))
+		(setf parent-id (insert-best-agents parent-id "" #'mape #'<))
+		(setf (first *population*) candidate))))
+	  ))
+    ))
+
+(draw-optimization 30000)
+(get-reports 10 0.5)
+
+(agents-mape (shuffle '(1 2 3 4)))
+
+(defparameter *num-inputs* 5)
+(defparameter *moving-average-start* 5)
+(defparameter *moving-average-step* 10)
+(defparameter *mutation-chance* 0.1)
+(defparameter *rates* nil
+    "The rates used to generate the agents' perceptions.")
+;; (iota *num-inputs* :start *moving-average-start* :step *moving-average-step*)
+
 ;; (scale-sim '(0 10 4 -20 0) -10 10)
 
 (defun init ()
   (setf lparallel:*kernel* (lparallel:make-kernel 32))
-  (setf omper:*data-count* 501)
+  (setf omper:*data-count* 100)
   (setf omper:*partition-size* 100)
-  (defparameter *community-size* 200
+  (defparameter *community-size* 1
     "Represents the number of agents in an 'individual' or solution. A simulation (a possible solution) will be generated using this number of agents.")
-  (defparameter *population-size* 10
+  (defparameter *population-size* 1
     "How many 'communities', 'individuals' or 'solutions' will be participating in the optimization process.")
   (defparameter *begin* (random-int *rand-gen* 0 (ceiling (- (length *all-rates*) (* *data-count* 5))))
     "The starting timestamp for the data used for training or testing.")
@@ -1858,10 +1939,10 @@ series `real`."
     "Keeps track of how many generations have elapsed in an evolutionary process.")
   (defparameter *num-pool-agents* 10000
     "How many agents will be created for `*agents-pool*`. Relatively big numbers are recommended, as this increases diversity and does not significantly impact performance.")
-  (defparameter *num-rules* 10
+  (defparameter *num-rules* 7
     "Represents how many fuzzy rules each of the agents in a solution will have.")
   (defparameter *rules-config* `((:mf-type . :gaussian)
-                                 (:sd . 20)
+                                 (:sd . 5)
                                  (:mf-mean-adjusting . t)
                                  (:nmf-height-style . :complement)
                                  ;; (:trade-scale . ,(calc-trade-scale))
@@ -1963,6 +2044,16 @@ series `real`."
 ;;   (agents-test (extract-agents-from-pool
 ;;                 (agents-best (agents-distribution *population*)))
 ;;                (subseq *all-rates* *begin* (+ *end* omper:*data-count*))))
+
+;; (map nil (lambda (s r)
+;; 	   (format t "~a, ~a~%" s r))
+;;      (let* ((real (get-real-data-deltas omper:*data-count*))
+;; 	    (rmax (apply #'max real))
+;; 	    (rmin (apply #'min real)))
+;;        (scale-sim (agents-indexes-simulation (agents-best (agents-distribution *population*))) rmin rmax))
+;;      (get-real-data-deltas omper:*data-count*))
+
+;; (agents-corrects (agents-best (agents-distribution *population*)))
 
 ;; (agents-indexes-simulation (agents-best (agents-distribution *population*)))
 ;; (get-real-data-deltas omper:*data-count*)
@@ -2087,7 +2178,11 @@ evolutionary process."
   ((beliefs :initarg :beliefs :initform (gen-beliefs) :accessor beliefs)
    (rules :initarg :rules :initform (gen-rules *num-rules*) :accessor rules)
    ;; (leverage :initarg :leverage :initform 1)
-   (leverage :initarg :leverage :initform (random-float *rand-gen* 0 1))
+   (leverage :initarg :leverage :initform 1)
+   (input-min :initarg :input-min :initform 0)
+   (input-max :initarg :input-max :initform 100)
+   (output-min :initarg :output-min :initform 0)
+   (output-max :initarg :output-max :initform 100)
    ;; (leverage :initarg :leverage :initform (calc-trade-scale))
    ;; (leverage :initarg :leverage :initform (iota *num-inputs* :start 1 :step 0))
    ;; (leverage :initarg :leverage :initform (random-float *rand-gen* 0 (* 1 (calc-leverage-mean))))
@@ -2096,17 +2191,15 @@ evolutionary process."
    ;; 						  (iota *num-inputs*)))
    ;; (leverage :initarg :leverage :initform (iota *num-inputs* :start 1 :step 0))
    ;; (rules-deltas :initarg :rules-deltas :initform (iota (* 2 *num-rules* *num-inputs*) :start 0 :step 0))
-   ;; (trade-scale :initarg :trade-scale :initform (random-int *rand-gen* 1 100000))
-   (trade-scale :initarg :trade-scale :initform 1)
-   ;; (trade-scale :initarg :trade-scale :initform (access *rules-config* :trade-scale))
+
    ;; (leverage :initarg :leverage :initform (random-float *rand-gen* 0 1))
    ;; (stdev :initarg :stdev :initform (random-float *rand-gen* 5 30))
-   (stdev :initarg :stdev :initform (access *rules-config* :sd))
+   ;; (stdev :initarg :stdev :initform (access *rules-config* :sd))
    ;; (stdev :initarg :stdev :initform (+ (access *rules-config* :sd) (random-float *rand-gen* -1 1)))
    ))
 
 (defmethod ms:class-persistent-slots ((self agent))
-  '(beliefs rules leverage trade-scale stdev))
+  '(beliefs rules leverage input-min input-max output-min output-max))
 
 (defun get-most-relevant-population (instrument timeframe)
   "The most relevant population is the one that matches `instrument`,
@@ -2275,12 +2368,13 @@ history."
   "TODO: `agent` is unused"
   (mapcar (lambda (mas rate)
 	     (append
-	      (mapcar (lambda (ma)
-			(+ 50
-			   (* 1000
-			      (/ (- (first rate) ma)
-				 (first rate)))))
-		      mas)
+	      ;; (mapcar (lambda (ma)
+	      ;; 		(+ 50
+	      ;; 		   (* 1000
+	      ;; 		      (/ (- (first rate) ma)
+	      ;; 			 (first rate)))))
+	      ;; 	      mas)
+	      mas
 	      rate))
 	   (apply #'mapcar #'list
 		  (mapcar (lambda (i)
@@ -2292,14 +2386,15 @@ history."
   "TODO: `agent` is unused"
   (mapcar (lambda (stochastic rate)
             (append
-             (mapcar (lambda (s)
-                       (/ (+ 100 s) 2))
-                     stochastic)
+             ;; (mapcar (lambda (s)
+             ;;           (/ (+ 100 s) 2))
+             ;;         stochastic)
+	     stochastic
              rate))
           (apply #'mapcar #'list
                  (mapcar (lambda (i)
                            (get-stochastic-oscillator i i))
-                         (iota *num-inputs* :start 5 :step 1)))
+                         (iota *num-inputs* :start 10 :step 5)))
           (mapcar #'list (get-real-data omper:*data-count*))))
 ;; (agent-stochastic-oscillator nil)
 
@@ -2483,8 +2578,13 @@ from each sample."
 ;; (defparameter *best-agent* (agents-best (agents-distribution *population*)))
 
 (defun agents-ifs (params stdev)
-  (ifs (gaussian-mf (nth 0 params) stdev 0 (- 1 (nth 2 params)))
-       (gaussian-nmf (nth 1 params) stdev 0 (nth 2 params))))
+  (ifs (gaussian-mf (nth 0 params) stdev 0 100 0 (- 1 (nth 2 params)))
+       (gaussian-nmf (nth 1 params) stdev 0 100 0 (nth 2 params))))
+
+(defun agents-ifs (params from-x to-x)
+  "Uses data encoded in agents."
+  (ifs (gaussian-mf (nth 0 params) (nth 1 params) from-x to-x 0 1)
+       (gaussian-nmf (nth 0 params) (nth 1 params) from-x to-x 0 0)))
 
 (defun purge-non-believers (population)
   "Searches in `pop` if an agent is not believing in anything, i.e. a vector of

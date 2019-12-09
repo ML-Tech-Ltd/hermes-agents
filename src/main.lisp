@@ -633,6 +633,7 @@ series `real`."
                                   (slot-value agent 'rules)
 				  (slot-value agent 'activations)
 				  (slot-value agent 'activation-threshold)
+				  (slot-value agent 'activation-best)
                                   ;; (slot-value agent 'input-min)
 				  ;; (slot-value agent 'input-max)
 				  ;; (slot-value agent 'output-min)
@@ -808,7 +809,7 @@ series `real`."
 		))
 	    inputs)))
 
-(defun ifis-agents (inputs rules activations activation-threshold)
+(defun ifis-agents (inputs rules activations activation-threshold activation-best)
   "This one considers an activation function."
   (let* ((agent-ifss (mapcar (lambda (params)
 			       (mapcar (lambda (par)
@@ -824,30 +825,34 @@ series `real`."
 	 ;; 			      (iota *num-inputs*))))
 	 ;; 		   inputs))
 	 (means (mapcar (lambda (inp)
-			  (reduce #'+
-				  (mapcar (lambda (i)
-					    (second
-					     (membership (nth i inp)
-							 (agents-ifs (nth i activations)))))
-					  (iota *num-inputs*))))
+			  (mapcar (lambda (i)
+				    (second
+				     (membership (nth i inp)
+						 (agents-ifs (nth i activations)))))
+				  (iota *num-inputs*))
+			  )
 			inputs))
+	 (mapes (mapcar (lambda (act) (mape act activation-best)) means))
 	 ;; (std-devs-mean (mean std-devs))
 	 ;; (std-devs-stdev (standard-deviation std-devs))
 	 ;; (min-stdev (apply #'min std-devs))
-	 ;; (max-mean-idx (nth 5 (largest-number-indexes means)))
+	 ;; (max-mean-idx (nth *activation-level* (largest-number-indexes means)))
 	 ;; (mean-max (apply #'max means))
+	 ;; (mape-min (apply #'min mapes))
 	 )
     (mapcar (lambda (j inp)
-	      (if (>= ;; (nth j std-devs)
-		   (nth j means)
+	      (if (<= ;; (nth j std-devs)
+		   ;; (nth j means)
+		   (nth j mapes)
 		   activation-threshold
+		   ;; mape-min
 		   ;; mean-max
 		   ;; (nth max-mean-idx means)
-		      ;; (print std-devs-stdev)
-		      ;; (print (/ std-devs-mean 1))
-		      ;; (- std-devs-mean (* 3 std-devs-stdev))
+		   ;; (print std-devs-stdev)
+		   ;; (print (/ std-devs-mean 1))
+		   ;; (- std-devs-mean (* 3 std-devs-stdev))
 
-		      )
+		   )
 		  (if-coa
 		   (reduce #'ifintersection
 			   (mapcar (lambda (i)
@@ -1277,21 +1282,24 @@ series `real`."
 (defun gen-agents (num)
   (mapcar (lambda (_)
 	    (let ((agent (make-instance 'agent)))
-	      (setf (slot-value agent 'activation-threshold)
-		    (let ((sums (mapcar (lambda (inp)
-					  (reduce #'+
-						  (mapcar (lambda (i)
-							    (second
-							     (membership (nth i inp)
-									 (agents-ifs (nth i (slot-value agent 'activations))))))
-							  (iota *num-inputs*))))
-					(funcall *perception-fn* nil))))
-		      (nth (nth (floor (1- (* omper:*data-count* 0.1)))
-				(largest-number-indexes sums))
-			   sums)))
+	      (let* ((activations (mapcar (lambda (inp)
+					    (mapcar (lambda (i)
+						      (second
+						       (membership (nth i inp)
+								   (agents-ifs (nth i (slot-value agent 'activations))))))
+						    (iota *num-inputs*)))
+					  (funcall *perception-fn* nil)))
+		     (reductions (mapcar (lambda (act) (reduce #'+ act)) activations))
+		     (best-activation (nth (largest-number-index reductions) activations))
+		     (activation-threshold (nth 1 (sort (mapcar (lambda (act) (mape act best-activation)) activations) #'<)))
+		     )
+		(setf (slot-value agent 'activation-threshold)
+		      activation-threshold)
+		(setf (slot-value agent 'activation-best)
+		      best-activation))
 	      agent))
 	  (iota num)))
-
+ 
 (defun calc-trade-scale ()
   (/ (mean (mapcar (lambda (next curr)
                      (abs (- (access next :close-bid)
@@ -1998,8 +2006,8 @@ series `real`."
 
 (defun draw-optimization (iterations &optional (agents-fitness-fn #'agents-mape) (fitness-fn #'mape) (sort-fn #'<) &key (key #'identity))
   (init)
-  (with-postgres-connection (execute (delete-from :populations)))
-  (with-postgres-connection (execute (delete-from :populations-closure)))
+  ;; (with-postgres-connection (execute (delete-from :populations)))
+  ;; (with-postgres-connection (execute (delete-from :populations-closure)))
   (let ((parent-id ""))
     ;; (let ((corrects (agents-corrects (first *population*))))
     ;;   (format t "~%~6a ~f, ~t~a"
@@ -2010,10 +2018,10 @@ series `real`."
       (let ((candidate (let ((option (random-float *rand-gen* 0 1)))
 			 (cond
 			   ;; Remove an agent.
-			   ((and (< option 0.25) (> (length (first *population*)) 1))
+			   ((and (< option 0.25) (> (length (first *population*)) *community-size*))
 			    (remove-nth (random-int *rand-gen* 0 (1- (length (first *population*)))) (first *population*)))
 			   ;; Replace agent from solution using random agent.
-			   ((and (< option 0.5) (> (length (first *population*)) 1))
+			   ((and (< option 0.5) (> (length (first *population*)) *community-size*))
 			    (append
 			     (remove-nth (random-int *rand-gen* 0 (1- (length (first *population*)))) (first *population*))
 			     (list (random-int *rand-gen* 0 (1- (length *agents-pool*))))
@@ -2056,12 +2064,16 @@ series `real`."
 		      (format-corrects corrects)
 		      (format-corrects val-corrects)
 		      (format-corrects test-corrects))
-	      (when (>= (aref corrects 1) 100)
+	      (when (and (< cand-error 0.0)
+		     ;; (> (aref corrects 1) 15)
+			 ;; (>= (/ (aref val-corrects 0)
+			 ;; 	(aref val-corrects 1)) 0.6)
+			 )
 		(return)))
 	    ))))))
 
 ;; (draw-optimization 100000 #'agents-mape #'mape #'<)
-;; (dotimes (_ 30) (draw-optimization 100000 #'agents-mape #'mape #'<))
+;; (dotimes (_ 100) (draw-optimization 10000 #'agents-mape #'mape #'<))
 ;; (draw-optimization 3000 #'agents-corrects #'corrects #'>)
 ;; (print-simulation)
 ;; (format-corrects (accesses (first (get-reports 1 1.0)) :validation :corrects))
@@ -2071,7 +2083,7 @@ series `real`."
 ;; (length *agents-pool*)
 ;; (dotimes (i (length (first *population*))) (print (extract-training-clustered-trades (agent-trades (nth i (extract-agents-from-pool (first *population*)))))))
 
-(defparameter *num-inputs* 10)
+(defparameter *num-inputs* 20)
 (defparameter *moving-average-start* 5)
 (defparameter *moving-average-step* 10)
 (defparameter *mutation-chance* 0.1)
@@ -2086,23 +2098,24 @@ series `real`."
   (setf lparallel:*kernel* (lparallel:make-kernel 32))
   (setf omper:*data-count* 500)
   (setf omper:*partition-size* 100)
+  (defparameter *activation-level* 1)
   (defparameter *community-size* 1
     "Represents the number of agents in an 'individual' or solution. A simulation (a possible solution) will be generated using this number of agents.")
   (defparameter *population-size* 1
     "How many 'communities', 'individuals' or 'solutions' will be participating in the optimization process.")
   (defparameter *perception-fn* #'agent-perception-deltas)
-  (defparameter *begin* (random-int *rand-gen* 0 (floor (- (length *all-rates*) (* omper:*data-count* 4))))
+  (defparameter *begin* (random-int *rand-gen* 0 (floor (- (length *all-rates*) (+ omper:*data-count* (* omper:*data-count* 2 *testing-ratio*)))))
     "The starting timestamp for the data used for training or testing.")
-  (defparameter *end* (+ *begin* (ceiling (* *data-count* 3)))
+  (defparameter *end* (+ *begin* (ceiling (+ omper:*data-count* (* omper:*data-count* 2 *testing-ratio*))))
     "The ending timestamp for the data used for training or testing.")
   (defparameter *rates* (subseq *all-rates* *begin* *end*)
     "The rates used to generate the agents' perceptions.")
   (defparameter *trade-scale* (calc-trade-scale))
   (defparameter *generations* 0
     "Keeps track of how many generations have elapsed in an evolutionary process.")
-  (defparameter *num-pool-agents* 1
+  (defparameter *num-pool-agents* *community-size*
     "How many agents will be created for `*agents-pool*`. Relatively big numbers are recommended, as this increases diversity and does not significantly impact performance.")
-  (defparameter *num-rules* 5
+  (defparameter *num-rules* 10
     "Represents how many fuzzy rules each of the agents in a solution will have.")
   (defparameter *rules-config* `((:mf-type . :gaussian)
                                  (:sd . 5)
@@ -2357,6 +2370,7 @@ evolutionary process."
 						       (first rule))
 							(gen-activations 1))
 		:accessor activations)
+   (activation-best :initarg :activation-best :accessor activation-best)
    (activation-threshold :initarg :activation-threshold :initform 0 :accessor activation-threshold)
    (leverage :initarg :leverage :initform 1)
    (input-min :initarg :input-min :initform 0)
@@ -2379,7 +2393,7 @@ evolutionary process."
    ))
 
 (defmethod ms:class-persistent-slots ((self agent))
-  '(beliefs rules activations activation-threshold leverage input-min input-max output-min output-max))
+  '(beliefs rules activations activation-best activation-threshold leverage input-min input-max output-min output-max))
 
 (defun get-most-relevant-population (instrument timeframe)
   "The most relevant population is the one that matches `instrument`,

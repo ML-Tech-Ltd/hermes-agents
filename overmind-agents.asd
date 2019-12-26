@@ -27,11 +27,15 @@
 	       :overmind-perception
 	       )
   :components ((:module "src"
-                :components
-                ((:file "main" :depends-on ("config" "db" "km"))
-		 (:file "km")
-		 (:file "config")
-		 (:file "db"))))
+			:components
+			((:file "main" :depends-on ("config" "db" "km"))
+			 (:file "km")
+			 (:file "config")
+			 (:file "db")))
+	       (:module "datasets"
+			:components
+			((:file "sunspot")
+			 (:file "mg"))))
   :description ""
   :long-description
   #.(read-file-string

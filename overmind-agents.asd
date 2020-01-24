@@ -7,7 +7,7 @@
                :datafly
 	       :dbi
                :cl-mathstats
-               :magicl
+               ;; :magicl
 	       :cl-csv
                :computable-reals
                :sxql

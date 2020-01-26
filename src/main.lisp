@@ -2936,18 +2936,50 @@ is not ideal."
          ;; (*end* (1- (floor (- (length *all-rates*) (+ (* omper:*data-count* 2 *testing-ratio*))))))
          (*end* (1- (length *all-rates*)))
          (*rates* (subseq *all-rates* *begin* *end*))
-         (sim (agents-simulation (first pop))))
+         (sim (agents-simulation (first pop)))
+         (report (append `((:population-id . ,(access db-pop :id)))
+                         (get-report db-pop instrument timeframe *rates*
+                                     *begin*
+                                     *end*)
+                         `((:forecast (:delta . ,(last-elt sim))
+                                      (:decision . ,(if (> (last-elt sim) 0)
+                                                        :BUY
+                                                        (if (= (last-elt sim) 0)
+                                                            :HOLD
+                                                            :SELL))))))))
     ;; (format t "dbg.test-market: ~a, ~a, ~a, ~a~%" *begin* *end* (length *all-rates*) (length *rates*))
-    (append (get-report db-pop instrument timeframe *rates*
-                        *begin*
-                        *end*)
-            `((:forecast (:delta . ,(last-elt sim))
-                         (:decision . ,(if (> (last-elt sim) 0)
-                                           :BUY
-                                           (if (= (last-elt sim) 0)
-                                               :HOLD
-                                               :SELL))))))
-    ))
+    (with-postgres-connection
+        (unless (retrieve-one (select :population-id
+                                (from :tests)
+                                (where (:= :population-id (accesses report :population-id)))
+                                (where (:= :instrument (format nil "~a" (accesses report :test :instrument))))
+                                (where (:= :timeframe (format nil "~a" (accesses report :test :timeframe))))
+                                (where (:= :begin (accesses report :test :begin)))
+                                (where (:= :end (accesses report :test :end)))))
+          (execute (insert-into :tests
+                     (set= :population-id (accesses report :population-id)
+                           :instrument (format nil "~a" (accesses report :test :instrument))
+                           :timeframe (format nil "~a" (accesses report :test :timeframe))
+                           :begin (accesses report :test :begin)
+                           :end (accesses report :test :end)
+                           :mape (accesses report :test :performance-metrics :mape)
+                           :pmape (accesses report :test :performance-metrics :pmape)
+                           :mae (accesses report :test :performance-metrics :mae)
+                           :mse (accesses report :test :performance-metrics :mse)
+                           :rmse (accesses report :test :performance-metrics :rmse)
+                           :corrects (accesses report :test :performance-metrics :corrects)
+                           :revenue (accesses report :test :performance-metrics :revenue)
+                           )))))
+    report))
+
+;; (with-postgres-connection
+;;     (retrieve-all (select :*
+;;                     (from :tests)
+;;                     (where (:= :instrument "EUR_USD"))
+;;                     (where (:= :timeframe "D"))
+;;                     (order-by (:desc :end))
+;;                     )))
+
 ;; (test-market :EUR_USD :D)
 ;; (test-market :BCO_USD :D)
 ;; (test-market :SPX500_USD :D)

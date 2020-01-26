@@ -40,7 +40,7 @@
 
 (progn
   (defparameter *instrument* ;; :EUR_USD ;; :SPX500_USD ;; :BCO_USD
-    :EUR_USD
+    :BCO_USD
     "The financial instrument used for querying the data used to train or test.")
   (defparameter *timeframe* :D
     "The timeframe used for querying the data used to train or test.")
@@ -2445,21 +2445,23 @@ series `real`."
   (defparameter *rates* nil)
   )
 
-(defun optimize-all ()
+(defun optimize-all (timeframe iterations)
   (dolist (instrument ominp:*instruments*)
     (let ((*instrument* instrument)
           (*all-rates* (get-rates-range instrument timeframe
                                         (local-time:timestamp-to-unix
                                          (local-time:timestamp- (local-time:now)
                                                                 (ceiling
-                                                                 (+ omper:*data-count*
-                                                                    (* omper:*data-count* 3 *testing-ratio*)
-                                                                    *num-inputs* *delta-gap*))
+                                                                 (* 2 omper:*data-count*))
                                                                 (timeframe-for-local-time timeframe)))
-                                        (local-time:timestamp-to-unix (local-time:now))))))))
+                                        (local-time:timestamp-to-unix (local-time:now)))))
+      (draw-optimization iterations #'agents-mape #'mape #'< :label "" :reset-db nil))))
 
+;; (optimize-all :D 30)
+;; (test-market :AUD_HKD :D)
+;; (json:encode-json-to-string (test-market :AUD_HKD :D))
 
-;; (draw-optimization 1000 #'agents-mape #'mape #'< :label "" :reset-db nil)
+;; (draw-optimization 1000 #'agents-mape #'mape #'< :label "" :reset-db t)
 ;; (dotimes (_ 30) (ignore-errors (draw-optimization 100 #'agents-mape #'mape #'< :label "" :reset-db nil)))
 ;; (get-reports 1 *testing-ratio*)
 ;; (drop-populations)
@@ -2939,22 +2941,16 @@ is not ideal."
     (append (get-report db-pop instrument timeframe *rates*
                         *begin*
                         *end*)
-            `(:forecast ,(last-elt sim)))
+            `((:forecast (:delta . ,(last-elt sim))
+                         (:decision . ,(if (> (last-elt sim) 0)
+                                           :BUY
+                                           (if (= (last-elt sim) 0)
+                                               :HOLD
+                                               :SELL))))))
     ))
 ;; (test-market :EUR_USD :D)
 ;; (test-market :BCO_USD :D)
 ;; (test-market :SPX500_USD :D)
-;; (float 110/162)
-
-'((:TRAIN (:MAPE . 0.0062416997) (:RMSE . 0.0079624085) (:CORRECTS . #(70 86)))
- (:VALIDATION (:MAPE . 0.0066652475) (:RMSE . 0.00820629)
-  (:CORRECTS . #1=#(0 0)))
- (:TEST (:MAPE . 0.0066652475) (:RMSE . 0.00820629) (:CORRECTS . #1#))
-  :FORECAST 0)
-'((:TRAIN (:MAPE . 0.8649377) (:RMSE . 71.979126) (:CORRECTS . #(78 85)))
- (:VALIDATION (:MAPE . 0.8660551) (:RMSE . 51.59194) (:CORRECTS . #(77 87)))
- (:TEST (:MAPE . 0.8660551) (:RMSE . 51.59194) (:CORRECTS . #(77 87)))
- :FORECAST 0)
 
 ;; querying latest market reports (query `tests`)
 ;; testing a market (periodically run tests with latest populations, save to `tests`)
@@ -2985,10 +2981,10 @@ granularity `timeframe`."
 	 (next-sim-price (alexandria:last-elt sim)))
     `((:training (:begin . ,(access db-pop :begin))
 		 (:end . ,(access db-pop :end))
-                 (:instrument . ,(access db-pop :instrument))
-                 (:timeframe . ,(access db-pop :timeframe))
+                 (:instrument . ,(read-from-string (access db-pop :instrument)))
+                 (:timeframe . ,(read-from-string (access db-pop :timeframe)))
                  (:generations . ,(access db-pop :generations))
-                 (:fitness-fn . ,(access db-pop :fitness-fn))
+                 (:fitness-fn . ,(read-from-string (access db-pop :fitness-fn)))
                  (:creation-time . ,(access db-pop :creation-time))
                  (:performance-metrics . ((:mae . ,(access db-pop :mae))
                                           (:mse . ,(access db-pop :mse))
@@ -3002,7 +2998,8 @@ granularity `timeframe`."
                 (:instrument . ,instrument)
                 (:timeframe . ,timeframe)
                 ,@(agents-test best rates)
-                (:rates . ,rates)))
+                ;; (:rates . ,rates)
+                ))
     ))
 
 ;; (ql:quickload :magicl)
@@ -3208,15 +3205,9 @@ from each sample."
 	 (test (market-report db-pop
 			      *instrument* *timeframe*
 			      (subseq *all-rates* begin (+ end (* 2 omper:*data-count*)))))
-	 (result `((:train . ((:mape . ,(float (accesses test :training :performance-metrics :mape)))
-			      (:rmse . ,(float (accesses test :training :performance-metrics :rmse)))
-			      (:corrects . ,(accesses test :training :performance-metrics :corrects))))
-		   (:validation . ((:mape . ,(float (accesses validation :testing :performance-metrics :mape)))
-				   (:rmse . ,(float (accesses validation :testing :performance-metrics :rmse)))
-				   (:corrects . ,(accesses validation :testing :performance-metrics :corrects))))
-		   (:test . ((:mape . ,(float (accesses test :testing :performance-metrics :mape)))
-			     (:rmse . ,(float (accesses test :testing :performance-metrics :rmse)))
-			     (:corrects . ,(accesses test :testing :performance-metrics :corrects)))
+	 (result `((:train . ,(accesses test :training))
+		   (:validation . ,(accesses validation :testing))
+		   (:test . ,(accesses test :testing)
 			  ))))
     result))
 
@@ -3304,7 +3295,8 @@ from each sample."
                                (:pmape . ,pmape)
                                (:corrects . ,corrects)
                                (:revenue . ,revenue)))
-      (:simulation . ,sim))))
+      ;; (:simulation . ,sim)
+      )))
 
 (defun agents-indexes-test (agents-indexes rates)
   "Runs a simulation of a market defined by `rates` using `agents-indexes`. `agents-indexes` is used to extract agents from `*agents-pool*`. Returns multiple performance metrics."

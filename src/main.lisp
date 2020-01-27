@@ -2351,8 +2351,7 @@ series `real`."
 	      (format-corrects corrects)))
     (dotimes (i iterations)
       (setf *generations* i)
-      (ignore-errors
-        (let ((candidate (let ((option (random-float *rand-gen* 0 1)))
+      (let ((candidate (let ((option (random-float *rand-gen* 0 1)))
 			   (cond
                              ;; Remove an agent.
 			     ((and (< option 0.33) (> (length (first *population*)) *community-size*))
@@ -2393,8 +2392,8 @@ series `real`."
 
 	      (let* ((corrects (agents-corrects candidate))
 		     (report (first (get-reports 1 *testing-ratio*)))
-		     (val-corrects (accesses report :validation :corrects))
-		     (test-corrects (accesses report :test :corrects)))
+		     (val-corrects (accesses report :validation :performance-metrics :corrects))
+		     (test-corrects (accesses report :test :performance-metrics :corrects)))
 	        (format t "~%~6a ~3$ ~ttrain: ~17a ~tval: ~17a ~ttest: ~17a"
 		        (1+ i)
 		        (float (funcall agents-fitness-fn candidate))
@@ -2408,7 +2407,7 @@ series `real`."
                 ;; 		 )
                 ;; 	(return))
 	        )
-	      ))))
+	      )))
       )))
 
 (progn
@@ -4051,29 +4050,29 @@ each point in the real prices."
 	    (first (slot-value agents 'rules)))))
 
 (defun insert-population (parent-id &optional label (fitness-fn #'mape) (sort-fn #'<))
-  (let* ((best (agents-best (agents-distribution *population* fitness-fn sort-fn) sort-fn))
-	 (id (uuid:make-v4-uuid)))
-    (with-postgres-connection
-    	(execute (insert-into :populations
-		   (set= :id id
-			 :parent-id parent-id
-			 :label label
-			 :generations *generations*
-			 :fitness-fn (format nil "~s" *fitness-fn*)
-			 :population (compress-population *population*)
-			 :best-index (position best *population* :test #'equalp)
-			 :instrument (format nil "~s" *instrument*)
-			 :timeframe (format nil "~s" *timeframe*)
-			 :creation-time (local-time:timestamp-to-unix (local-time:now))
-			 :begin (read-from-string (access (first *rates*) :time))
-			 :end (read-from-string (access (alexandria:last-elt *rates*) :time))
-			 :rules-config (compress-object *rules-config*)
-			 :mape (float (agents-mape best))
-			 :pmape (float (agents-pmape best))
-			 :rmse (float (agents-rmse best))
-			 :mae (float (agents-mae best))
-			 :mse (float (agents-mse best))
-			 :corrects (agents-corrects best nil)
-			 :revenue (float (agents-revenue best))
-			 ))))
-    id))
+       (let* ((best (agents-best (agents-distribution *population* fitness-fn sort-fn) sort-fn))
+	      (id (uuid:make-v4-uuid)))
+              (with-postgres-connection
+    	          (execute (insert-into :populations
+		             (set= :id id
+			           :parent-id parent-id
+			           :label label
+			           :generations *generations*
+			           :fitness-fn (format nil "~s" *fitness-fn*)
+			           :population (compress-population *population*)
+			           :best-index (position best *population* :test #'equalp)
+			           :instrument (format nil "~s" *instrument*)
+			           :timeframe (format nil "~s" *timeframe*)
+			           :creation-time (local-time:timestamp-to-unix (local-time:now))
+			           :begin (read-from-string (access (first *rates*) :time))
+			           :end (read-from-string (access (alexandria:last-elt *rates*) :time))
+			           :rules-config (compress-object *rules-config*)
+			           :mape (float (agents-mape best))
+			           :pmape (float (agents-pmape best))
+			           :rmse (float (agents-rmse best))
+			           :mae (float (agents-mae best))
+			           :mse (float (agents-mse best))
+			           :corrects (agents-corrects best nil)
+			           :revenue (float (agents-revenue best))
+			           ))))
+              id))

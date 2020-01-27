@@ -22,7 +22,9 @@
 	:overmind-agents.config
 	:overmind-agents.db
 	:overmind-agents.km
-	))
+	)
+  (:export :query-test-markets)
+  (:nicknames :omage))
 (in-package :overmind-agents)
 
 ;; (progn
@@ -40,7 +42,7 @@
 
 (progn
   (defparameter *instrument* ;; :EUR_USD ;; :SPX500_USD ;; :BCO_USD
-    :BCO_USD
+    :EUR_USD
     "The financial instrument used for querying the data used to train or test.")
   (defparameter *timeframe* :D
     "The timeframe used for querying the data used to train or test.")
@@ -2351,7 +2353,8 @@ series `real`."
 	      (format-corrects corrects)))
     (dotimes (i iterations)
       (setf *generations* i)
-      (let ((candidate (let ((option (random-float *rand-gen* 0 1)))
+      (ignore-errors
+        (let ((candidate (let ((option (random-float *rand-gen* 0 1)))
 			   (cond
                              ;; Remove an agent.
 			     ((and (< option 0.33) (> (length (first *population*)) *community-size*))
@@ -2407,7 +2410,7 @@ series `real`."
                 ;; 		 )
                 ;; 	(return))
 	        )
-	      )))
+	      ))))
       )))
 
 (progn
@@ -2458,9 +2461,10 @@ series `real`."
 
 ;; (optimize-all :D 30)
 ;; (test-market :AUD_HKD :D)
+;; (test-market :EUR_USD :D)
 ;; (json:encode-json-to-string (test-market :AUD_HKD :D))
 
-;; (draw-optimization 1000 #'agents-mape #'mape #'< :label "" :reset-db t)
+;; (draw-optimization 1000 #'agents-mape #'mape #'< :label "" :reset-db nil)
 ;; (dotimes (_ 30) (ignore-errors (draw-optimization 100 #'agents-mape #'mape #'< :label "" :reset-db nil)))
 ;; (get-reports 1 *testing-ratio*)
 ;; (drop-populations)
@@ -2971,17 +2975,29 @@ is not ideal."
                            )))))
     report))
 
-;; (with-postgres-connection
-;;     (retrieve-all (select :*
-;;                     (from :tests)
-;;                     (where (:= :instrument "EUR_USD"))
-;;                     (where (:= :timeframe "D"))
-;;                     (order-by (:desc :end))
-;;                     )))
-
 ;; (test-market :EUR_USD :D)
 ;; (test-market :BCO_USD :D)
 ;; (test-market :SPX500_USD :D)
+
+(defun test-all-markets (timeframe)
+  (dolist (instrument ominp:*instruments*)
+    (test-market instrument timeframe)))
+;; (test-all-markets :D)
+
+(defun query-test-markets (timeframe)
+  (let (results)
+    (with-postgres-connection
+        (dolist (instrument ominp:*instruments*)
+          (push (retrieve-one (select :*
+                                (from :tests)
+                                (where (:= :instrument (format nil "~a" instrument)))
+                                (where (:= :timeframe  (format nil "~a" timeframe)))
+                                (order-by (:desc :end) (:desc :corrects))
+                                )
+                              :as 'trivial-types:association-list)
+                results)))
+    (nreverse (remove nil results))))
+;; (query-test-markets :D)
 
 ;; querying latest market reports (query `tests`)
 ;; testing a market (periodically run tests with latest populations, save to `tests`)

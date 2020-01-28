@@ -84,79 +84,83 @@
 (defun init-database ()
   "Creates all the necessary tables for Overmind Agents."
   (with-postgres-connection
-   (execute (create-table (:populations :if-not-exists t)
-			  ((id :type '(:varchar 36)
-                               :primary-key t)
-			   (label :type '(:varchar 128))
-			   (parent-id :type '(:varchar 36)
-				      :not-null t)
-			   (population :type 'bytea
-                                       :not-null t)
-			   (best-index :type 'integer
-                                       :not-null t)
-			   (instrument :type '(:varchar 128)
-                                       :not-null t)
-			   (timeframe :type '(:varchar 128)
-				      :not-null t)
-			   (generations :type 'integer
-					:not-null t)
-			   (fitness-fn :type '(:varchar 128)
-                                       :not-null t)
-			   (rules-config :type 'bytea
-					 :not-null t)
-			   (begin :type 'bigint
-				  :not-null t)
-			   (end :type 'bigint
-				:not-null t)
-			   (creation-time :type 'bigint
-					  :not-null t)
-			   (mape :type '(:numeric)
-				 :not-null t)
-			   (pmape :type '(:numeric)
-				  :not-null t)
-			   (mae :type '(:numeric)
-				:not-null t)
-			   (mse :type '(:numeric)
-				:not-null t)
-			   (rmse :type '(:numeric)
-				 :not-null t)
-			   (corrects :type '(:numeric[2])
-				     :not-null t)
-			   (revenue :type '(:numeric)
-				    :not-null t)
-			   )))
-   (execute (create-table (:populations-closure :if-not-exists t)
-			  ((parent-id :type '(:varchar 36))
-			   (child-id :type '(:varchar 36))
-			   (depth :type 'integer
-				  :not-null t))
-			  (primary-key '(:parent-id :child-id))))
-   (execute (create-table (:tests :if-not-exists t)
-			  ((population-id :type '(:varchar 36)
-					  :not-null t)
-			   (instrument :type '(:varchar 128)
-				       :not-null t)
-			   (timeframe :type '(:varchar 128)
-				      :not-null t)
-			   (begin :type 'bigint
-				  :not-null t)
-			   (end :type 'bigint
-				:not-null t)
-			   (mape :type '(:numeric)
-				 :not-null t)
-			   (pmape :type '(:numeric)
-				  :not-null t)
-			   (mae :type '(:numeric)
-				:not-null t)
-			   (mse :type '(:numeric)
-				:not-null t)
-			   (rmse :type '(:numeric)
-				 :not-null t)
-			   (corrects :type '(:numeric[2])
-				     :not-null t)
-			   (revenue :type '(:numeric)
-				    :not-null t)
-			   )))))
+      (execute (create-table (:populations :if-not-exists t)
+                   ((id :type '(:varchar 36)
+                        :primary-key t)
+                    (label :type '(:varchar 128))
+                    (parent-id :type '(:varchar 36)
+                               :not-null t)
+                    (population :type 'bytea
+                                :not-null t)
+                    (best-index :type 'integer
+                                :not-null t)
+                    (instrument :type '(:varchar 128)
+                                :not-null t)
+                    (timeframe :type '(:varchar 128)
+                               :not-null t)
+                    (generations :type 'integer
+                                 :not-null t)
+                    (fitness-fn :type '(:varchar 128)
+                                :not-null t)
+                    (rules-config :type 'bytea
+                                  :not-null t)
+                    (begin :type 'bigint
+                           :not-null t)
+                    (end :type 'bigint
+                         :not-null t)
+                    (creation-time :type 'bigint
+                                   :not-null t)
+                    (mape :type '(:numeric)
+                          :not-null t)
+                    (pmape :type '(:numeric)
+                           :not-null t)
+                    (mae :type '(:numeric)
+                         :not-null t)
+                    (mse :type '(:numeric)
+                         :not-null t)
+                    (rmse :type '(:numeric)
+                          :not-null t)
+                    (corrects :type '(:numeric[2])
+                              :not-null t)
+                    (revenue :type '(:numeric)
+                             :not-null t)
+                    )))
+    (execute (create-table (:populations-closure :if-not-exists t)
+                 ((parent-id :type '(:varchar 36))
+                  (child-id :type '(:varchar 36))
+                  (depth :type 'integer
+                         :not-null t))
+               (primary-key '(:parent-id :child-id))))
+    (execute (create-table (:tests :if-not-exists t)
+                 ((population-id :type '(:varchar 36)
+                                 :not-null t)
+                  (instrument :type '(:varchar 128)
+                              :not-null t)
+                  (timeframe :type '(:varchar 128)
+                             :not-null t)
+                  (begin :type 'bigint
+                         :not-null t)
+                  (end :type 'bigint
+                       :not-null t)
+                  (mape :type '(:numeric)
+                        :not-null t)
+                  (pmape :type '(:numeric)
+                         :not-null t)
+                  (mae :type '(:numeric)
+                       :not-null t)
+                  (mse :type '(:numeric)
+                       :not-null t)
+                  (rmse :type '(:numeric)
+                        :not-null t)
+                  (corrects :type '(:numeric[2])
+                            :not-null t)
+                  (revenue :type '(:numeric)
+                           :not-null t)
+                  (decision :type '(varchar 128)
+                            :not-null t)
+                  (delta :type '(:numeric)
+                         :not-null t)
+                  )))))
 ;; (init-database)
 
 ;; (local-time:timestamp-to-unix (local-time:now))
@@ -2340,6 +2344,10 @@ series `real`."
   (with-postgres-connection (execute (delete-from :populations)))
   (with-postgres-connection (execute (delete-from :populations-closure))))
 
+(defun drop-tests ()
+  (with-postgres-connection (execute (delete-from :tests))))
+;; (drop-tests)
+
 (defun draw-optimization (iterations &optional (agents-fitness-fn #'agents-mape) (fitness-fn #'mape) (sort-fn #'<) &key (key #'identity) (label "") (reset-db nil) (starting-population ""))
   (format t "~%starting~%")
   (init)
@@ -2447,8 +2455,20 @@ series `real`."
   (defparameter *rates* nil)
   )
 
-(defun optimize-all (timeframe iterations)
-  (dolist (instrument ominp:*instruments*)
+(defun optimize-one (instrument timeframe iterations)
+  (let ((*instrument* instrument)
+        (*all-rates* (get-rates-range instrument timeframe
+                                      (local-time:timestamp-to-unix
+                                       (local-time:timestamp- (local-time:now)
+                                                              (ceiling
+                                                               (* 2 omper:*data-count*))
+                                                              (timeframe-for-local-time timeframe)))
+                                      (local-time:timestamp-to-unix (local-time:now)))))
+    (draw-optimization iterations #'agents-mape #'mape #'< :label "" :reset-db nil)))
+
+(defun optimize-all (timeframe iterations &optional (optimize-last (length ominp:*instruments*)))
+  (dolist (instrument (last ominp:*instruments* optimize-last))
+    (format t "~%~%Optimizing ~a ~%" instrument)
     (let ((*instrument* instrument)
           (*all-rates* (get-rates-range instrument timeframe
                                         (local-time:timestamp-to-unix
@@ -2460,8 +2480,10 @@ series `real`."
       (draw-optimization iterations #'agents-mape #'mape #'< :label "" :reset-db nil))))
 
 ;; (optimize-all :D 30)
-;; (test-market :AUD_HKD :D)
+;; (optimize-one :FR40_EUR :D 1000)
+;; (test-market :FR40_EUR :D)
 ;; (test-market :EUR_USD :D)
+;; (test-all-markets :D)
 ;; (json:encode-json-to-string (test-market :AUD_HKD :D))
 
 ;; (draw-optimization 1000 #'agents-mape #'mape #'< :label "" :reset-db nil)
@@ -2606,7 +2628,6 @@ series `real`."
   (defparameter *data-sample-clusters* (km *data-sample* *agents-cluster-size*))
   (defparameter *current-cluster* 1)
   )
-;; (init)
 ;; (wrap1)
 
 ;; (time (train 100000 100 :fitness-fn #'corrects :sort-fn #'> :save-every 10 :epsilon 1.8))
@@ -2925,7 +2946,7 @@ is not ideal."
                                        (local-time:timestamp-to-unix
                                         (local-time:timestamp- (local-time:now)
                                                                (ceiling
-                                                                (+ omper:*data-count* 100
+                                                                (+ omper:*data-count* 200
                                                                    (* omper:*data-count* 3 *testing-ratio*)
                                                                    *num-inputs* *delta-gap*))
                                                                (timeframe-for-local-time timeframe)))
@@ -2972,6 +2993,8 @@ is not ideal."
                            :rmse (accesses report :test :performance-metrics :rmse)
                            :corrects (accesses report :test :performance-metrics :corrects)
                            :revenue (accesses report :test :performance-metrics :revenue)
+                           :decision (format nil "~a" (accesses report :forecast :decision))
+                           :delta (accesses report :forecast :delta)
                            )))))
     report))
 
@@ -2979,10 +3002,11 @@ is not ideal."
 ;; (test-market :BCO_USD :D)
 ;; (test-market :SPX500_USD :D)
 
-(defun test-all-markets (timeframe)
-  (dolist (instrument ominp:*instruments*)
+(defun test-all-markets (timeframe &optional (test-last (length ominp:*instruments*)))
+  (dolist (instrument (last ominp:*instruments* test-last))
+    (format t "~%Testing ~a ~%" instrument)
     (test-market instrument timeframe)))
-;; (test-all-markets :D)
+;; (test-all-markets :D 30)
 
 (defun query-test-markets (timeframe)
   (let (results)
@@ -4092,3 +4116,6 @@ each point in the real prices."
 			           :revenue (float (agents-revenue best))
 			           ))))
               id))
+
+;; Initializing Overmind Agents
+(init)

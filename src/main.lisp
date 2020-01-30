@@ -23,7 +23,8 @@
 	:overmind-agents.db
 	:overmind-agents.km
 	)
-  (:export :query-test-markets)
+  (:export :query-test-instruments
+	   :query-test-timeframes)
   (:nicknames :omage))
 (in-package :overmind-agents)
 
@@ -2460,7 +2461,20 @@ series `real`."
   (defparameter *rates* nil)
   )
 
-(defun optimize-one (instrument timeframe iterations)
+(defun get-starting-population (is-cold-start instrument timeframe)
+  "Used by `OPTIMIZE-ALL` and `OPTIMIZE-ONE`."
+  (if is-cold-start
+      ""
+      (let ((pop (get-most-relevant-population instrument timeframe)))
+	(if (null pop)
+	    ""
+	    (if (and (eq (read-from-string (access pop :instrument)) instrument)
+		     (eq (read-from-string (access pop :timeframe)) timeframe))
+		(access pop :ID)
+		""))
+	)))
+
+(defun optimize-one (instrument timeframe iterations &key (is-cold-start t))
   (let ((*instrument* instrument)
         (*all-rates* (get-rates-range instrument timeframe
                                       (local-time:timestamp-to-unix
@@ -2468,8 +2482,10 @@ series `real`."
                                                               (ceiling
                                                                (* 2 omper:*data-count*))
                                                               (timeframe-for-local-time timeframe)))
-                                      (local-time:timestamp-to-unix (local-time:now)))))
-    (draw-optimization iterations #'agents-mape #'mape #'< :label "" :reset-db nil)))
+                                      (local-time:timestamp-to-unix (local-time:now))))
+	(starting-population (get-starting-population is-cold-start instrument timeframe)))
+    (draw-optimization iterations #'agents-mape #'mape #'<
+		       :label "" :reset-db nil :starting-population starting-population)))
 
 (defun optimize-all (timeframe iterations
 		     &key (instruments ominp:*instruments*)
@@ -2485,21 +2501,25 @@ series `real`."
                                                                  (* 5 omper:*data-count*))
                                                                 (timeframe-for-local-time timeframe)))
                                         (local-time:timestamp-to-unix (local-time:now))))
-	  (starting-population (if is-cold-start
-				   ""
-				   (let ((pop (get-most-relevant-population instrument timeframe)))
-				     (if (and (eq (read-from-string (access pop :instrument)) instrument)
-					      (eq (read-from-string (access pop :timeframe)) timeframe))
-					 (access pop :ID)
-					 "")))))
+	  (starting-population (get-starting-population is-cold-start instrument timeframe)))
       (draw-optimization iterations #'agents-mape #'mape #'<
 			 :label "" :reset-db nil :starting-population starting-population))))
 
 (defparameter *popular-instruments* '(:AUD_USD :EUR_GBP :EUR_JPY :EUR_USD :GBP_USD :USD_CAD :USD_CHF :USD_JPY))
-;; (optimize-all :D 50 :instruments (subseq *popular-instruments* 0) :is-cold-start nil)
+(defparameter *popular-timeframes* '(:H1 :D))
+;; (optimize-all :D 25 :instruments (subseq *popular-instruments* 0) :is-cold-start nil)
 ;; (test-all-markets :D *popular-instruments*)
 ;; (test-market :USD_JPY :H1)
 
+(defun loop-optimize-test (iterations)
+  "Infinitely optimize and test markets for `ITERATIONS`."
+  (loop
+     (dolist (instrument *popular-instruments*)
+       (dolist (timeframe *popular-timeframes*)
+	 (format t "~%~%~a, ~a~%" instrument timeframe)
+	 (optimize-one instrument timeframe iterations :is-cold-start nil)
+	 (test-market instrument timeframe)))))
+;; (loop-optimize-test 25)
 ;; (optimize-all :H1 1000)
 
 ;; (optimize-all :H1 200 :instruments ominp:*instruments* :is-cold-start nil)
@@ -2975,6 +2995,7 @@ is not ideal."
                                                             :HOLD
                                                             :SELL))))))))
     ;; (format t "dbg.test-market: ~a, ~a, ~a, ~a~%" *begin* *end* (length *all-rates*) (length *rates*))
+    (format t "~%" (accesses report :test :performance-metrics :corrects))
     (with-postgres-connection
         (execute (insert-into :tests
 		   (set= :population-id (accesses report :population-id)
@@ -3006,7 +3027,7 @@ is not ideal."
     (test-market instrument timeframe)))
 ;; (test-all-markets :D 30)
 
-(defun query-test-markets (timeframe)
+(defun query-test-instruments (timeframe)
   (let (results)
     (with-postgres-connection
         (dolist (instrument ominp:*instruments*)
@@ -3019,7 +3040,32 @@ is not ideal."
                               :as 'trivial-types:association-list)
                 results)))
     (nreverse (remove nil results))))
-;; (query-test-markets :H1)
+;; (query-test-instruments :D)
+
+(defun query-test-timeframes (instrument)
+  (let (results)
+    (with-postgres-connection
+        (dolist (timeframe ominp:*timeframes*)
+          (push (retrieve-one (select :*
+                                (from :tests)
+                                (where (:= :instrument (format nil "~a" instrument)))
+                                (where (:= :timeframe  (format nil "~a" timeframe)))
+                                (order-by (:desc :creation-time))
+                                )
+                              :as 'trivial-types:association-list)
+                results)))
+    (nreverse (remove nil results))))
+;; (query-test-timeframes :EUR_USD)
+
+;; (with-postgres-connection
+;;     (retrieve-one (select :*
+;; 		    (from :populations)
+;; 		    (where (:= :instrument
+;; 			       (format nil "~s" :AUD_USD)))
+;; 		    (where (:= :timeframe
+;; 			       (format nil "~s" :H1)))
+;; 		    (order-by (:desc :end) (:desc :corrects))
+;; 		    )))
 
 ;; querying latest market reports (query `tests`)
 ;; testing a market (periodically run tests with latest populations, save to `tests`)

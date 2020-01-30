@@ -142,6 +142,8 @@
                          :not-null t)
                   (end :type 'bigint
                        :not-null t)
+		  (creation-time :type 'bigint
+				 :not-null t)
                   (mape :type '(:numeric)
                         :not-null t)
                   (pmape :type '(:numeric)
@@ -181,36 +183,36 @@ agents parameters according to it."
 	       (access:access retrieved-pop :population)))
 	 unique-agents)
     ;; Setting `*rates*` and its parameters.
-    (setf *begin* (position (access retrieved-pop :begin)
-			    *all-rates* :key (lambda (rate)
-					       (read-from-string (access rate :time)))))
-    (setf *end* (1+ (position (access retrieved-pop :end)
-			      *all-rates* :key (lambda (rate)
-						 (read-from-string (access rate :time))))))
-    (setf *rates* (subseq *all-rates* *begin* *end*))
+    ;; (setf *begin* (position (access retrieved-pop :begin)
+    ;; 			    *all-rates* :key (lambda (rate)
+    ;; 					       (read-from-string (access rate :time)))))
+    ;; (setf *end* (1+ (position (access retrieved-pop :end)
+    ;; 			      *all-rates* :key (lambda (rate)
+    ;; 						 (read-from-string (access rate :time))))))
+    ;; (setf *rates* (subseq *all-rates* *begin* *end*))
     ;; Setting `*timeframe*` and `*instrument*`.
-    (setf *timeframe* (read-from-string (access retrieved-pop :timeframe)))
-    (setf *instrument* (read-from-string (access retrieved-pop :instrument)))
+    ;; (setf *timeframe* (read-from-string (access retrieved-pop :timeframe)))
+    ;; (setf *instrument* (read-from-string (access retrieved-pop :instrument)))
     ;; Resetting `*cached-agents*`, as these most likely are useless now.
     ;; (setf *cached-agents* (make-hash-table :test #'equal :size 2000 :synchronized t))
     (setf *generations* (access:access retrieved-pop :generations))
-    (let ((fit-fn (read-from-string (access:access retrieved-pop :fitness-fn))))
-      (cond ((eq fit-fn :mse)
-             (setf *fitnesses* (list (access:access retrieved-pop :mse))))
-            ((eq fit-fn :mae)
-             (setf *fitnesses* (list (access:access retrieved-pop :mae))))
-            ((eq fit-fn :mape)
-             (setf *fitnesses* (list (access:access retrieved-pop :mape))))
-	    ((eq fit-fn :pmape)
-             (setf *fitnesses* (list (access:access retrieved-pop :pmape))))
-            ((eq fit-fn :rmse)
-             (setf *fitnesses* (list (access:access retrieved-pop :rmse))))
-            ((eq fit-fn :corrects)
-             (setf *fitnesses* (list (access:access retrieved-pop :corrects))))
-            ((eq fit-fn :revenue)
-             (setf *fitnesses* (list (access:access retrieved-pop :revenue))))
-            (t ;; default
-             (setf *fitnesses* nil))))
+    ;; (let ((fit-fn (read-from-string (access:access retrieved-pop :fitness-fn))))
+    ;;   (cond ((eq fit-fn :mse)
+    ;;          (setf *fitnesses* (list (access:access retrieved-pop :mse))))
+    ;;         ((eq fit-fn :mae)
+    ;;          (setf *fitnesses* (list (access:access retrieved-pop :mae))))
+    ;;         ((eq fit-fn :mape)
+    ;;          (setf *fitnesses* (list (access:access retrieved-pop :mape))))
+    ;; 	    ((eq fit-fn :pmape)
+    ;;          (setf *fitnesses* (list (access:access retrieved-pop :pmape))))
+    ;;         ((eq fit-fn :rmse)
+    ;;          (setf *fitnesses* (list (access:access retrieved-pop :rmse))))
+    ;;         ((eq fit-fn :corrects)
+    ;;          (setf *fitnesses* (list (access:access retrieved-pop :corrects))))
+    ;;         ((eq fit-fn :revenue)
+    ;;          (setf *fitnesses* (list (access:access retrieved-pop :revenue))))
+    ;;         (t ;; default
+    ;;          (setf *fitnesses* nil))))
     ;; Finding out what are the unique agents, as agents can be
     ;; repeated in a population's communities.
     (mapcar (lambda (elt)
@@ -219,7 +221,8 @@ agents parameters according to it."
     ;; Setting parameters according to what is set in the stored population.
     (setf *community-size* (length (first pop)))
     (setf *population-size* (length pop))
-    (setf *num-rules* (/ (length (first (slot-value (first (first pop)) 'rules))) 2))
+    (setf *num-inputs* (/ (length (first (slot-value (first (first pop)) 'rules))) 2))
+    (setf *num-rules* (length (rules (first (first pop)))))
     ;; Checking if we need to set `*agents-pool*` with filling or not.
     (if (> (length unique-agents) *num-pool-agents*)
     	(progn
@@ -2353,14 +2356,16 @@ series `real`."
   (init)
   (when reset-db
     (drop-populations))
+  (when (not (string= starting-population ""))
+    (init-from-database starting-population))
   (let ((parent-id starting-population))
     (let ((corrects (agents-corrects (first *population*))))
       (format t "~%~6a ~3$ ~ttrain: ~17a"
-	      0
+	      *generations*
 	      (float (funcall agents-fitness-fn (first *population*)))
 	      (format-corrects corrects)))
     (dotimes (i iterations)
-      (setf *generations* i)
+      (incf *generations*)
       (ignore-errors
         (let ((candidate (let ((option (random-float *rand-gen* 0 1)))
 			   (cond
@@ -2406,7 +2411,7 @@ series `real`."
 		     (val-corrects (accesses report :validation :performance-metrics :corrects))
 		     (test-corrects (accesses report :test :performance-metrics :corrects)))
 	        (format t "~%~6a ~3$ ~ttrain: ~17a ~tval: ~17a ~ttest: ~17a"
-		        (1+ i)
+		        (1+ *generations*)
 		        (float (funcall agents-fitness-fn candidate))
 		        (format-corrects corrects)
 		        (format-corrects val-corrects)
@@ -2466,24 +2471,41 @@ series `real`."
                                       (local-time:timestamp-to-unix (local-time:now)))))
     (draw-optimization iterations #'agents-mape #'mape #'< :label "" :reset-db nil)))
 
-(defun optimize-all (timeframe iterations &optional (optimize-last (length ominp:*instruments*)))
-  (dolist (instrument (last ominp:*instruments* optimize-last))
+(defun optimize-all (timeframe iterations
+		     &key (instruments ominp:*instruments*)
+		       (is-cold-start t))
+  (dolist (instrument instruments)
     (format t "~%~%Optimizing ~a ~%" instrument)
     (let ((*instrument* instrument)
+	  (*timeframe* timeframe)
           (*all-rates* (get-rates-range instrument timeframe
                                         (local-time:timestamp-to-unix
                                          (local-time:timestamp- (local-time:now)
                                                                 (ceiling
-                                                                 (* 2 omper:*data-count*))
+                                                                 (* 5 omper:*data-count*))
                                                                 (timeframe-for-local-time timeframe)))
-                                        (local-time:timestamp-to-unix (local-time:now)))))
-      (draw-optimization iterations #'agents-mape #'mape #'< :label "" :reset-db nil))))
+                                        (local-time:timestamp-to-unix (local-time:now))))
+	  (starting-population (if is-cold-start
+				   ""
+				   (let ((pop (get-most-relevant-population instrument timeframe)))
+				     (if (and (eq (read-from-string (access pop :instrument)) instrument)
+					      (eq (read-from-string (access pop :timeframe)) timeframe))
+					 (access pop :ID)
+					 "")))))
+      (draw-optimization iterations #'agents-mape #'mape #'<
+			 :label "" :reset-db nil :starting-population starting-population))))
 
-;; (optimize-all :D 30)
-;; (optimize-one :FR40_EUR :D 1000)
+(defparameter *popular-instruments* '(:AUD_USD :EUR_GBP :EUR_JPY :EUR_USD :GBP_USD :USD_CAD :USD_CHF :USD_JPY))
+;; (optimize-all :D 50 :instruments (subseq *popular-instruments* 0) :is-cold-start nil)
+;; (test-all-markets :D *popular-instruments*)
+;; (test-market :USD_JPY :H1)
+
+;; (optimize-all :H1 1000)
+
+;; (optimize-all :H1 200 :instruments ominp:*instruments* :is-cold-start nil)
+;; (optimize-one :GBP_USD :H1 1000)
 ;; (test-market :FR40_EUR :D)
-;; (test-market :EUR_USD :D)
-;; (test-all-markets :D)
+;; (test-market :GBP_USD :H1)
 ;; (json:encode-json-to-string (test-market :AUD_HKD :D))
 
 ;; (draw-optimization 1000 #'agents-mape #'mape #'< :label "" :reset-db nil)
@@ -2873,14 +2895,8 @@ evolutionary process."
     ))
 
 (defclass agent ()
-  ;; (slot-value (first (slot-value (make-instance 'agents) 'agents)) 'beliefs)
   ((beliefs :initarg :beliefs :initform (gen-beliefs) :accessor beliefs)
    (rules :initarg :rules :initform (gen-rules *num-rules*) :accessor rules)
-   ;; (leverage :initarg :leverage :initform 1)
-   ;; (activations :initarg :activations :initform (mapcar (lambda (rule)
-   ;; 						       (first rule))
-   ;; 							(gen-activations 1))
-   ;; 		:accessor activations)
    (activations :initarg :activations :initform nil :accessor activations)
    (activation-threshold :initarg :activation-threshold :initform 0 :accessor activation-threshold)
    (leverage :initarg :leverage :initform 1)
@@ -2888,19 +2904,6 @@ evolutionary process."
    (input-max :initarg :input-max :initform 100)
    (output-min :initarg :output-min :initform 0)
    (output-max :initarg :output-max :initform 100)
-   ;; (leverage :initarg :leverage :initform (calc-trade-scale))
-   ;; (leverage :initarg :leverage :initform (iota *num-inputs* :start 1 :step 0))
-   ;; (leverage :initarg :leverage :initform (random-float *rand-gen* 0 (* 1 (calc-leverage-mean))))
-   ;; (leverage :initarg :leverage :initform (mapcar (lambda (_) (random-float *rand-gen* 0
-   ;; 									    (* (calc-trade-scale) 2)))
-   ;; 						  (iota *num-inputs*)))
-   ;; (leverage :initarg :leverage :initform (iota *num-inputs* :start 1 :step 0))
-   ;; (rules-deltas :initarg :rules-deltas :initform (iota (* 2 *num-rules* *num-inputs*) :start 0 :step 0))
-
-   ;; (leverage :initarg :leverage :initform (random-float *rand-gen* 0 1))
-   ;; (stdev :initarg :stdev :initform (random-float *rand-gen* 5 30))
-   ;; (stdev :initarg :stdev :initform (access *rules-config* :sd))
-   ;; (stdev :initarg :stdev :initform (+ (access *rules-config* :sd) (random-float *rand-gen* -1 1)))
    ))
 
 (defmethod ms:class-persistent-slots ((self agent))
@@ -2946,7 +2949,7 @@ is not ideal."
                                        (local-time:timestamp-to-unix
                                         (local-time:timestamp- (local-time:now)
                                                                (ceiling
-                                                                (+ omper:*data-count* 200
+                                                                (+ omper:*data-count* 500
                                                                    (* omper:*data-count* 3 *testing-ratio*)
                                                                    *num-inputs* *delta-gap*))
                                                                (timeframe-for-local-time timeframe)))
@@ -2973,37 +2976,32 @@ is not ideal."
                                                             :SELL))))))))
     ;; (format t "dbg.test-market: ~a, ~a, ~a, ~a~%" *begin* *end* (length *all-rates*) (length *rates*))
     (with-postgres-connection
-        (unless (retrieve-one (select :population-id
-                                (from :tests)
-                                (where (:= :population-id (accesses report :population-id)))
-                                (where (:= :instrument (format nil "~a" (accesses report :test :instrument))))
-                                (where (:= :timeframe (format nil "~a" (accesses report :test :timeframe))))
-                                (where (:= :begin (accesses report :test :begin)))
-                                (where (:= :end (accesses report :test :end)))))
-          (execute (insert-into :tests
-                     (set= :population-id (accesses report :population-id)
-                           :instrument (format nil "~a" (accesses report :test :instrument))
-                           :timeframe (format nil "~a" (accesses report :test :timeframe))
-                           :begin (accesses report :test :begin)
-                           :end (accesses report :test :end)
-                           :mape (accesses report :test :performance-metrics :mape)
-                           :pmape (accesses report :test :performance-metrics :pmape)
-                           :mae (accesses report :test :performance-metrics :mae)
-                           :mse (accesses report :test :performance-metrics :mse)
-                           :rmse (accesses report :test :performance-metrics :rmse)
-                           :corrects (accesses report :test :performance-metrics :corrects)
-                           :revenue (accesses report :test :performance-metrics :revenue)
-                           :decision (format nil "~a" (accesses report :forecast :decision))
-                           :delta (accesses report :forecast :delta)
-                           )))))
+        (execute (insert-into :tests
+		   (set= :population-id (accesses report :population-id)
+			 :instrument (format nil "~a" (accesses report :test :instrument))
+			 :timeframe (format nil "~a" (accesses report :test :timeframe))
+			 :begin (accesses report :test :begin)
+			 :end (accesses report :test :end)
+			 :creation-time (local-time:timestamp-to-unix (local-time:now))
+			 :mape (accesses report :test :performance-metrics :mape)
+			 :pmape (accesses report :test :performance-metrics :pmape)
+			 :mae (accesses report :test :performance-metrics :mae)
+			 :mse (accesses report :test :performance-metrics :mse)
+			 :rmse (accesses report :test :performance-metrics :rmse)
+			 :corrects (accesses report :test :performance-metrics :corrects)
+			 :revenue (accesses report :test :performance-metrics :revenue)
+			 :decision (format nil "~a" (accesses report :forecast :decision))
+			 :delta (accesses report :forecast :delta)
+			 ))))
     report))
 
 ;; (test-market :EUR_USD :D)
 ;; (test-market :BCO_USD :D)
+;; (test-market :FR40_EUR :H1)
 ;; (test-market :SPX500_USD :D)
 
-(defun test-all-markets (timeframe &optional (test-last (length ominp:*instruments*)))
-  (dolist (instrument (last ominp:*instruments* test-last))
+(defun test-all-markets (timeframe instruments)
+  (dolist (instrument instruments)
     (format t "~%Testing ~a ~%" instrument)
     (test-market instrument timeframe)))
 ;; (test-all-markets :D 30)
@@ -3016,12 +3014,12 @@ is not ideal."
                                 (from :tests)
                                 (where (:= :instrument (format nil "~a" instrument)))
                                 (where (:= :timeframe  (format nil "~a" timeframe)))
-                                (order-by (:desc :end) (:desc :corrects))
+                                (order-by (:desc :creation-time))
                                 )
                               :as 'trivial-types:association-list)
                 results)))
     (nreverse (remove nil results))))
-;; (query-test-markets :D)
+;; (query-test-markets :H1)
 
 ;; querying latest market reports (query `tests`)
 ;; testing a market (periodically run tests with latest populations, save to `tests`)

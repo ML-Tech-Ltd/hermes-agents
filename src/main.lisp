@@ -1,11 +1,7 @@
 ;; (ql:quickload :overmind-agents)
-;; (ql:quickload :overmind-intuition)
-;; (ql:quickload :lparallel)
-;; (ql:quickload :random-state)
-;; (ql:quickload :cl21)
-;; (ql:quickload :marshal)
-;; (ql:quickload :cl-json)
-;; (ql:quickload :dexador)
+;; (ql:quickload :mlforecasting)
+;; (mlforecasting:start :port 2000)
+;; (loop-optimize-test 50 :instruments-keys '(:all))
 (defpackage overmind-agents
   (:use :cl
 	:access
@@ -52,12 +48,18 @@
 
 ;; (length *all-rates*)
 
-;; (setf *all-rates*
-;;       (mapcar (lambda (tuple)
-;; 		`((:time . ,(format nil "~a" (local-time:timestamp-to-unix (local-time:parse-timestring (nth 0 tuple)))))
-;; 		  (:close-bid . ,(read-from-string (nth 4 tuple))))
-;; 		)
-;; 	      (cl-csv:read-csv #P"~/skycoin.csv" :separator #\Space)))
+;; (progn
+;;   (defparameter *instrument* :SKY
+;;     "The financial instrument used for querying the data used to train or test.")
+;;   (defparameter *timeframe* :D
+;;     "The timeframe used for querying the data used to train or test.")
+;;   (defparameter *all-rates* (reverse
+;; 			     (mapcar (lambda (tuple)
+;; 				      `((:time . ,(format nil "~a" (local-time:timestamp-to-unix (local-time:parse-timestring (nth 0 tuple)))))
+;; 					(:close-bid . ,(read-from-string (nth 4 tuple))))
+;; 				      )
+;; 				    (cl-csv:read-csv #P"~/skycoin.csv" :separator #\Comma)))
+;;     "All the rates. Subsets are used during training, validation and testing stages."))
 
 (defun compress-population (population)
   "Compresses a `population`."
@@ -81,7 +83,9 @@
    (read-from-string
     (flexi-streams:octets-to-string
      (zlib:uncompress compressed-object)))))
-
+(length
+ (with-postgres-connection
+     (retrieve-all (select (:depth) (from :populations-closure)))))
 (defun init-database ()
   "Creates all the necessary tables for Overmind Agents."
   (with-postgres-connection
@@ -338,21 +342,17 @@ This version scales the simulation."
 
 (defun mse (sim real)
   "Mean squared error between a simulated time series `sim` and a real time series `real`."
-  (let* ((rmax (apply #'max real))
-	 (rmin (apply #'min real)))
-    (/ (reduce #'+ (mapcar (lambda (elt) (expt elt 2)) (mapcar #'- (scale-sim sim rmin rmax) real)))
-       (length real))))
+  (/ (reduce #'+ (mapcar (lambda (elt) (expt elt 2)) (mapcar #'- sim real)))
+     (length real)))
 
 (defun mae (sim real)
   "Mean absolute error between a simulated time series `sim` and a real time
 series `real`."
-  (let* ((rmax (apply #'max real))
-	 (rmin (apply #'min real)))
-    (/ (reduce #'+ (mapcar (lambda (s r)
-			     (abs (- s r)))
-			   (scale-sim sim rmin rmax)
-			   real))
-       (length real))))
+  (/ (reduce #'+ (mapcar (lambda (s r)
+			   (abs (- s r)))
+			 sim
+			 real))
+     (length real)))
 
 (defun rmse (sim real)
   "Root mean square error between a simulated time series `sim` and a real time
@@ -360,23 +360,21 @@ series `real`."
   (sqrt (mse sim real)))
 
 (defun revenue (sim real)
-  "Currently it returns the agent profit at each trade."
-  (let (;; (real (rest real))
-	;; we only need the real previous, as the simulated is based on the last real price at every moment
-	;; (prev (- (second real) (first real)))
-	(prev (first real)))
-    (/ (apply #'+
-              (mapcar (lambda (s r)
-                        (let ((real-dir (- r prev))
-                              (sim-dir (- s prev)))
-                          (setq prev r)
-                          (if (> (* real-dir sim-dir) 0)
-                              (abs real-dir)
-                              (* -1 (abs real-dir))))
-                        )
-                      sim
-                      real))
-       (length real))))
+  "Average revenue per trade."
+  (let* ((trades-count 0)
+	 (trades-sum (apply #'+
+			    (remove nil
+				    (mapcar (lambda (s r)
+					      (when (/= s 0)
+						(incf trades-count)
+						(if (> (* s r) 0)
+						    (abs r)
+						    (- (abs r)))
+						))
+					    sim real)))))
+    (if (> trades-count 0)
+        (/ trades-sum trades-count)
+    	0)))
 
 ;; (float 399/500)
 ;; (corrects '(3 8 2 5) '(0 10 5 0) nil)
@@ -411,23 +409,6 @@ series `real`."
 ;; 	     (agents-indexes-simulation (agents-best (agents-distribution *population*)))
 ;; 	     (get-real-data 501)))
 
-(defun corrects (sim real &optional (mape-constraint nil))
-  "How many trades were correct."
-  ;; (corrects (agents-indexes-simulation (agents-best (agents-distribution *population*))) (get-real-data))
-  (let ((sim (extract-training-clustered-trades sim))
-	(real (extract-training-clustered-trades real)))
-    (let* ((rmax (apply #'max real))
-	   (rmin (apply #'min real))
-	   (sim (scale-sim sim rmin rmax)))
-      (/ (apply #'+
-		(mapcar (lambda (s r)
-			  (if (> (* s r) 0)
-			      1
-			      0))
-			sim real))
-	 (if mape-constraint
-	     (* (length real) (mape sim real nil))
-	     (length real))))))
 
 (defun corrects (sim real &optional (mape-constraint nil))
   "How many trades were correct."
@@ -441,13 +422,6 @@ series `real`."
 					  1
 					  0))
 				    sim real))))
-    ;; (if (> trades-count 0)
-    ;; 	(/ trades-sum
-    ;; 	   trades-count)
-    ;; 	0)
-    ;; (if (> trades-count 0)
-    ;; 	(format nil "~a/~a (~$%)" trades-sum trades-count (float (* 100 (/ trades-sum trades-count))))
-    ;; 	"0/0 (0.0)")
     (if (> trades-count 0)
 	(make-array 2 :initial-contents `(,trades-sum ,trades-count))
     	#(0 0))
@@ -2476,11 +2450,12 @@ series `real`."
 
 (defun optimize-one (instrument timeframe iterations &key (is-cold-start t))
   (let ((*instrument* instrument)
+	(*timeframe* timeframe)
         (*all-rates* (get-rates-range instrument timeframe
                                       (local-time:timestamp-to-unix
                                        (local-time:timestamp- (local-time:now)
                                                               (ceiling
-                                                               (* 2 omper:*data-count*))
+                                                               (* 5 omper:*data-count*))
                                                               (timeframe-for-local-time timeframe)))
                                       (local-time:timestamp-to-unix (local-time:now))))
 	(starting-population (get-starting-population is-cold-start instrument timeframe)))
@@ -2511,23 +2486,29 @@ series `real`."
 ;; (test-all-markets :D *popular-instruments*)
 ;; (test-market :USD_JPY :H1)
 
-(defun loop-optimize-test (iterations)
-  "Infinitely optimize and test markets for `ITERATIONS`."
+(defun loop-optimize-test (iterations &key (instruments-keys '(:all)))
+  "Infinitely optimize and test markets represented by the bag of
+instruments `INSTRUMENTS-KEYS` for `ITERATIONS`."
   (loop
-     (dolist (instrument *popular-instruments*)
-       (dolist (timeframe *popular-timeframes*)
-	 (format t "~%~%~a, ~a~%" instrument timeframe)
-	 (optimize-one instrument timeframe iterations :is-cold-start nil)
-	 (test-market instrument timeframe)))))
-;; (loop-optimize-test 25)
+     (dolist (instruments-key instruments-keys)
+       (let ((instruments (cond ((eq instruments-key :all) ominp:*instruments*)
+				((eq instruments-key :forex) ominp:*forex*)
+				((eq instruments-key :indices) ominp:*indices*)
+				((eq instruments-key :commodities) ominp:*commodities*)
+				((eq instruments-key :bonds) ominp:*bonds*)
+				((eq instruments-key :metals) ominp:*metals*))))
+	 (dolist (instrument instruments)
+	   (dolist (timeframe ominp:*timeframes*)
+	     (format t "~%~%~a, ~a~%" instrument timeframe)
+	     (optimize-one instrument timeframe iterations :is-cold-start nil)
+	     (test-market instrument timeframe)))))))
+;; (loop-optimize-test 25 :instruments-keys '(:all))
 ;; (optimize-all :H1 1000)
-
 ;; (optimize-all :H1 200 :instruments ominp:*instruments* :is-cold-start nil)
-;; (optimize-one :GBP_USD :H1 1000)
-;; (test-market :FR40_EUR :D)
+;; (optimize-one :UK10YB_GBP :D 25)
+;; (test-market :UK10YB_GBP :H1)
 ;; (test-market :GBP_USD :H1)
 ;; (json:encode-json-to-string (test-market :AUD_HKD :D))
-
 ;; (draw-optimization 1000 #'agents-mape #'mape #'< :label "" :reset-db nil)
 ;; (dotimes (_ 30) (ignore-errors (draw-optimization 100 #'agents-mape #'mape #'< :label "" :reset-db nil)))
 ;; (get-reports 1 *testing-ratio*)
@@ -2961,6 +2942,9 @@ is not ideal."
 	    time-match
 	    )))))
 
+;; (test-market :SKY :D)
+;; (optimize-one :SKY :D 1000 :is-cold-start nil)
+
 (defun test-market (instrument timeframe)
   (let* ((*instrument* instrument)
          (*timeframe* timeframe)
@@ -2969,8 +2953,8 @@ is not ideal."
                                        (local-time:timestamp-to-unix
                                         (local-time:timestamp- (local-time:now)
                                                                (ceiling
-                                                                (+ omper:*data-count* 500
-                                                                   (* omper:*data-count* 3 *testing-ratio*)
+                                                                (+ omper:*data-count* 1000
+                                                                   (* omper:*data-count* 5 *testing-ratio*)
                                                                    *num-inputs* *delta-gap*))
                                                                (timeframe-for-local-time timeframe)))
                                        (local-time:timestamp-to-unix (local-time:now))))
@@ -3025,22 +3009,25 @@ is not ideal."
   (dolist (instrument instruments)
     (format t "~%Testing ~a ~%" instrument)
     (test-market instrument timeframe)))
-;; (test-all-markets :D 30)
+;; (test-all-markets :H1 *popular-instruments*)
 
 (defun query-test-instruments (timeframe)
   (let (results)
     (with-postgres-connection
-        (dolist (instrument ominp:*instruments*)
-          (push (retrieve-one (select :*
-                                (from :tests)
-                                (where (:= :instrument (format nil "~a" instrument)))
-                                (where (:= :timeframe  (format nil "~a" timeframe)))
-                                (order-by (:desc :creation-time))
-                                )
-                              :as 'trivial-types:association-list)
-                results)))
+	(dolist (instrument ominp:*instruments*)
+	  (push (retrieve-one (select :*
+				(from :tests)
+				(where (:= :instrument (format nil "~a" instrument)))
+				(where (:= :timeframe  (format nil "~a" timeframe)))
+				(order-by (:desc :creation-time))
+				)
+			      :as 'trivial-types:association-list)
+		results)))
     (nreverse (remove nil results))))
 ;; (query-test-instruments :D)
+;; (loop-optimize-test 25)
+;; (dotimes (x 100)
+;;   (query-test-instruments :D))
 
 (defun query-test-timeframes (instrument)
   (let (results)
@@ -3330,10 +3317,11 @@ from each sample."
   (mapcar (lambda (db-pop)
 	    (get-report db-pop *instrument* *timeframe*
                         *rates* *begin* *end* *testing-ratio*))
-	  (retrieve-all (select (:*)
-			  (from :populations)
-			  (order-by (:desc :creation-time))
-			  (limit count)))))
+	  (with-postgres-connection
+	      (retrieve-all (select (:*)
+			      (from :populations)
+			      (order-by (:desc :creation-time))
+			      (limit count))))))
 ;; (get-reports 1)
 
 (defun run-random-rates (iterations)

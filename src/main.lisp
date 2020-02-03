@@ -1,7 +1,7 @@
 ;; (ql:quickload :overmind-agents)
 ;; (ql:quickload :mlforecasting)
 ;; (mlforecasting:start :port 2000)
-;; (loop-optimize-test 50 :instruments-keys '(:all))
+;; (loop-optimize-test 10 :instruments-keys '(:all))
 (defpackage overmind-agents
   (:use :cl
 	:access
@@ -83,9 +83,7 @@
    (read-from-string
     (flexi-streams:octets-to-string
      (zlib:uncompress compressed-object)))))
-(length
- (with-postgres-connection
-     (retrieve-all (select (:depth) (from :populations-closure)))))
+
 (defun init-database ()
   "Creates all the necessary tables for Overmind Agents."
   (with-postgres-connection
@@ -2321,6 +2319,7 @@ series `real`."
 (defun drop-populations ()
   (with-postgres-connection (execute (delete-from :populations)))
   (with-postgres-connection (execute (delete-from :populations-closure))))
+;; (drop-populations)
 
 (defun drop-tests ()
   (with-postgres-connection (execute (delete-from :tests))))
@@ -4148,6 +4147,49 @@ each point in the real prices."
 			           :revenue (float (agents-revenue best))
 			           ))))
               id))
+
+(defun prune-populations ()
+  "Sets the last child of every root node as the new roots."
+  (dolist (id (get-root-populations-ids))
+    (let* ((root-id (access id :id))
+           (descendants (get-descendants root-id))
+           (last-desc (last-elt descendants)))
+      (when descendants
+        (with-postgres-connection
+            ;; Setting last child to be orphan.
+            (execute (update :populations
+                       (set= :parent-id "")
+                       (where (:= :id (access last-desc :id)))))
+          ;; Removing root.
+          (execute (delete-from :populations
+                     (where (:= :id root-id))))
+          ;; Removing root closures.
+          (execute (delete-from :populations-closure
+                     (where (:or (:= :parent-id root-id)
+                                 (:= :child-id root-id)))))
+          ;; Removing descendants but last.
+          (dolist (desc (butlast descendants))
+            (let ((desc-id (access desc :id)))
+              ;; Removing entity.
+              (execute (delete-from :populations
+                         (where (:= :id desc-id)))
+                       )
+              ;; Removing closures.
+              (execute (delete-from :populations-closure
+                         (where (:or (:= :parent-id desc-id)
+                                     (:= :child-id desc-id))))
+                       )))
+          )))))
+;; (prune-populations)
+
+;; (get-root-populations-ids)
+;; (with-postgres-connection
+;;     (retrieve-all (select :* (from :populations-closure))))
+;; (with-postgres-connection
+;;     (retrieve-all (select :id (from :populations))))
+;; (drop-populations)
+;; (drop-tests)
+;; (access (last-elt (get-descendants "0AE3D091-AED6-4C66-9498-F0E5647AA3F6")) :id)
 
 ;; Initializing Overmind Agents
 (init)

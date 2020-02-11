@@ -1,7 +1,11 @@
 ;; (ql:quickload :overmind-agents)
 ;; (ql:quickload :mlforecasting)
 ;; (mlforecasting:start :port 2000)
-;; (loop-optimize-test 10 :instruments-keys '(:all))
+;; (loop-optimize-test 200 :instruments-keys '(:all) :timeframes-keys '(:all))
+;; (loop-optimize-test 50 :instruments-keys '(:all) :timeframes-keys '(:intraday))
+;; (loop-optimize-test 50 :instruments-keys '(:forex) :timeframes-keys '(:all))
+;; (prune-populations)
+
 (defpackage overmind-agents
   (:use :cl
 	:access
@@ -115,6 +119,8 @@
                                    :not-null t)
                     (mape :type '(:numeric)
                           :not-null t)
+		    (mase :type '(:numeric)
+                          :not-null t)
                     (pmape :type '(:numeric)
                            :not-null t)
                     (mae :type '(:numeric)
@@ -148,6 +154,8 @@
 		  (creation-time :type 'bigint
 				 :not-null t)
                   (mape :type '(:numeric)
+                        :not-null t)
+		  (mase :type '(:numeric)
                         :not-null t)
                   (pmape :type '(:numeric)
                          :not-null t)
@@ -304,21 +312,16 @@ agents parameters according to it."
 			   real))
        (length real))))
 
-(defun mape (sim real &optional (zero-metric-constraint nil))
-  "Mean absolute percentage error between a simulated time series `sim` and a real time series `real`."
-  (if (and zero-metric-constraint
-	   ;; (check-zero-metric sim real)
-	   )
-      most-positive-fixnum
-      (/ (reduce #'+ (mapcar (lambda (s r)
-			       (/ (abs (- r s)) (1+ (abs r))))
-			     sim
-                             real
-			     ;; (rest real)
-                             ))
-	 ;; (length (rest real))
-         (length real)
-         )))
+(defun mase (sim real &optional (zero-metric-constraint nil))
+  "Mean absolute scaled error between a simulated time series `sim` and a real time series `real`."
+  (/ (mean (mapcar (lambda (s r)
+		     (abs (- r s)))
+		   sim
+		   real))
+     (mean (mapcar (lambda (next current)
+		     (abs (- next current)))
+		   (rest real)
+		   real))))
 
 (defun mape (sim real &optional (zero-metric-constraint nil))
   "Mean absolute percentage error between a simulated time series `sim` and a real time series `real`.
@@ -513,7 +516,7 @@ series `real`."
   (last-elt
    (largest-number-indexes
     (mapcar (lambda (centroid)
-	      (mape inputs centroid nil))
+	      (mase inputs centroid nil))
 	    cluster-centroids))))
 
 ;; (get-closest-cluster '(3689/285 1541/95 1315/57 9074/285 3327/95 2818/95 6167/285) (get-cluster-data))
@@ -653,7 +656,7 @@ series `real`."
 	    sim
 	    )))))
 
-(defun agents-fitness (agents-indexes &optional (fitness-fn #'mape))
+(defun agents-fitness (agents-indexes &optional (fitness-fn #'mase))
   (let ((sim (agents-indexes-simulation agents-indexes)))
     ;; (mse sim (get-real-data 3))
     (funcall fitness-fn sim (get-real-data-deltas (length sim)))))
@@ -907,7 +910,7 @@ series `real`."
 	    inputs)))
 ;; (gen-rules 2)
 
-(defun agents-distribution (population &optional (fitness-fn #'mape) (sort-fn #'<))
+(defun agents-distribution (population &optional (fitness-fn #'mase) (sort-fn #'<))
   ;; (agents-distribution *population*)
   (let* ((fitnesses (pmapcar (lambda (agents)
                                (agents-fitness agents fitness-fn))
@@ -927,7 +930,7 @@ series `real`."
 	     population)
      (first (sort (copy-seq fitnesses) sort-fn)))))
 
-(defun agents-reproduce (&optional (fitness-fn #'mape) (sort-fn #'<))
+(defun agents-reproduce (&optional (fitness-fn #'mase) (sort-fn #'<))
   (agents-mutate)
   ;; Finding appropriate leverages.
   ;; (dolist (community *population*)
@@ -1477,7 +1480,7 @@ series `real`."
 					  (funcall *perception-fn* nil)))
 		     (reductions (mapcar (lambda (act) (reduce #'+ act)) activations))
 		     (best-activation (nth (largest-number-index reductions) activations))
-		     (activation-threshold (nth 5 (sort (mapcar (lambda (act) (mape act best-activation)) activations) #'<)))
+		     (activation-threshold (nth 5 (sort (mapcar (lambda (act) (mase act best-activation)) activations) #'<)))
 		     )
 		(setf (slot-value agent 'activation-threshold)
 		      activation-threshold)
@@ -1685,7 +1688,7 @@ series `real`."
        (mapcar (lambda (rate)
                  (format nil "~f" rate))
                (agents-indexes-simulation (agents-best (agents-distribution *population*
-                                                                            #'mape
+                                                                            #'mase
                                                                             #'<)
                                                        #'<)))))
 
@@ -2053,7 +2056,7 @@ series `real`."
                      (lambda (i) (* rate (nabla fun y (basis i len)))) 
                      (iota len)))
           (n 0 (1+ n)))
-         ((or (< (agents-mape community nil) error) 
+         ((or (< (agents-mase community nil) error) 
               (>= n max-steps))
 	  ;; Changing leverages
 	  ;; (let ((leverages (coerce (group *num-inputs* (coerce best 'list)) 'vector)))
@@ -2067,12 +2070,12 @@ series `real`."
           ;; (if (< n max-steps) y)
           ;; y
           )
-      (let ((mape (agents-mape community nil)))
-	(when (< mape best-error)
-	  (setf best-error mape)
+      (let ((mase (agents-mase community nil)))
+	(when (< mase best-error)
+	  (setf best-error mase)
 	  (setf best y))
-	;; (format t "~a, ~a, ~a~%" mape (float (agents-corrects *best* nil)) (validate-test *best* 0.1 :corrects))
-	;; (print mape)
+	;; (format t "~a, ~a, ~a~%" mase (float (agents-corrects *best* nil)) (validate-test *best* 0.1 :corrects))
+	;; (print mase)
 	)
       )))
 
@@ -2089,7 +2092,7 @@ series `real`."
 ;; 	(make-list (* 2 *num-rules* *num-inputs*) :initial-element 0)))
 
 ;; (defparameter *best* (agents-best (agents-distribution *population* #'corrects #'>) #'>))
-;; (defparameter *best* (agents-best (agents-distribution *population* #'mape)))
+;; (defparameter *best* (agents-best (agents-distribution *population* #'mase)))
 (defun descent-leverages (community error rate max-steps)
   (descent community
 	   (lambda (leverages)
@@ -2110,7 +2113,7 @@ series `real`."
 ;; 0.910618936775545d0, 0.5675, (0.525 0.4)
 
 ;; Init using last entry (generations)
-;; (init-from-database (access (first (with-postgres-connection (retrieve-all (select (:*) (from :populations) (order-by (:asc :mape)))))) :id))
+;; (init-from-database (access (first (with-postgres-connection (retrieve-all (select (:*) (from :populations) (order-by (:asc :mase)))))) :id))
 
 ;; Init using agents with most corrects
 ;; (init-from-database (access (first (with-postgres-connection (retrieve-all (select (:*) (from :populations) (order-by (:desc :corrects)))))) :id))
@@ -2149,8 +2152,8 @@ series `real`."
     (dotimes (i (length leverages))
       (setf (slot-value (nth i agents) 'leverage)
             (aref leverages i)))
-    (let ((mape (agents-mape agents-indexes t)))
-      mape)))
+    (let ((mase (agents-mase agents-indexes t)))
+      mase)))
 
 (defun report-all-best-database ()
   (remove nil
@@ -2166,11 +2169,11 @@ series `real`."
 			       (test (market-report db-pop
 						    *instrument* *timeframe*
 						    (subseq *all-rates* *begin* (+ *end* (* 2 omper:*data-count*)))))
-			       (result `((:train . ((:mape . ,(float (accesses test :training :performance-metrics :mape)))
+			       (result `((:train . ((:mase . ,(float (accesses test :training :performance-metrics :mase)))
 						    (:corrects . ,(accesses test :training :performance-metrics :corrects))))
-					 (:validation . ((:mape . ,(float (accesses validation :testing :performance-metrics :mape)))
+					 (:validation . ((:mase . ,(float (accesses validation :testing :performance-metrics :mase)))
 							 (:corrects . ,(accesses validation :testing :performance-metrics :corrects))))
-					 (:test . ((:mape . ,(float (accesses test :testing :performance-metrics :mape)))
+					 (:test . ((:mase . ,(float (accesses test :testing :performance-metrics :mase)))
 						   (:corrects . ,(accesses test :testing :performance-metrics :corrects)))
 						))))
 			  result)
@@ -2185,7 +2188,7 @@ series `real`."
 		      (where (:= :parent-id ""))
 		      ))))
 
-;; (defun get-best-descendant (id &optional (fitness-kw :mape))
+;; (defun get-best-descendant (id &optional (fitness-kw :mase))
 ;;   (let* ((desc (get-descendants id))
 ;; 	 (idx (last-elt (largest-number-indexes (mapcar (lambda (entry)
 ;; 							(access entry fitness-kw))
@@ -2199,10 +2202,10 @@ series `real`."
                       (join (:as :populations-closure :c) :on (:= :p.id :c.child-id))
                       (where (:= :c.parent-id population-id))
                       (where (:> :c.depth 0))
-		      (order-by (:asc :mape))
+		      (order-by (:asc :mase))
                       ))))
 
-(defun get-best-descendant-id (id &optional (fitness-kw :mape))
+(defun get-best-descendant-id (id &optional (fitness-kw :mase))
   (let* ((desc (get-descendants id))
 	 (idx (last-elt (largest-number-indexes (mapcar (lambda (entry)
 							(access entry fitness-kw))
@@ -2219,7 +2222,7 @@ series `real`."
   (with-postgres-connection (execute (delete-from :populations)))
   (with-postgres-connection (execute (delete-from :populations-closure)))
   ;; (time (train 100000 100 :fitness-fn #'corrects :sort-fn #'> :save-every 1 :epsilon 1.8))
-  (train 100000 100 :fitness-fn #'mape :sort-fn #'< :save-every 1 :epsilon 0.00 :gd-epsilon 0.000)
+  (train 100000 100 :fitness-fn #'mase :sort-fn #'< :save-every 1 :epsilon 0.00 :gd-epsilon 0.000)
   )
 ;; (wrap1)
 ;; (agents-corrects (agents-best (agents-distribution *population* #'corrects #'>) #'>))
@@ -2300,7 +2303,7 @@ series `real`."
 ;; (ql:quickload :cl-mathstats)
 ;; (cl-mathstats:correlation '(1 2 3 2 1) '(1 2 3 4 4))
 ;; (let ((reports (get-reports 2 *testing-ratio*)))
-;;   (float (mape
+;;   (float (mase
 ;; 	  (mapcar (lambda (elt)
 ;; 		    (let ((val (accesses elt :validation :corrects)))
 ;; 		      (if (= (aref val 1) 0)
@@ -2325,7 +2328,7 @@ series `real`."
   (with-postgres-connection (execute (delete-from :tests))))
 ;; (drop-tests)
 
-(defun draw-optimization (iterations &optional (agents-fitness-fn #'agents-mape) (fitness-fn #'mape) (sort-fn #'<) &key (key #'identity) (label "") (reset-db nil) (starting-population ""))
+(defun draw-optimization (iterations &optional (agents-fitness-fn #'agents-mase) (fitness-fn #'mase) (sort-fn #'<) &key (key #'identity) (label "") (reset-db nil) (starting-population ""))
   (format t "~%starting~%")
   (init)
   (when reset-db
@@ -2341,7 +2344,7 @@ series `real`."
     (dotimes (i iterations)
       (incf *generations*)
       (ignore-errors
-        (let ((candidate (let ((option (random-float *rand-gen* 0 1)))
+	(let ((candidate (let ((option (random-float *rand-gen* 0 1)))
 			   (cond
                              ;; Remove an agent.
 			     ((and (< option 0.33) (> (length (first *population*)) *community-size*))
@@ -2458,7 +2461,7 @@ series `real`."
                                                               (timeframe-for-local-time timeframe)))
                                       (local-time:timestamp-to-unix (local-time:now))))
 	(starting-population (get-starting-population is-cold-start instrument timeframe)))
-    (draw-optimization iterations #'agents-mape #'mape #'<
+    (draw-optimization iterations #'agents-mase #'mase #'<
 		       :label "" :reset-db nil :starting-population starting-population)))
 
 (defun optimize-all (timeframe iterations
@@ -2476,7 +2479,7 @@ series `real`."
                                                                 (timeframe-for-local-time timeframe)))
                                         (local-time:timestamp-to-unix (local-time:now))))
 	  (starting-population (get-starting-population is-cold-start instrument timeframe)))
-      (draw-optimization iterations #'agents-mape #'mape #'<
+      (draw-optimization iterations #'agents-mase #'mase #'<
 			 :label "" :reset-db nil :starting-population starting-population))))
 
 (defparameter *popular-instruments* '(:AUD_USD :EUR_GBP :EUR_JPY :EUR_USD :GBP_USD :USD_CAD :USD_CHF :USD_JPY))
@@ -2485,7 +2488,7 @@ series `real`."
 ;; (test-all-markets :D *popular-instruments*)
 ;; (test-market :USD_JPY :H1)
 
-(defun loop-optimize-test (iterations &key (instruments-keys '(:all)))
+(defun loop-optimize-test (iterations &key (instruments-keys '(:all)) (timeframes-keys '(:all)))
   "Infinitely optimize and test markets represented by the bag of
 instruments `INSTRUMENTS-KEYS` for `ITERATIONS`."
   (loop
@@ -2496,22 +2499,28 @@ instruments `INSTRUMENTS-KEYS` for `ITERATIONS`."
 				((eq instruments-key :commodities) ominp:*commodities*)
 				((eq instruments-key :bonds) ominp:*bonds*)
 				((eq instruments-key :metals) ominp:*metals*))))
-	 (dolist (instrument instruments)
-	   (dolist (timeframe ominp:*timeframes*)
-	     (format t "~%~%~a, ~a~%" instrument timeframe)
-	     (optimize-one instrument timeframe iterations :is-cold-start nil)
-	     (test-market instrument timeframe)))))))
+	 (dolist (timeframes-key timeframes-keys)
+	   (let ((timeframes (cond ((eq timeframes-key :all) ominp:*timeframes*)
+				   ((eq timeframes-key :shortterm) ominp:*shortterm*)
+				   ((eq timeframes-key :longterm) ominp:*longterm*)
+				   )))
+	     (dolist (instrument instruments)
+	       (dolist (timeframe timeframes)
+		 (format t "~%~%~a, ~a~%" instrument timeframe)
+		 (optimize-one instrument timeframe iterations :is-cold-start nil)
+		 (test-market instrument timeframe)))))))
+     (prune-populations)))
 ;; (loop-optimize-test 25 :instruments-keys '(:all))
+;; (test-all-markets :D ominp:*instruments*)
 ;; (optimize-all :H1 1000)
-;; (optimize-all :H1 200 :instruments ominp:*instruments* :is-cold-start nil)
-;; (optimize-one :UK10YB_GBP :D 25)
-;; (test-market :UK10YB_GBP :H1)
-;; (test-market :GBP_USD :H1)
+;; (optimize-all :H1 100 :instruments ominp:*instruments* :is-cold-start t)
+;; (optimize-one :USD_JPY :H1 10000 :is-cold-start nil)
+;; (test-market :USD_JPY :H1)
+;; (test-market :US30_USD :D)
 ;; (json:encode-json-to-string (test-market :AUD_HKD :D))
-;; (draw-optimization 1000 #'agents-mape #'mape #'< :label "" :reset-db nil)
-;; (dotimes (_ 30) (ignore-errors (draw-optimization 100 #'agents-mape #'mape #'< :label "" :reset-db nil)))
+;; (draw-optimization 1000 #'agents-mase #'mase #'< :label "" :reset-db t)
+;; (dotimes (_ 30) (ignore-errors (draw-optimization 100 #'agents-mase #'mase #'< :label "" :reset-db nil)))
 ;; (get-reports 1 *testing-ratio*)
-;; (drop-populations)
 ;; (print-simulation (first *population*) *testing-ratio* :rmse)
 ;; (print-simulation)
 ;; (time (report-all-best-corrects))
@@ -2630,7 +2639,7 @@ instruments `INSTRUMENTS-KEYS` for `ITERATIONS`."
     "List of fitnesses obtained after evolving a population.")
   (defparameter *fitnesses-validation* nil
     "List of fitnesses in the validation stage obtained after evolving a population.")
-  (defparameter *fitness-fn* :mape)
+  (defparameter *fitness-fn* :mase)
   ;; Setting boundaries.
   ;; (let* ((percs (flatten (mapcar #'butlast (funcall *perception-fn* (first *agents-pool*)))))
   ;; 	 (reals (get-real-data-deltas omper:*data-count*))
@@ -2653,7 +2662,7 @@ instruments `INSTRUMENTS-KEYS` for `ITERATIONS`."
 ;; (wrap1)
 
 ;; (time (train 100000 100 :fitness-fn #'corrects :sort-fn #'> :save-every 10 :epsilon 1.8))
-;; (time (train 100000 100 :fitness-fn #'mape :sort-fn #'< :save-every 1 :epsilon 0.00 :gd-epsilon 0.000))
+;; (time (train 100000 100 :fitness-fn #'mase :sort-fn #'< :save-every 1 :epsilon 0.00 :gd-epsilon 0.000))
 ;; *cached-agents*
 ;; *population*
 ;; *generations*
@@ -2662,7 +2671,7 @@ instruments `INSTRUMENTS-KEYS` for `ITERATIONS`."
 ;; (defparameter *results* (get-reports 1 0.1))
 
 ;; Init using last entry (generations)
-;; (init-from-database (access (first (with-postgres-connection (retrieve-all (select (:*) (from :populations) (order-by (:asc :mape)))))) :id))
+;; (init-from-database (access (first (with-postgres-connection (retrieve-all (select (:*) (from :populations) (order-by (:asc :mase)))))) :id))
 
 ;; Communities' sizes.
 ;; (mapcar #'length *population*)
@@ -2674,7 +2683,7 @@ instruments `INSTRUMENTS-KEYS` for `ITERATIONS`."
 ;; 	  (accesses res :test :corrects)))
 
 ;; Report
-;; (map nil (lambda (lst) (format t "gen: ~a ~t mape:~a ~t corrects: ~a ~t revenue: ~a~%" (access:access lst :generations) (float (access:access lst :mape)) (* (float (access:access lst :corrects)) 100) (float (access:access lst :revenue)))) (with-postgres-connection (retrieve-all (select (:*) (from :populations) (order-by (:asc :creation-time))))))
+;; (map nil (lambda (lst) (format t "gen: ~a ~t mase:~a ~t corrects: ~a ~t revenue: ~a~%" (access:access lst :generations) (float (access:access lst :mase)) (* (float (access:access lst :corrects)) 100) (float (access:access lst :revenue)))) (with-postgres-connection (retrieve-all (select (:*) (from :populations) (order-by (:asc :creation-time))))))
 
 ;; Setting *begin* and *end* according to last entry in database.
 ;; (with-postgres-connection (retrieve-all (select (:*) (from :populations) (order-by (:asc :creation-time)))))
@@ -2690,7 +2699,7 @@ instruments `INSTRUMENTS-KEYS` for `ITERATIONS`."
 ;; (csv-real-sim)
 
 ;; Get metrics.
-;; (float (mape (agents-indexes-simulation (agents-best (agents-distribution *population* #'mape
+;; (float (mase (agents-indexes-simulation (agents-best (agents-distribution *population* #'mase
 ;; 									  #'<)
 ;; 						     #'<))
 ;; 	     (get-real-data-deltas omper:*data-count*)))
@@ -2711,7 +2720,7 @@ instruments `INSTRUMENTS-KEYS` for `ITERATIONS`."
 ;; *generations*
 
 ;; continue from database
-;; (setq *last-id* (train 50000 :starting-population (access (first (with-postgres-connection (retrieve-all (select (:*) (from :populations) (order-by (:desc :generations)))))) :id) :fitness-fn #'mape :sort-fn #'<))
+;; (setq *last-id* (train 50000 :starting-population (access (first (with-postgres-connection (retrieve-all (select (:*) (from :populations) (order-by (:desc :generations)))))) :id) :fitness-fn #'mase :sort-fn #'<))
 
 ;; Init using agents with most corrects
 ;; (init-from-database (access (first (with-postgres-connection (retrieve-all (select (:*) (from :populations) (order-by (:desc :corrects)))))) :id))
@@ -2767,7 +2776,7 @@ instruments `INSTRUMENTS-KEYS` for `ITERATIONS`."
 ;; (get-best-descendant-id "8BD62D44-D989-4FB4-8A0D-F45665602A4A")
 
 (defun train (generations gd-iterations
-	      &key (fitness-fn #'pmape)
+	      &key (fitness-fn #'mase)
 		(sort-fn #'<)
 		(starting-population "")
 		(save-every 100)
@@ -2802,8 +2811,6 @@ evolutionary process."
       ;; 	(agents-mf-adjust (extract-agents-from-pool (agents-best (agents-distribution *population*))) 10))
       
       (let* ((fitness-training (agents-reproduce fitness-fn sort-fn))
-	     ;; (fitness-validation (first (validate-test (agents-best (agents-distribution *population*))
-	     ;; 					       1.0 :mape)))
 	     )
         (when (or (null *fitnesses*)
                   ;; (> fitness 0.6)
@@ -2988,6 +2995,7 @@ is not ideal."
 			 :end (accesses report :test :end)
 			 :creation-time (local-time:timestamp-to-unix (local-time:now))
 			 :mape (accesses report :test :performance-metrics :mape)
+			 :mase (accesses report :test :performance-metrics :mase)
 			 :pmape (accesses report :test :performance-metrics :pmape)
 			 :mae (accesses report :test :performance-metrics :mae)
 			 :mse (accesses report :test :performance-metrics :mse)
@@ -3008,39 +3016,41 @@ is not ideal."
   (dolist (instrument instruments)
     (format t "~%Testing ~a ~%" instrument)
     (test-market instrument timeframe)))
-;; (test-all-markets :H1 *popular-instruments*)
+;; (test-all-markets :H1 ominp:*instruments*)
 
 (defun query-test-instruments (timeframe)
-  (let (results)
-    (with-postgres-connection
-	(dolist (instrument ominp:*instruments*)
-	  (push (retrieve-one (select :*
-				(from :tests)
-				(where (:= :instrument (format nil "~a" instrument)))
-				(where (:= :timeframe  (format nil "~a" timeframe)))
-				(order-by (:desc :creation-time))
-				)
-			      :as 'trivial-types:association-list)
-		results)))
-    (nreverse (remove nil results))))
+  (ignore-errors
+    (let (results)
+      (dolist (instrument ominp:*instruments*)
+	(push (with-postgres-connection
+		  (retrieve-one (select :*
+				  (from :tests)
+				  (where (:= :instrument (format nil "~a" instrument)))
+				  (where (:= :timeframe  (format nil "~a" timeframe)))
+				  (order-by (:desc :creation-time))
+				  )
+				:as 'trivial-types:association-list))
+	      results))
+      (nreverse (remove nil results)))))
 ;; (query-test-instruments :D)
 ;; (loop-optimize-test 25)
 ;; (dotimes (x 100)
 ;;   (query-test-instruments :D))
 
 (defun query-test-timeframes (instrument)
-  (let (results)
-    (with-postgres-connection
-        (dolist (timeframe ominp:*timeframes*)
-          (push (retrieve-one (select :*
-                                (from :tests)
-                                (where (:= :instrument (format nil "~a" instrument)))
-                                (where (:= :timeframe  (format nil "~a" timeframe)))
-                                (order-by (:desc :creation-time))
-                                )
-                              :as 'trivial-types:association-list)
-                results)))
-    (nreverse (remove nil results))))
+  (ignore-errors
+    (let (results)
+      (dolist (timeframe ominp:*timeframes*)
+	(push (with-postgres-connection
+		  (retrieve-one (select :*
+				  (from :tests)
+				  (where (:= :instrument (format nil "~a" instrument)))
+				  (where (:= :timeframe  (format nil "~a" timeframe)))
+				  (order-by (:desc :creation-time))
+				  )
+				:as 'trivial-types:association-list))
+	      results))
+      (nreverse (remove nil results)))))
 ;; (query-test-timeframes :EUR_USD)
 
 ;; (with-postgres-connection
@@ -3091,6 +3101,7 @@ granularity `timeframe`."
                                           (:mse . ,(access db-pop :mse))
                                           (:rmse . ,(access db-pop :rmse))
                                           (:mape . ,(access db-pop :mape))
+					  (:mase . ,(access db-pop :mase))
                                           (:pmape . ,(access db-pop :pmape))
                                           (:corrects . ,(access db-pop :corrects))
                                           (:revenue . ,(access db-pop :revenue)))))
@@ -3326,7 +3337,7 @@ from each sample."
 (defun run-random-rates (iterations)
   (dotimes (_ iterations)
     (init)
-    (train 1000 1000 :fitness-fn #'mape :sort-fn #'< :save-every 10 :epsilon 0.02)
+    (train 1000 1000 :fitness-fn #'mase :sort-fn #'< :save-every 10 :epsilon 0.02)
     )
   ;; (train 1000 :fitness-fn #'corrects :sort-fn #'> :save-every 1 :epsilon 1.8))
   (get-reports 1))
@@ -3338,32 +3349,32 @@ from each sample."
 ;; *generations*
 
 (defun filter-reports (reports)
-  (let ((train-mape 0)
+  (let ((train-mase 0)
 	(train-corrects 0)
-	(val-mape 0)
+	(val-mase 0)
 	(val-corrects 0)
-	(test-mape 0)
+	(test-mase 0)
 	(test-corrects 0)
 	(len 0))
     (dolist (report reports)
       (when (and ;; (> (accesses report :train :corrects) 0.5)
-             (< (accesses report :train :mape) 0.01)
+             (< (accesses report :train :mase) 0.01)
              ;; (> (accesses report :validation :corrects) 0.6)
-             ;; (< (accesses report :validation :mape) 0.02)
+             ;; (< (accesses report :validation :mase) 0.02)
              )
-	(incf train-mape (accesses report :train :mape))
+	(incf train-mase (accesses report :train :mase))
 	(incf train-corrects (accesses report :train :corrects))
-	(incf val-mape (accesses report :validation :mape))
+	(incf val-mase (accesses report :validation :mase))
 	(incf val-corrects (accesses report :validation :corrects))
-	(incf test-mape (accesses report :test :mape))
+	(incf test-mase (accesses report :test :mase))
 	(incf test-corrects (accesses report :test :corrects))
 	(incf len)))
     (when (> len 0)
-      `((:train-mape . ,(float (/ train-mape len)))
+      `((:train-mase . ,(float (/ train-mase len)))
 	(:train-corrects . ,(float (/ train-corrects len)))
-	(:validation-mape . ,(float (/ val-mape len)))
+	(:validation-mase . ,(float (/ val-mase len)))
 	(:validation-corrects . ,(float (/ val-corrects len)))
-	(:test-mape . ,(float (/ test-mape len)))
+	(:test-mase . ,(float (/ test-mase len)))
 	(:test-corrects . ,(float (/ test-corrects len)))
         (:sample-size . ,len)))))
 
@@ -3387,6 +3398,7 @@ from each sample."
 	 (mse (mse sim real))
 	 (rmse (rmse sim real))
 	 (mape (mape sim real nil))
+	 (mase (mase sim real nil))
 	 (pmape (pmape sim real))
 	 (corrects (corrects sim real nil))
 	 (revenue (revenue sim real)))
@@ -3394,6 +3406,7 @@ from each sample."
                                (:mse . ,mse)
                                (:rmse . ,rmse)
                                (:mape . ,mape)
+			       (:mase . ,mase)
                                (:pmape . ,pmape)
                                (:corrects . ,corrects)
                                (:revenue . ,revenue)))
@@ -3988,6 +4001,12 @@ each point in the real prices."
   (let ((sim (agents-indexes-simulation agents-indexes)))
     (mape sim (get-real-data-deltas (length sim)) zero-metric-constraint)))
 
+(defun agents-mase (agents-indexes &optional (zero-metric-constraint nil))
+  "Returns the mean absolute scaled error obtained by the agents' simulation in
+`agents-indexes` for the real prices."
+  (let ((sim (agents-indexes-simulation agents-indexes)))
+    (mase sim (get-real-data-deltas (length sim)) zero-metric-constraint)))
+
 ;; (agents-mape (second *population*))
 ;; (get-real-data-deltas 10)
 ;; (agents-indexes-simulation (first *population*))
@@ -4120,7 +4139,7 @@ each point in the real prices."
 	      )
 	    (first (slot-value agents 'rules)))))
 
-(defun insert-population (parent-id &optional label (fitness-fn #'mape) (sort-fn #'<))
+(defun insert-population (parent-id &optional label (fitness-fn #'mase) (sort-fn #'<))
        (let* ((best (agents-best (agents-distribution *population* fitness-fn sort-fn) sort-fn))
 	      (id (uuid:make-v4-uuid)))
               (with-postgres-connection
@@ -4139,6 +4158,7 @@ each point in the real prices."
 			           :end (read-from-string (access (alexandria:last-elt *rates*) :time))
 			           :rules-config (compress-object *rules-config*)
 			           :mape (float (agents-mape best))
+				   :mase (float (agents-mase best))
 			           :pmape (float (agents-pmape best))
 			           :rmse (float (agents-rmse best))
 			           :mae (float (agents-mae best))
@@ -4153,21 +4173,14 @@ each point in the real prices."
   (dolist (id (get-root-populations-ids))
     (let* ((root-id (access id :id))
            (descendants (get-descendants root-id))
-           (last-desc (last-elt descendants)))
+           (last-desc (when descendants (last-elt descendants))))
       (when descendants
         (with-postgres-connection
             ;; Setting last child to be orphan.
             (execute (update :populations
                        (set= :parent-id "")
                        (where (:= :id (access last-desc :id)))))
-          ;; Removing root.
-          (execute (delete-from :populations
-                     (where (:= :id root-id))))
-          ;; Removing root closures.
-          (execute (delete-from :populations-closure
-                     (where (:or (:= :parent-id root-id)
-                                 (:= :child-id root-id)))))
-          ;; Removing descendants but last.
+	  ;; Removing descendants but last.
           (dolist (desc (butlast descendants))
             (let ((desc-id (access desc :id)))
               ;; Removing entity.
@@ -4179,6 +4192,13 @@ each point in the real prices."
                          (where (:or (:= :parent-id desc-id)
                                      (:= :child-id desc-id))))
                        )))
+          ;; Removing root.
+          (execute (delete-from :populations
+                     (where (:= :id root-id))))
+          ;; Removing root closures.
+          (execute (delete-from :populations-closure
+                     (where (:or (:= :parent-id root-id)
+                                 (:= :child-id root-id)))))
           )))))
 ;; (prune-populations)
 

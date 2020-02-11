@@ -13,12 +13,10 @@
 (defparameter *db-path* "")
 
 (defmacro with-postgres-connection (&rest body)
-  ;; `datafly` could be connected to another database. Disconnecting.
-  (when datafly:*connection*
-    (datafly:disconnect-toplevel))
-  ;; Connecting to Overmind Agents database.
-  (datafly:connect-toplevel :postgres :database-name *db-name* :username *db-user* :password *db-pass*)
-  `(progn ,@body))
+  (ignore-errors
+    (unless datafly:*connection*
+      (datafly:connect-toplevel :postgres :database-name *db-name* :username *db-user* :password *db-pass*))
+    `(progn ,@body)))
 
 (defmacro with-sqlite-connection (&rest body)
   ;; `datafly` could be connected to another database. Disconnecting.

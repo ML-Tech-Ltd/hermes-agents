@@ -1,7 +1,7 @@
 ;; (ql:quickload :overmind-agents)
 ;; (ql:quickload :mlforecasting)
 ;; (mlforecasting:start :port 2000)
-;; (loop-optimize-test 200 :instruments-keys '(:all) :timeframes-keys '(:all))
+;; (loop-optimize-test 2000 :instruments-keys '(:all) :timeframes-keys '(:all))
 ;; (loop-optimize-test 50 :instruments-keys '(:all) :timeframes-keys '(:intraday))
 ;; (loop-optimize-test 50 :instruments-keys '(:forex) :timeframes-keys '(:all))
 ;; (prune-populations)
@@ -314,14 +314,15 @@ agents parameters according to it."
 
 (defun mase (sim real &optional (zero-metric-constraint nil))
   "Mean absolute scaled error between a simulated time series `sim` and a real time series `real`."
-  (/ (mean (mapcar (lambda (s r)
-		     (abs (- r s)))
-		   sim
-		   real))
-     (mean (mapcar (lambda (next current)
-		     (abs (- next current)))
-		   (rest real)
-		   real))))
+  (let ((real (subseq real *delta-gap*)))
+    (/ (mean (mapcar (lambda (s r)
+		       (abs (- r s)))
+		     sim
+		     real))
+       (mean (mapcar (lambda (next current)
+		       (abs (- next current)))
+		     (rest real)
+		     real)))))
 
 (defun mape (sim real &optional (zero-metric-constraint nil))
   "Mean absolute percentage error between a simulated time series `sim` and a real time series `real`.
@@ -414,7 +415,8 @@ series `real`."
 (defun corrects (sim real &optional (mape-constraint nil))
   "How many trades were correct."
   ;; (corrects (agents-indexes-simulation (agents-best (agents-distribution *population*))) (get-real-data))
-  (let* ((trades-count 0)
+  (let* ((real (subseq real *delta-gap*))
+         (trades-count 0)
 	 (trades-sum (apply #'+
 			    (mapcar (lambda (s r)
 				      (when (/= s 0)
@@ -868,11 +870,11 @@ series `real`."
   (let* ((inputs (mapcar #'butlast (funcall *perception-fn* nil)))
 	 (outputs (get-real-data-deltas omper:*data-count*))
 	 (chosen-idxs (loop repeat num-rules
-	 		 collect (random-int *rand-gen* 0 (length outputs))))
+	 		 collect (random-int *rand-gen* 0 (- (length outputs) *delta-gap*))))
 	 ;; (chosen-idxs (subseq (shuffle (random-elt (km-positions (mapcar #'list outputs) 10))) 0 num-rules))
 	 ;; (chosen-idxs (subseq (shuffle (random-elt (km-positions inputs 10 :key #'butlast))) 0 num-rules))
 	 (chosen-inputs (loop for i in chosen-idxs collect (nth i inputs)))
-	 (chosen-outputs (loop for i in chosen-idxs collect (nth i outputs)))
+	 (chosen-outputs (loop for i in chosen-idxs collect (nth (+ i *delta-gap*) outputs)))
 	 (inp-sd (mapcar (lambda (inp) (/ (standard-deviation inp) 1)) (apply #'mapcar #'list chosen-inputs)))
 	 (out-sd (/ (standard-deviation chosen-outputs) 1))
 	 (mn-inp (- (apply #'min (flatten chosen-inputs)) (apply #'max inp-sd)))
@@ -1778,7 +1780,7 @@ series `real`."
 
 (progn
   ;; (defparameter *delta-gap* 63)
-  (defparameter *delta-gap* 10)
+  (defparameter *delta-gap* 20)
   (defparameter *num-inputs* 10)
   (defparameter *num-rules* 3)
   ;; (defparameter *activation-level* (1- omper:*data-count*))
@@ -1957,7 +1959,8 @@ instruments `INSTRUMENTS-KEYS` for `ITERATIONS`."
 (defun init ()
   ;; (defparameter *testing-ratio* 0.05)
   ;; (defparameter *testing-ratio* 0.25)
-  (defparameter *testing-ratio* 0.0)
+  (defparameter *testing-ratio* 1.00)
+  ;; (defparameter *testing-ratio* 0.0)
   (setf lparallel:*kernel* (lparallel:make-kernel 32))
   ;; (setf omper:*data-count* 200)
   (setf omper:*data-count* 252)

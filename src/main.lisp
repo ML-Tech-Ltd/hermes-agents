@@ -5,6 +5,8 @@
 ;; (loop-optimize-test 50 :instruments-keys '(:all) :timeframes-keys '(:intraday))
 ;; (loop-optimize-test 50 :instruments-keys '(:forex) :timeframes-keys '(:all))
 ;; (prune-populations)
+;; (drop-populations)
+;; (drop-tests)
 
 (defpackage overmind-agents
   (:use :cl
@@ -1780,12 +1782,12 @@ series `real`."
 
 (progn
   ;; (defparameter *delta-gap* 63)
-  (defparameter *delta-gap* 20)
+  (defparameter *delta-gap* 63)
   (defparameter *num-inputs* 10)
   (defparameter *num-rules* 3)
   ;; (defparameter *activation-level* (1- omper:*data-count*))
   ;; (defparameter *activation-level* (floor (/ (1- omper:*data-count*) 4)))
-  (defparameter *activation-level* 10)
+  (defparameter *activation-level* 3)
   ;; (defparameter *perception-fn* #'agent-perception-deltas)
   (defparameter *perception-fn*
     (lambda (agent)
@@ -1889,7 +1891,7 @@ instruments `INSTRUMENTS-KEYS` for `ITERATIONS`."
 ;; (test-all-markets :D ominp:*instruments*)
 ;; (optimize-all :H1 1000)
 ;; (optimize-all :H1 100 :instruments ominp:*instruments* :is-cold-start t)
-;; (optimize-one :USD_JPY :H1 10000 :is-cold-start nil)
+;; (optimize-one :USD_JPY :D 10000 :is-cold-start t)
 ;; (test-market :USD_JPY :H1)
 ;; (test-market :US30_USD :D)
 ;; (json:encode-json-to-string (test-market :AUD_HKD :D))

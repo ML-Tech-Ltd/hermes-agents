@@ -2,7 +2,8 @@
 ;; (ql:quickload :mlforecasting)
 ;; (mlforecasting:start :port 2000)
 ;; (loop-optimize-test 100 :instruments-keys '(:all) :timeframes-keys '(:longterm))
-;; (loop-optimize-test 50 :instruments-keys '(:all) :timeframes-keys '(:intraday))
+;; (loop-optimize-test 50 :instruments-keys '(:all) :timeframes-keys '(:all))
+;; (loop-optimize-test 50 :instruments-keys '(:all) :timeframes-keys '(:shortterm))
 ;; (loop-optimize-test 50 :instruments-keys '(:forex) :timeframes-keys '(:all))
 ;; (prune-populations)
 ;; (drop-populations)
@@ -545,22 +546,16 @@ series `real`."
 							 (- index (- *num-inputs* i 1))))
 						 z))
 					  (iota (1- *num-inputs*)))
-				  (list (nth index z)))))
+				  (list (if-let ((nth-z (nth index z)))
+					  nth-z 0.0)))))
 
 		(append res (list close))
-		
-		;; (append (let ((mx (apply #'max res)))
-		;; 	  (mapcar (lambda (r)
-		;; 		    r
-		;; 		    )
-		;; 		  res))
-		;; 	(list close))
                 )))
           ;; TODO: generalize (get-data) so it doesn't need an `instrument`.
           ;; (get-data *instrument* *rates* :levels (slot-value agent 'beliefs))
 	  (get-data *instrument* *rates*)))
 
-;; (agent-perception (extract-agent-from-pool 1))
+;; (length (agent-perception nil))
 
 ;; Summarizing data.
 ;; (maphash (lambda (k v)
@@ -1791,8 +1786,8 @@ series `real`."
 
 (progn
   ;; (defparameter *delta-gap* 63)
-  (defparameter *delta-gap* 63)
-  (defparameter *num-inputs* 9)
+  (defparameter *delta-gap* 10)
+  (defparameter *num-inputs* 5)
   (defparameter *num-rules* 3)
   ;; (defparameter *activation-level* (1- omper:*data-count*))
   (defparameter *activation-level* (floor (/ (1- omper:*data-count*) 4)))
@@ -1807,22 +1802,22 @@ series `real`."
 					       inputs))
 				(list (last-elt (first inputs))))
 			)
-	     (let ((*num-inputs* (/ *num-inputs* 3)))
+	     (let ((*num-inputs* (/ *num-inputs* 1)))
 	       (list
 		;; (agent-moving-average nil)
-		(agent-perception-prices nil)
-		(agent-perception-highs nil)
-		(agent-perception-lows nil)
+		;; (agent-stochastic-oscillator nil)
+		;; (agent-perception-prices nil)
+		;; (agent-perception-highs nil)
+		;; (agent-perception-lows nil)
 
-		;; (agent-perception nil)
+	        (agent-perception nil)
 		;; (agent-perception-heights nil)
 		;; (let ((*delta-gap* 10))
 		;;   (agent-perception-deltas nil))
 		;; (agent-perception-volumes nil)
 		))
 	     )))
-  (defparameter *rates* nil)
-  )
+  (defparameter *rates* nil))
 
 (defun get-starting-population (is-cold-start instrument timeframe)
   "Used by `OPTIMIZE-ALL` and `OPTIMIZE-ONE`."
@@ -1878,7 +1873,7 @@ series `real`."
 (defun loop-optimize-test (iterations &key (instruments-keys '(:all)) (timeframes-keys '(:all)))
   "Infinitely optimize and test markets represented by the bag of
 instruments `INSTRUMENTS-KEYS` for `ITERATIONS`."
-  (loop
+  (loop1
      (dolist (instruments-key instruments-keys)
        (let ((instruments (cond ((eq instruments-key :all) ominp:*instruments*)
 				((eq instruments-key :forex) ominp:*forex*)
@@ -1901,7 +1896,9 @@ instruments `INSTRUMENTS-KEYS` for `ITERATIONS`."
 ;; (test-all-markets :D ominp:*instruments*)
 ;; (optimize-all :H1 1000)
 ;; (optimize-all :H1 100 :instruments ominp:*instruments* :is-cold-start t)
-;; (optimize-one :SUGAR_USD :D 10000 :is-cold-start t)
+;; (optimize-one :EUR_GBP :H1 10000 :is-cold-start t)
+;; (init)
+;; (length (agent-perception nil))
 ;; (drop-populations)
 ;; (drop-tests)
 ;; (test-market :USD_JPY :H1)
@@ -1971,14 +1968,15 @@ instruments `INSTRUMENTS-KEYS` for `ITERATIONS`."
 ;; (dotimes (i (length (first *population*))) (print (extract-training-clustered-trades (agent-trades (nth i (extract-agents-from-pool (first *population*)))))))
 
 (defun init ()
+  (org.tfeb.hax.memoize:clear-memoized-functions)
   ;; (defparameter *testing-ratio* 0.05)
   ;; (defparameter *testing-ratio* 0.25)
-  (defparameter *testing-ratio* 0.1)
+  (defparameter *testing-ratio* 0.0)
   ;; (defparameter *testing-ratio* 0.0)
   (setf lparallel:*kernel* (lparallel:make-kernel 32))
   ;; (setf omper:*data-count* 200)
-  (setf omper:*data-count* (* 252 4))
-  (setf omper:*partition-size* 100)
+  (setf omper:*data-count* (* 252 1))
+  (setf omper:*partition-size* 70)
   (defparameter *community-size* 1
     "Represents the number of agents in an 'individual' or solution. A simulation (a possible solution) will be generated using this number of agents.")
   (defparameter *population-size* 1
@@ -1991,7 +1989,7 @@ instruments `INSTRUMENTS-KEYS` for `ITERATIONS`."
   ;;   "The ending timestamp for the data used for training or testing.")
 
   ;; last N range
-  (defparameter *begin* (- (floor (- (length *all-rates*) (+ omper:*data-count* (* omper:*data-count* 2 *testing-ratio*) *num-inputs* *delta-gap*))) 2))
+  (defparameter *begin* (- (floor (- (length *all-rates*) (+ omper:*data-count* (* omper:*data-count* 2 *testing-ratio*) *num-inputs* *delta-gap* omper:*partition-size*))) 2))
   (defparameter *end* (1- (floor (- (length *all-rates*) (+ (* omper:*data-count* 2 *testing-ratio*))))))
 
   ;; ;; For sunspot
@@ -2342,61 +2340,100 @@ is not ideal."
 ;; (test-market :SKY :D)
 ;; (optimize-one :SKY :D 1000 :is-cold-start nil)
 
-(defun test-market (instrument timeframe)
-  (let* ((*instrument* instrument)
-         (*timeframe* timeframe)
-         (*testing-ratio* 0.0)
-         (*all-rates* (get-rates-range instrument timeframe
-                                       (local-time:timestamp-to-unix
-                                        (local-time:timestamp- (local-time:now)
-                                                               (ceiling
-                                                                (+ omper:*data-count* 1000
-                                                                   (* omper:*data-count* 5 *testing-ratio*)
-                                                                   *num-inputs* *delta-gap*))
-                                                               (timeframe-for-local-time timeframe)))
-                                       (local-time:timestamp-to-unix (local-time:now))))
-         (*cached-agents* (make-hash-table))
-         (db-pop (get-most-relevant-population instrument timeframe))
-         (pop (decompress-object (access db-pop :population)))
-         ;; TODO: We can fix begin and end. It's doing unnecessary things.
-         ;; (*begin* (- (floor (- (length *all-rates*) (+ omper:*data-count* (* omper:*data-count* 2 *testing-ratio*) *num-inputs* *delta-gap*))) 2))
-         (*begin* 0)
-         ;; (*end* (1- (floor (- (length *all-rates*) (+ (* omper:*data-count* 2 *testing-ratio*))))))
-         (*end* (1- (length *all-rates*)))
-         (*rates* (subseq *all-rates* *begin* *end*))
-         (sim (agents-simulation (first pop)))
-         (report (append `((:population-id . ,(access db-pop :id)))
-                         (get-report db-pop instrument timeframe *rates*
-                                     *begin*
-                                     *end*)
-                         `((:forecast (:delta . ,(last-elt sim))
-                                      (:decision . ,(if (> (last-elt sim) 0)
-                                                        :BUY
-                                                        (if (= (last-elt sim) 0)
-                                                            :HOLD
-                                                            :SELL))))))))
-    ;; (format t "dbg.test-market: ~a, ~a, ~a, ~a~%" *begin* *end* (length *all-rates*) (length *rates*))
-    (format t "~%" (accesses report :test :performance-metrics :corrects))
-    (with-postgres-connection
-        (execute (insert-into :tests
-		   (set= :population-id (accesses report :population-id)
-			 :instrument (format nil "~a" (accesses report :test :instrument))
-			 :timeframe (format nil "~a" (accesses report :test :timeframe))
-			 :begin (accesses report :test :begin)
-			 :end (accesses report :test :end)
-			 :creation-time (local-time:timestamp-to-unix (local-time:now))
-			 :mape (accesses report :test :performance-metrics :mape)
-			 :mase (accesses report :test :performance-metrics :mase)
-			 :pmape (accesses report :test :performance-metrics :pmape)
-			 :mae (accesses report :test :performance-metrics :mae)
-			 :mse (accesses report :test :performance-metrics :mse)
-			 :rmse (accesses report :test :performance-metrics :rmse)
-			 :corrects (accesses report :test :performance-metrics :corrects)
-			 :revenue (accesses report :test :performance-metrics :revenue)
-			 :decision (format nil "~a" (accesses report :forecast :decision))
-			 :delta (accesses report :forecast :delta)
-			 ))))
-    report))
+(let ((cached-tests (make-hash-table)))
+  (defun check-cached-tests ()
+    "Function used to check if `CACHED-TESTS` is empty. If it is
+empty, `CHECK-CACHED-TESTS` will fill `CACHED-TESTS` with the latest
+tests performed that are stored on database."
+    (when (= (hash-table-count cached-tests) 0)
+      )
+    )
+  
+  (defun test-market (instrument timeframe)
+    (let* ((*instrument* instrument)
+	   (*timeframe* timeframe)
+	   (*testing-ratio* 0.0)
+	   (*all-rates* (get-rates-range instrument timeframe
+					 (local-time:timestamp-to-unix
+					  (local-time:timestamp- (local-time:now)
+								 (ceiling
+								  (+ omper:*data-count* 1000
+								     (* omper:*data-count* 5 *testing-ratio*)
+								     *num-inputs* *delta-gap*))
+								 (timeframe-for-local-time timeframe)))
+					 (local-time:timestamp-to-unix (local-time:now))))
+	   (*cached-agents* (make-hash-table))
+	   (db-pop (get-most-relevant-population instrument timeframe))
+	   (pop (decompress-object (access db-pop :population)))
+	   ;; TODO: We can fix begin and end. It's doing unnecessary things.
+	   ;; (*begin* (- (floor (- (length *all-rates*) (+ omper:*data-count* (* omper:*data-count* 2 *testing-ratio*) *num-inputs* *delta-gap*))) 2))
+	   (*begin* 0)
+	   ;; (*end* (1- (floor (- (length *all-rates*) (+ (* omper:*data-count* 2 *testing-ratio*))))))
+	   (*end* (1- (length *all-rates*)))
+	   (*rates* (subseq *all-rates* *begin* *end*))
+	   (sim (agents-simulation (first pop)))
+	   (report (append `((:population-id . ,(access db-pop :id)))
+			   (get-report db-pop instrument timeframe *rates*
+				       *begin*
+				       *end*)
+			   `((:forecast (:delta . ,(last-elt sim))
+					(:decision . ,(if (> (last-elt sim) 0)
+							  :BUY
+							  (if (= (last-elt sim) 0)
+							      :HOLD
+							      :SELL))))))))
+      ;; (format t "dbg.test-market: ~a, ~a, ~a, ~a~%" *begin* *end* (length *all-rates*) (length *rates*))
+      (format t "~%" (accesses report :test :performance-metrics :corrects))
+      (with-postgres-connection
+	  (execute (insert-into :tests
+		     (set= :population-id (accesses report :population-id)
+			   :instrument (format nil "~a" (accesses report :test :instrument))
+			   :timeframe (format nil "~a" (accesses report :test :timeframe))
+			   :begin (accesses report :test :begin)
+			   :end (accesses report :test :end)
+			   :creation-time (local-time:timestamp-to-unix (local-time:now))
+			   :mape (accesses report :test :performance-metrics :mape)
+			   :mase (accesses report :test :performance-metrics :mase)
+			   :pmape (accesses report :test :performance-metrics :pmape)
+			   :mae (accesses report :test :performance-metrics :mae)
+			   :mse (accesses report :test :performance-metrics :mse)
+			   :rmse (accesses report :test :performance-metrics :rmse)
+			   :corrects (accesses report :test :performance-metrics :corrects)
+			   :revenue (accesses report :test :performance-metrics :revenue)
+			   :decision (format nil "~a" (accesses report :forecast :decision))
+			   :delta (accesses report :forecast :delta)
+			   ))))
+      report))
+
+  (defun query-test-instruments (timeframe)
+    (ignore-errors
+      (let (results)
+	(dolist (instrument ominp:*instruments*)
+	  (push (with-postgres-connection
+		    (retrieve-one (select :*
+				    (from :tests)
+				    (where (:= :instrument (format nil "~a" instrument)))
+				    (where (:= :timeframe  (format nil "~a" timeframe)))
+				    (order-by (:desc :creation-time))
+				    )
+				  :as 'trivial-types:association-list))
+		results))
+	(nreverse (remove nil results)))))
+
+  (defun query-test-timeframes (instrument)
+    (ignore-errors
+      (let (results)
+	(dolist (timeframe ominp:*timeframes*)
+	  (push (with-postgres-connection
+		    (retrieve-one (select :*
+				    (from :tests)
+				    (where (:= :instrument (format nil "~a" instrument)))
+				    (where (:= :timeframe  (format nil "~a" timeframe)))
+				    (order-by (:desc :creation-time))
+				    )
+				  :as 'trivial-types:association-list))
+		results))
+	(nreverse (remove nil results))))))
 
 ;; (test-market :EUR_USD :D)
 ;; (test-market :BCO_USD :D)
@@ -2409,39 +2446,6 @@ is not ideal."
     (test-market instrument timeframe)))
 ;; (test-all-markets :H1 ominp:*instruments*)
 
-(defun query-test-instruments (timeframe)
-  (ignore-errors
-    (let (results)
-      (dolist (instrument ominp:*instruments*)
-	(push (with-postgres-connection
-		  (retrieve-one (select :*
-				  (from :tests)
-				  (where (:= :instrument (format nil "~a" instrument)))
-				  (where (:= :timeframe  (format nil "~a" timeframe)))
-				  (order-by (:desc :creation-time))
-				  )
-				:as 'trivial-types:association-list))
-	      results))
-      (nreverse (remove nil results)))))
-;; (query-test-instruments :D)
-;; (loop-optimize-test 25)
-;; (dotimes (x 100)
-;;   (query-test-instruments :D))
-
-(defun query-test-timeframes (instrument)
-  (ignore-errors
-    (let (results)
-      (dolist (timeframe ominp:*timeframes*)
-	(push (with-postgres-connection
-		  (retrieve-one (select :*
-				  (from :tests)
-				  (where (:= :instrument (format nil "~a" instrument)))
-				  (where (:= :timeframe  (format nil "~a" timeframe)))
-				  (order-by (:desc :creation-time))
-				  )
-				:as 'trivial-types:association-list))
-	      results))
-      (nreverse (remove nil results)))))
 ;; (query-test-timeframes :EUR_USD)
 
 ;; (with-postgres-connection
@@ -2591,8 +2595,10 @@ history."
 			      *stochastic-key-close*
 			      periods)
 		  (get-real-data
+		   ;; omper:*data-count*
 		   (+ omper:*data-count*
-		      (1- periods))))))
+		      (1- periods))
+		   ))))
 
 (defun agent-moving-average (agent)
   "TODO: `agent` is unused"
@@ -2622,11 +2628,13 @@ history."
 	     stochastic
              rate))
           (apply #'mapcar #'list
-                 (mapcar (lambda (i)
-                           (get-stochastic-oscillator i i))
-                         (iota *num-inputs* :start 1 :step 5)))
+                 (remove nil
+			 (mapcar (lambda (i)
+				   (get-stochastic-oscillator i i))
+				 (iota *num-inputs* :start 1 :step 2))))
           (mapcar #'list (get-real-data omper:*data-count*))))
-;; (agent-stochastic-oscillator nil)
+;; (length (agent-stochastic-oscillator nil))
+;; (length (agent-perception nil))
 
 (defun ta-average (sequence &key (key #'identity))
   (let ((len 1))
@@ -2652,7 +2660,20 @@ Bollinger band points."
   (apply #'max (mapcar key history)))
 
 (defun get-stochastic-oscillator (&optional (%k-periods 5) (%d-periods 5))
-  (last (remove nil
+  ;; (last (remove nil
+  ;;         (mapcar (stochastic
+  ;;                  (lambda (rate)
+  ;;                    (access rate :high-bid))
+  ;;                  (lambda (rate)
+  ;;                    (access rate :low-bid))
+  ;;                  (lambda (rate)
+  ;;                    (access rate :close-bid))
+  ;;                  :%k-periods %k-periods
+  ;;                  :%d-periods %d-periods)
+  ;;                 (get-full-real-data (+ omper:*data-count*
+  ;;                                        (+ %d-periods %k-periods)))))
+  ;;       omper:*data-count*)
+  (remove nil
           (mapcar (stochastic
                    (lambda (rate)
                      (access rate :high-bid))
@@ -2663,9 +2684,9 @@ Bollinger band points."
                    :%k-periods %k-periods
                    :%d-periods %d-periods)
                   (get-full-real-data (+ omper:*data-count*
-                                         (+ %d-periods %k-periods)))))
-        omper:*data-count*))
-;; (get-stochastic-oscillator 20 20)
+                                         (+ %d-periods %k-periods)
+					 )))))
+;; (length (get-stochastic-oscillator 3 15))
 ;; (sort (get-stochastic-oscillator 5 3) (lambda (e1 e2)
 ;;                                         (if (null e2)
 ;;                                             0

@@ -2341,14 +2341,7 @@ is not ideal."
 ;; (optimize-one :SKY :D 1000 :is-cold-start nil)
 
 (let ((cached-tests (make-hash-table)))
-  (defun check-cached-tests ()
-    "Function used to check if `CACHED-TESTS` is empty. If it is
-empty, `CHECK-CACHED-TESTS` will fill `CACHED-TESTS` with the latest
-tests performed that are stored on database."
-    (when (= (hash-table-count cached-tests) 0)
-      )
-    )
-  
+  ;; (setf cached-tests (make-hash-table))
   (defun test-market (instrument timeframe)
     (let* ((*instrument* instrument)
 	   (*timeframe* timeframe)
@@ -2382,58 +2375,94 @@ tests performed that are stored on database."
 							  (if (= (last-elt sim) 0)
 							      :HOLD
 							      :SELL))))))))
-      ;; (format t "dbg.test-market: ~a, ~a, ~a, ~a~%" *begin* *end* (length *all-rates*) (length *rates*))
+      ;; Caching report into `CACHED-TESTS`.
+      (setf (gethash timeframe (gethash instrument cached-tests))
+	    `((:population-id . ,(accesses report :population-id))
+	      (:instrument . ,(format nil "~a" (accesses report :test :instrument)))
+	      (:timeframe . ,(format nil "~a" (accesses report :test :timeframe)))
+	      (:begin . ,(accesses report :test :begin))
+	      (:end . ,(accesses report :test :end))
+	      (:creation-time . ,(local-time:timestamp-to-unix (local-time:now)))
+	      (:mape . ,(accesses report :test :performance-metrics :mape))
+	      (:mase . ,(accesses report :test :performance-metrics :mase))
+	      (:pmape . ,(accesses report :test :performance-metrics :pmape))
+	      (:mae . ,(accesses report :test :performance-metrics :mae))
+	      (:mse . ,(accesses report :test :performance-metrics :mse))
+	      (:rmse . ,(accesses report :test :performance-metrics :rmse))
+	      (:corrects . ,(accesses report :test :performance-metrics :corrects))
+	      (:revenue . ,(accesses report :test :performance-metrics :revenue))
+	      (:decision . ,(format nil "~a" (accesses report :forecast :decision)))
+	      (:delta . ,(accesses report :forecast :delta))))
+      
       (format t "~%" (accesses report :test :performance-metrics :corrects))
       (with-postgres-connection
 	  (execute (insert-into :tests
-				(set= :population-id (accesses report :population-id)
-				      :instrument (format nil "~a" (accesses report :test :instrument))
-				      :timeframe (format nil "~a" (accesses report :test :timeframe))
-				      :begin (accesses report :test :begin)
-				      :end (accesses report :test :end)
-				      :creation-time (local-time:timestamp-to-unix (local-time:now))
-				      :mape (accesses report :test :performance-metrics :mape)
-				      :mase (accesses report :test :performance-metrics :mase)
-				      :pmape (accesses report :test :performance-metrics :pmape)
-				      :mae (accesses report :test :performance-metrics :mae)
-				      :mse (accesses report :test :performance-metrics :mse)
-				      :rmse (accesses report :test :performance-metrics :rmse)
-				      :corrects (accesses report :test :performance-metrics :corrects)
-				      :revenue (accesses report :test :performance-metrics :revenue)
-				      :decision (format nil "~a" (accesses report :forecast :decision))
-				      :delta (accesses report :forecast :delta)
-				      ))))
+		     (set= :population-id (accesses report :population-id)
+			   :instrument (format nil "~a" (accesses report :test :instrument))
+			   :timeframe (format nil "~a" (accesses report :test :timeframe))
+			   :begin (accesses report :test :begin)
+			   :end (accesses report :test :end)
+			   :creation-time (local-time:timestamp-to-unix (local-time:now))
+			   :mape (accesses report :test :performance-metrics :mape)
+			   :mase (accesses report :test :performance-metrics :mase)
+			   :pmape (accesses report :test :performance-metrics :pmape)
+			   :mae (accesses report :test :performance-metrics :mae)
+			   :mse (accesses report :test :performance-metrics :mse)
+			   :rmse (accesses report :test :performance-metrics :rmse)
+			   :corrects (accesses report :test :performance-metrics :corrects)
+			   :revenue (accesses report :test :performance-metrics :revenue)
+			   :decision (format nil "~a" (accesses report :forecast :decision))
+			   :delta (accesses report :forecast :delta)
+			   ))))
       report))
 
-  (defun query-test-instruments (timeframe)
+  (defun query-db-tests (instrument)
     (ignore-errors
       (let (results)
-	(dolist (instrument ominp:*instruments*)
-	  (push (with-postgres-connection
-		    (retrieve-one (select :*
-					  (from :tests)
-					  (where (:= :instrument (format nil "~a" instrument)))
-					  (where (:= :timeframe  (format nil "~a" timeframe)))
-					  (order-by (:desc :creation-time))
-					  )
-				  :as 'trivial-types:association-list))
-		results))
-	(nreverse (remove nil results)))))
+    	(dolist (timeframe ominp:*timeframes*)
+    	  (push (with-postgres-connection
+    		    (retrieve-one (select :*
+				    (from :tests)
+				    (where (:= :instrument (format nil "~a" instrument)))
+				    (where (:= :timeframe  (format nil "~a" timeframe)))
+				    (order-by (:desc :creation-time))
+				    )
+    				  :as 'trivial-types:association-list))
+    		results))
+    	(nreverse (remove nil results)))))
+  ;; (query-db-tests :AUD_USD)
+
+  (defun query-test-instruments (timeframe)
+    (let ((results))
+      (maphash (lambda (k v)
+		 (when (gethash timeframe v)
+		   (push (gethash timeframe v) results)))
+	       cached-tests)
+      (nreverse results)))
 
   (defun query-test-timeframes (instrument)
-    (ignore-errors
-      (let (results)
-	(dolist (timeframe ominp:*timeframes*)
-	  (push (with-postgres-connection
-		    (retrieve-one (select :*
-					  (from :tests)
-					  (where (:= :instrument (format nil "~a" instrument)))
-					  (where (:= :timeframe  (format nil "~a" timeframe)))
-					  (order-by (:desc :creation-time))
-					  )
-				  :as 'trivial-types:association-list))
-		results))
-	(nreverse (remove nil results))))))
+    (hash-table-values (gethash instrument cached-tests)))
+
+  (defun check-cached-tests ()
+    "Function used to check if `CACHED-TESTS` is empty. If it is
+empty, `CHECK-CACHED-TESTS` will fill `CACHED-TESTS` with the latest
+tests performed that are stored on database."
+    (when (= (hash-table-count cached-tests) 0)
+      (map nil (lambda (instrument)
+		 (let ((entries (make-hash-table)))
+		   (map nil (lambda (entry)
+			      ;; Timeframe entries will be strings, not keywords.
+			      (setf (gethash (read-from-string (format nil ":~a" (access entry :timeframe))) entries) entry))
+			(query-db-tests instrument))
+		   (setf (gethash instrument cached-tests) entries))
+		 )
+	   ominp:*instruments*))
+    cached-tests)
+  ;; Run check.
+  (check-cached-tests))
+
+;; (print (query-test-instruments :H1))
+;; (query-test-timeframes :AUD_USD)
 
 ;; (test-market :EUR_USD :D)
 ;; (test-market :BCO_USD :D)

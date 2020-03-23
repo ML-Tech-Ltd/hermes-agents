@@ -13,10 +13,10 @@
 (defparameter *db-path* "")
 
 (defmacro with-postgres-connection (&rest body)
-  (ignore-errors
-    (unless datafly:*connection*
-      (datafly:connect-toplevel :postgres :database-name *db-name* :username *db-user* :password *db-pass*))
-    `(progn ,@body)))
+  (when datafly:*connection*
+    (datafly:disconnect-toplevel))
+  `(let ((datafly:*connection* (datafly:connect-cached :postgres :database-name ,*db-name* :username ,*db-user* :password ,*db-pass*)))
+     ,@body))
 
 (defmacro with-sqlite-connection (&rest body)
   ;; `datafly` could be connected to another database. Disconnecting.

@@ -3,8 +3,8 @@
 ;; (mlforecasting:start :port 2000)
 ;; (loop-optimize-test 100 :instruments-keys '(:all) :timeframes-keys '(:longterm))
 ;; (loop-optimize-test 50 :instruments-keys '(:all) :timeframes-keys '(:all))
-;; (loop-optimize-test 50 :instruments-keys '(:all) :timeframes-keys '(:shortterm))
-;; (loop-optimize-test 50 :instruments-keys '(:forex) :timeframes-keys '(:all))
+;; (loop-optimize-test 50 :instruments-keys '(:all) :timeframes-keys '(:longterm))
+;; (loop-optimize-test 50 :instruments-keys '(:indices) :timeframes-keys '(:longterm))
 ;; (prune-populations)
 ;; (drop-populations)
 ;; (drop-tests)
@@ -31,6 +31,11 @@
   (:nicknames :omage))
 (in-package :overmind-agents)
 
+(defparameter *instrument* :EUR_USD)
+(defparameter *timeframe* :H1)
+(defparameter *all-rates* nil)
+(defparameter *min-dataset-size* 200)
+
 ;; (progn
 ;;   (defparameter *instrument* :SUNSPOT
 ;;     "The financial instrument used for querying the data used to train or test.")
@@ -44,14 +49,14 @@
 ;; 				    *sunspot*)
 ;;     "All the rates. Subsets are used during training, validation and testing stages."))
 
-(progn
-  (defparameter *instrument* ;; :EUR_USD ;; :SPX500_USD ;; :BCO_USD
-    :EUR_USD
-    "The financial instrument used for querying the data used to train or test.")
-  (defparameter *timeframe* :D
-    "The timeframe used for querying the data used to train or test.")
-  (defparameter *all-rates* (get-rates *instrument* 2 *timeframe*)
-    "All the rates. Subsets are used during training, validation and testing stages."))
+;; (progn
+;;   (defparameter *instrument* ;; :EUR_USD ;; :SPX500_USD ;; :BCO_USD
+;;     :NATGAS_USD
+;;     "The financial instrument used for querying the data used to train or test.")
+;;   (defparameter *timeframe* :H1
+;;     "The timeframe used for querying the data used to train or test.")
+;;   (defparameter *all-rates* (get-rates *instrument* 2 *timeframe*)
+;;     "All the rates. Subsets are used during training, validation and testing stages."))
 
 ;; (length *all-rates*)
 
@@ -67,6 +72,30 @@
 ;; 				      )
 ;; 				    (cl-csv:read-csv #P"~/skycoin.csv" :separator #\Comma)))
 ;;     "All the rates. Subsets are used during training, validation and testing stages."))
+
+(defun mean-test-error (&optional (timeframe :H1))
+  (let ((numerator 0)
+	(denominator 0)
+	(markets 0))
+    (dolist (test (query-test-instruments timeframe))
+      (when (/= (aref (access test :corrects) 1) 0)
+	(incf numerator (aref (access test :corrects) 0))
+	(incf denominator (aref (access test :corrects) 1))
+	(incf markets)))
+    (format t "Mean: ~$%, Corrects: ~a, Trades: ~a, Markets: ~a~%"
+	    (if (= denominator 0) 0 (float (* 100 (/ numerator denominator)))) numerator denominator markets)))
+;; (query-test-instruments :H1)
+;; (mean-test-error :H1)
+;; (mean-test-error :D)
+
+(defmacro try-until-successful (body)
+  "Repeatedly runs `BODY` until it doesn't throw any errors."
+  `(let (result)
+     (loop while (null result)
+	do (ignore-errors
+	     (setf result (progn ,body))
+	     ))
+     result))
 
 (defun compress-population (population)
   "Compresses a `population`."
@@ -1384,16 +1413,6 @@ series `real`."
 ;;     (print err))
 ;;   )
 
-;; (progn
-;;   (setf omper:*data-count* 61)
-;;   ;; (setf *community-size* 2)
-;;   ;; Reset all agents to 1.
-;;   (dolist (agent *agents-pool*)
-;;     (setf (slot-value agent 'leverage) '(1)))
-;;   (dolist (community *population*)
-;;     (woof community))
-;;   )
-
 ;; (mapcar #'float (mapcar #'agents-pmape *population*))
 
 ;; All communities leverages.
@@ -1787,7 +1806,7 @@ series `real`."
 (progn
   ;; (defparameter *delta-gap* 63)
   (defparameter *delta-gap* 10)
-  (defparameter *num-inputs* 5)
+  (defparameter *num-inputs* 9)
   (defparameter *num-rules* 3)
   ;; (defparameter *activation-level* (1- omper:*data-count*))
   (defparameter *activation-level* (floor (/ (1- omper:*data-count*) 4)))
@@ -1835,16 +1854,11 @@ series `real`."
 (defun optimize-one (instrument timeframe iterations &key (is-cold-start t))
   (let ((*instrument* instrument)
 	(*timeframe* timeframe)
-        (*all-rates* (get-rates-range instrument timeframe
-                                      (local-time:timestamp-to-unix
-                                       (local-time:timestamp- (local-time:now)
-                                                              (ceiling
-                                                               (* 5 omper:*data-count*))
-                                                              (timeframe-for-local-time timeframe)))
-                                      (local-time:timestamp-to-unix (local-time:now))))
+	(*all-rates* (get-rates-count instrument timeframe (+ *min-dataset-size* 2)))
 	(starting-population (get-starting-population is-cold-start instrument timeframe)))
     (draw-optimization iterations #'agents-mase #'mase #'<
 		       :label "" :reset-db nil :starting-population starting-population)))
+
 
 (defun optimize-all (timeframe iterations
 		     &key (instruments ominp:*instruments*)
@@ -1873,7 +1887,7 @@ series `real`."
 (defun loop-optimize-test (iterations &key (instruments-keys '(:all)) (timeframes-keys '(:all)))
   "Infinitely optimize and test markets represented by the bag of
 instruments `INSTRUMENTS-KEYS` for `ITERATIONS`."
-  (loop1
+  (loop
      (dolist (instruments-key instruments-keys)
        (let ((instruments (cond ((eq instruments-key :all) ominp:*instruments*)
 				((eq instruments-key :forex) ominp:*forex*)
@@ -1896,8 +1910,12 @@ instruments `INSTRUMENTS-KEYS` for `ITERATIONS`."
 ;; (test-all-markets :D ominp:*instruments*)
 ;; (optimize-all :H1 1000)
 ;; (optimize-all :H1 100 :instruments ominp:*instruments* :is-cold-start t)
-;; (optimize-one :EUR_GBP :H1 10000 :is-cold-start t)
+;; (optimize-one :SUGAR_USD :H1 10000 :is-cold-start t)
+;; (optimize-one :EUR_USD :H1 10000 :is-cold-start t)
 ;; (init)
+;; (mean-test-error :H1) ;; 0.42777777, 30 *data-count*
+;; (mean-test-error :D)
+;; (mean-test-error :H1)
 ;; (length (agent-perception nil))
 ;; (drop-populations)
 ;; (drop-tests)
@@ -1971,26 +1989,39 @@ instruments `INSTRUMENTS-KEYS` for `ITERATIONS`."
   (org.tfeb.hax.memoize:clear-memoized-functions)
   ;; (defparameter *testing-ratio* 0.05)
   ;; (defparameter *testing-ratio* 0.25)
-  (defparameter *testing-ratio* 0.0)
+  (defparameter *testing-ratio* 1.0)
   ;; (defparameter *testing-ratio* 0.0)
   (setf lparallel:*kernel* (lparallel:make-kernel 32))
   ;; (setf omper:*data-count* 200)
   (setf omper:*data-count* (* 252 1))
-  (setf omper:*partition-size* 70)
+  (setf omper:*partition-size* 50)
   (defparameter *community-size* 1
     "Represents the number of agents in an 'individual' or solution. A simulation (a possible solution) will be generated using this number of agents.")
   (defparameter *population-size* 1
     "How many 'communities', 'individuals' or 'solutions' will be participating in the optimization process.")
 
+  ;; (defparameter *min-dataset-size* (ceiling (+ omper:*data-count* *num-inputs* *delta-gap* omper:*partition-size*
+  ;; 					       ;; Size for training and testing.
+  ;; 					       (+ (* 2 omper:*data-count* *testing-ratio*)
+  ;; 						  (* 2 (+ *num-inputs* *delta-gap* omper:*partition-size*)))
+  ;; 					       )))
+
+  (defparameter *min-dataset-size* (ceiling (+ omper:*data-count* (* omper:*data-count* 2 *testing-ratio*) *num-inputs* *delta-gap* omper:*partition-size*)))
+  
+  ;; (print (length *all-rates*))
+  ;; (print (- (length *all-rates*) (+ omper:*data-count* (* omper:*data-count* 2 *testing-ratio*) *num-inputs* *delta-gap* omper:*partition-size*)))
+  
   ;; Random range.
-  ;; (defparameter *begin* (random-int *rand-gen* 0 (floor (- (length *all-rates*) (+ omper:*data-count* (* omper:*data-count* 2 *testing-ratio*) *num-inputs*))))
-  ;;   "The starting timestamp for the data used for training or testing.")
-  ;; (defparameter *end* (+ *begin* (ceiling (+ omper:*data-count* (* omper:*data-count* 2 *testing-ratio*) *num-inputs*)))
+  ;; (defparameter *begin* (random-int *rand-gen* 0 (floor (- (length *all-rates*) (+ omper:*data-count* (* omper:*data-count* 2 *testing-ratio*) *num-inputs* *delta-gap* omper:*partition-size*))))
+  ;; "The starting timestamp for the data used for training or testing.")
+  ;; (defparameter *end* (1- (+ *begin* *min-dataset-size*))
   ;;   "The ending timestamp for the data used for training or testing.")
 
   ;; last N range
   (defparameter *begin* (- (floor (- (length *all-rates*) (+ omper:*data-count* (* omper:*data-count* 2 *testing-ratio*) *num-inputs* *delta-gap* omper:*partition-size*))) 2))
   (defparameter *end* (1- (floor (- (length *all-rates*) (+ (* omper:*data-count* 2 *testing-ratio*))))))
+
+  ;; (- *end* *begin*)
 
   ;; ;; For sunspot
   ;; (defparameter *begin* 0)
@@ -2015,7 +2046,7 @@ instruments `INSTRUMENTS-KEYS` for `ITERATIONS`."
                                  ;; (:trade-scale . ,(calc-trade-scale))
                                  )
     "Configuration used to create the rules of the agents for a population.")
-  (defparameter *agents-pool* (gen-agents *num-pool-agents*)
+  (defparameter *agents-pool* (try-until-successful (gen-agents *num-pool-agents*))
     "Instances of `agent` that are available to create solutions.")
   (defparameter *population* (gen-communities *community-size* *population-size*)
     "Represents a list of lists of indexes to *agents-pool*.")
@@ -2341,20 +2372,12 @@ is not ideal."
 ;; (optimize-one :SKY :D 1000 :is-cold-start nil)
 
 (let ((cached-tests (make-hash-table)))
-  ;; (setf cached-tests (make-hash-table))
+  (setf cached-tests (make-hash-table))
   (defun test-market (instrument timeframe)
     (let* ((*instrument* instrument)
 	   (*timeframe* timeframe)
 	   (*testing-ratio* 0.0)
-	   (*all-rates* (get-rates-range instrument timeframe
-					 (local-time:timestamp-to-unix
-					  (local-time:timestamp- (local-time:now)
-								 (ceiling
-								  (+ omper:*data-count* 1000
-								     (* omper:*data-count* 5 *testing-ratio*)
-								     *num-inputs* *delta-gap*))
-								 (timeframe-for-local-time timeframe)))
-					 (local-time:timestamp-to-unix (local-time:now))))
+	   (*all-rates* (get-rates-count instrument timeframe (+ *min-dataset-size* 2)))
 	   (*cached-agents* (make-hash-table))
 	   (db-pop (get-most-relevant-population instrument timeframe))
 	   (pop (decompress-object (access db-pop :population)))
@@ -2378,39 +2401,39 @@ is not ideal."
       ;; Caching report into `CACHED-TESTS`.
       (setf (gethash timeframe (gethash instrument cached-tests))
 	    `((:population-id . ,(accesses report :population-id))
-	      (:instrument . ,(format nil "~a" (accesses report :test :instrument)))
-	      (:timeframe . ,(format nil "~a" (accesses report :test :timeframe)))
-	      (:begin . ,(accesses report :test :begin))
-	      (:end . ,(accesses report :test :end))
+	      (:instrument . ,(format nil "~a" (accesses report :validation :instrument)))
+	      (:timeframe . ,(format nil "~a" (accesses report :validation :timeframe)))
+	      (:begin . ,(accesses report :validation :begin))
+	      (:end . ,(accesses report :validation :end))
 	      (:creation-time . ,(local-time:timestamp-to-unix (local-time:now)))
-	      (:mape . ,(accesses report :test :performance-metrics :mape))
-	      (:mase . ,(accesses report :test :performance-metrics :mase))
-	      (:pmape . ,(accesses report :test :performance-metrics :pmape))
-	      (:mae . ,(accesses report :test :performance-metrics :mae))
-	      (:mse . ,(accesses report :test :performance-metrics :mse))
-	      (:rmse . ,(accesses report :test :performance-metrics :rmse))
-	      (:corrects . ,(accesses report :test :performance-metrics :corrects))
-	      (:revenue . ,(accesses report :test :performance-metrics :revenue))
+	      (:mape . ,(accesses report :validation :performance-metrics :mape))
+	      (:mase . ,(accesses report :validation :performance-metrics :mase))
+	      (:pmape . ,(accesses report :validation :performance-metrics :pmape))
+	      (:mae . ,(accesses report :validation :performance-metrics :mae))
+	      (:mse . ,(accesses report :validation :performance-metrics :mse))
+	      (:rmse . ,(accesses report :validation :performance-metrics :rmse))
+	      (:corrects . ,(accesses report :validation :performance-metrics :corrects))
+	      (:revenue . ,(accesses report :validation :performance-metrics :revenue))
 	      (:decision . ,(format nil "~a" (accesses report :forecast :decision)))
 	      (:delta . ,(accesses report :forecast :delta))))
       
-      (format t "~%" (accesses report :test :performance-metrics :corrects))
+      (format t "~%" (accesses report :validation :performance-metrics :corrects))
       (with-postgres-connection
 	  (execute (insert-into :tests
 		     (set= :population-id (accesses report :population-id)
-			   :instrument (format nil "~a" (accesses report :test :instrument))
-			   :timeframe (format nil "~a" (accesses report :test :timeframe))
-			   :begin (accesses report :test :begin)
-			   :end (accesses report :test :end)
+			   :instrument (format nil "~a" (accesses report :validation :instrument))
+			   :timeframe (format nil "~a" (accesses report :validation :timeframe))
+			   :begin (accesses report :validation :begin)
+			   :end (accesses report :validation :end)
 			   :creation-time (local-time:timestamp-to-unix (local-time:now))
-			   :mape (accesses report :test :performance-metrics :mape)
-			   :mase (accesses report :test :performance-metrics :mase)
-			   :pmape (accesses report :test :performance-metrics :pmape)
-			   :mae (accesses report :test :performance-metrics :mae)
-			   :mse (accesses report :test :performance-metrics :mse)
-			   :rmse (accesses report :test :performance-metrics :rmse)
-			   :corrects (accesses report :test :performance-metrics :corrects)
-			   :revenue (accesses report :test :performance-metrics :revenue)
+			   :mape (accesses report :validation :performance-metrics :mape)
+			   :mase (accesses report :validation :performance-metrics :mase)
+			   :pmape (accesses report :validation :performance-metrics :pmape)
+			   :mae (accesses report :validation :performance-metrics :mae)
+			   :mse (accesses report :validation :performance-metrics :mse)
+			   :rmse (accesses report :validation :performance-metrics :rmse)
+			   :corrects (accesses report :validation :performance-metrics :corrects)
+			   :revenue (accesses report :validation :performance-metrics :revenue)
 			   :decision (format nil "~a" (accesses report :forecast :decision))
 			   :delta (accesses report :forecast :delta)
 			   ))))
@@ -2475,7 +2498,7 @@ tests performed that are stored on database."
     (test-market instrument timeframe)))
 ;; (test-all-markets :H1 ominp:*instruments*)
 
-;; (query-test-timeframes :EUR_USD)
+;; (time (loop repeat 10000 do (query-test-timeframes :EUR_USD)))
 
 ;; (with-postgres-connection
 ;;     (retrieve-one (select :*
@@ -2869,8 +2892,11 @@ from each sample."
 ;; (defparameter *best-agent* (agents-best (agents-distribution *population*)))
 
 (defun agents-ifs (params)
-  (ifs (gaussian-mf (nth 0 params) (nth 3 params) (nth 4 params) (nth 5 params) 0 1)
-       (gaussian-nmf (nth 1 params) (nth 3 params) (nth 4 params) (nth 5 params) 0 1)))
+  (let ((stdev (if (= (nth 3 params) 0.0)
+		   1.0
+		   (nth 3 params))))
+    (ifs (gaussian-mf (nth 0 params) stdev (nth 4 params) (nth 5 params) 0 1)
+	 (gaussian-nmf (nth 1 params) stdev (nth 4 params) (nth 5 params) 0 1))))
 
 (defun purge-non-believers (population)
   "Searches in `pop` if an agent is not believing in anything, i.e. a vector of
@@ -3635,4 +3661,4 @@ each point in the real prices."
 ;; (access (last-elt (get-descendants "0AE3D091-AED6-4C66-9498-F0E5647AA3F6")) :id)
 
 ;; Initializing Overmind Agents
-(init)
+;; (init)

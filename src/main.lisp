@@ -1806,7 +1806,7 @@ series `real`."
 (progn
   ;; (defparameter *delta-gap* 63)
   (defparameter *delta-gap* 10)
-  (defparameter *num-inputs* 9)
+  (defparameter *num-inputs* 5)
   (defparameter *num-rules* 3)
   ;; (defparameter *activation-level* (1- omper:*data-count*))
   (defparameter *activation-level* (floor (/ (1- omper:*data-count*) 4)))
@@ -1823,13 +1823,13 @@ series `real`."
 			)
 	     (let ((*num-inputs* (/ *num-inputs* 1)))
 	       (list
-		;; (agent-moving-average nil)
+		(agent-moving-average nil)
 		;; (agent-stochastic-oscillator nil)
 		;; (agent-perception-prices nil)
 		;; (agent-perception-highs nil)
 		;; (agent-perception-lows nil)
 
-	        (agent-perception nil)
+	        ;; (agent-perception nil)
 		;; (agent-perception-heights nil)
 		;; (let ((*delta-gap* 10))
 		;;   (agent-perception-deltas nil))
@@ -1910,7 +1910,7 @@ instruments `INSTRUMENTS-KEYS` for `ITERATIONS`."
 ;; (test-all-markets :D ominp:*instruments*)
 ;; (optimize-all :H1 1000)
 ;; (optimize-all :H1 100 :instruments ominp:*instruments* :is-cold-start t)
-;; (optimize-one :SUGAR_USD :H1 10000 :is-cold-start t)
+;; (optimize-one :JP225_USD :D 10000 :is-cold-start nil)
 ;; (optimize-one :EUR_USD :H1 10000 :is-cold-start t)
 ;; (init)
 ;; (mean-test-error :H1) ;; 0.42777777, 30 *data-count*
@@ -1919,7 +1919,7 @@ instruments `INSTRUMENTS-KEYS` for `ITERATIONS`."
 ;; (length (agent-perception nil))
 ;; (drop-populations)
 ;; (drop-tests)
-;; (test-market :USD_JPY :H1)
+;; (test-market :JP225_USD :D)
 ;; (test-market :US30_USD :D)
 ;; (json:encode-json-to-string (test-market :AUD_HKD :D))
 ;; (draw-optimization 1000 #'agents-mase #'mase #'< :label "" :reset-db t)
@@ -1989,7 +1989,7 @@ instruments `INSTRUMENTS-KEYS` for `ITERATIONS`."
   (org.tfeb.hax.memoize:clear-memoized-functions)
   ;; (defparameter *testing-ratio* 0.05)
   ;; (defparameter *testing-ratio* 0.25)
-  (defparameter *testing-ratio* 1.0)
+  (defparameter *testing-ratio* 0.5)
   ;; (defparameter *testing-ratio* 0.0)
   (setf lparallel:*kernel* (lparallel:make-kernel 32))
   ;; (setf omper:*data-count* 200)
@@ -2031,7 +2031,7 @@ instruments `INSTRUMENTS-KEYS` for `ITERATIONS`."
     "The rates used to generate the agents' perceptions.")
 
   (defparameter *moving-average-start* 5)
-  (defparameter *moving-average-step* 2)
+  (defparameter *moving-average-step* 10)
   (defparameter *mutation-chance* 0.1)
   
   (defparameter *trade-scale* (calc-trade-scale))

@@ -8,4 +8,4 @@
 .#*
 db.lisp
 #*#
-config/.+?_.+?-.+.lisp
+config/[A-Za-z]+?_[A-Za-z]+?-[A-Za-z]+.lisp

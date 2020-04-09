@@ -2,9 +2,9 @@
 ;; (ql:quickload :mlforecasting)
 ;; (mlforecasting:start :port 2000)
 ;; (loop-optimize-test 100 :instruments-keys '(:all) :timeframes-keys '(:longterm))
-;; (loop-optimize-test 50 :instruments-keys '(:all) :timeframes-keys '(:all))
+;; (loop-optimize-test 50 :instruments-keys '(:forex) :timeframes-keys '(:all))
 ;; (loop-optimize-test 50 :instruments-keys '(:all) :timeframes-keys '(:longterm))
-;; (loop-optimize-test 50 :instruments-keys '(:indices) :timeframes-keys '(:longterm))
+;; (loop-optimize-test 50 :instruments-keys '(:metals) :timeframes-keys '(:longterm))
 ;; (prune-populations)
 ;; (drop-populations)
 ;; (drop-tests)
@@ -33,8 +33,15 @@
 
 (defparameter *instrument* :EUR_USD)
 (defparameter *timeframe* :H1)
+(defparameter *population* nil)
+(defparameter *testing-ratio* 0.0)
+(defparameter *fitness-fn* nil)
+(defparameter *generations* nil)
+(defparameter *rules-config* nil)
+(defparameter *rates* nil)
 (defparameter *all-rates* nil)
 (defparameter *min-dataset-size* 200)
+(defparameter *activation-level* (floor (/ (1- omper:*data-count*) 4)))
 
 ;; (progn
 ;;   (defparameter *instrument* :SUNSPOT
@@ -359,17 +366,13 @@ agents parameters according to it."
 (defun mape (sim real &optional (zero-metric-constraint nil))
   "Mean absolute percentage error between a simulated time series `sim` and a real time series `real`.
 This version scales the simulation."
-  (let ((sim (extract-training-clustered-trades sim))
-	(real (extract-training-clustered-trades real)))
-    (let* ((rmax (apply #'max real))
-	   (rmin (apply #'min real)))
-      (/ (reduce #'+ (mapcar (lambda (s r)
-			       (/ (abs (- r s)) (1+ (abs r))))
-			     (scale-sim sim rmin rmax)
-			     real
-			     ))
-	 (length real)
-	 ))))
+  (/ (reduce #'+ (mapcar (lambda (s r)
+			   (/ (abs (- r s)) (1+ (abs r))))
+			 sim
+			 real
+			 ))
+     (length real)
+     ))
 
 ;; (check-zero-metric '(1.001 1.999 1.001 1.999 1.001 1.999)
 ;; 		   '(1 2 1 2 1 2))
@@ -433,7 +436,7 @@ series `real`."
 ;; 			 (agent-trades agent))
 ;; 		       (extract-agents-from-pool
 ;; 			(agents-best (agents-distribution *population*)))))
-;; 	(get-real-data *data-count*))
+;; 	(get-closes *data-count*))
 
 
 
@@ -441,12 +444,12 @@ series `real`."
 ;;      (mapcar (lambda (s r)
 ;; 	       (- s r))
 ;; 	     (agents-indexes-simulation (agents-best (agents-distribution *population*)))
-;; 	     (get-real-data 501)))
+;; 	     (get-closes 501)))
 
 
 (defun corrects (sim real &optional (mape-constraint nil))
   "How many trades were correct."
-  ;; (corrects (agents-indexes-simulation (agents-best (agents-distribution *population*))) (get-real-data))
+  ;; (corrects (agents-indexes-simulation (agents-best (agents-distribution *population*))) (get-closes))
   (let* ((real (subseq real *delta-gap*))
          (trades-count 0)
 	 (trades-sum (apply #'+
@@ -532,58 +535,6 @@ series `real`."
      when (not (eql element needle))
      collect position))
 
-(defun get-cluster-data-indexes (agent &optional (perception-fn #'agent-perception))
-  (let ((data (funcall perception-fn agent)))
-    ))
-
-(defun get-cluster-data (&optional (perception-fn #'agent-perception))
-  (let ((data (mapcar #'butlast (apply #'concatenate 'list (mapcar #'butlast (mapcar perception-fn (flatten (extract-agents-from-pool (first *population*)))))))))
-    (mapcar #'centroid (km data *agents-cluster-size*))))
-
-(defun get-closest-cluster (inputs cluster-centroids)
-  (last-elt
-   (largest-number-indexes
-    (mapcar (lambda (centroid)
-	      (mase inputs centroid nil))
-	    cluster-centroids))))
-
-;; (get-closest-cluster '(3689/285 1541/95 1315/57 9074/285 3327/95 2818/95 6167/285) (get-cluster-data))
-;; (mapcar #'float (get-cluster-data))
-;; (agent-perception nil)
-
-(defun agent-perception (agent)
-  "Generates the fibos of a market according to `agent`'s beliefs."
-  ;; (agent-perception (extract-agent-from-pool 1))
-  (mapcar (lambda (heat)
-            (let ((heat (cl21:gethash heat :heat))
-                  (close (cl21:gethash heat :close)))
-              (let* ((z (cl21:gethash heat :z))
-		     (index (+ (if-let
-				   ((res (search `(,close) (cl21:gethash heat :y)
-						 :key (lambda (elt)
-							(when (> close elt) t)))))
-				 res
-				 (1- (length (cl21:gethash heat :y)))
-				 )
-			       (floor (/ *num-inputs* 2))))
-		     (res (append (mapcar (lambda (i)
-					    (nth (if (< (- index (- *num-inputs* i 1)) 0)
-						     i
-						     (if (>= (- index (- *num-inputs* i 1))
-							     (length z))
-							 (1- (length z))
-							 (- index (- *num-inputs* i 1))))
-						 z))
-					  (iota (1- *num-inputs*)))
-				  (list (if-let ((nth-z (nth index z)))
-					  nth-z 0.0)))))
-
-		(append res (list close))
-                )))
-          ;; TODO: generalize (get-data) so it doesn't need an `instrument`.
-          ;; (get-data *instrument* *rates* :levels (slot-value agent 'beliefs))
-	  (get-data *instrument* *rates*)))
-
 ;; (length (agent-perception nil))
 
 ;; Summarizing data.
@@ -624,7 +575,7 @@ series `real`."
 		     (append (flatten (slot-value agent 'beliefs))
 			     (flatten (slot-value agent 'rules))
 			     (flatten (slot-value agent 'activations))
-			     (get-real-data-deltas 10)
+			     (get-deltas 10)
                              ))))
     (if (gethash sig *cached-agents*)
 	(gethash sig *cached-agents*)
@@ -644,8 +595,8 @@ series `real`."
 
 (defun agents-fitness (agents-indexes &optional (fitness-fn #'mase))
   (let ((sim (agents-indexes-simulation agents-indexes)))
-    ;; (mse sim (get-real-data 3))
-    (funcall fitness-fn sim (get-real-data-deltas (length sim)))))
+    ;; (mse sim (get-closes 3))
+    (funcall fitness-fn sim (get-deltas (length sim)))))
 
 (defun eval-rules (inp mx-inp agent-ifss rules-group)
   (if-coa
@@ -677,9 +628,6 @@ series `real`."
 		    (flatten
 		     (mapcar (lambda (j)
 			       (mapcar (lambda (i)
-					 ;; (second
-					 ;;  (membership (nth i inp)
-					 ;;              (agents-ifs (nth i (nth j activations)))))
                                          (if-membership (nth i inp)
 							(agents-ifs (nth i (nth j activations))))
                                          )
@@ -688,7 +636,6 @@ series `real`."
 			     )))
 		  inputs)))
     (mapcar (lambda (j inp)
-
 	      (if ;; (>= (nth j reductions) activation-threshold)
 	       (every (lambda (elt) (not (null elt)))
 		      (mapcar (lambda (act thresh)
@@ -699,20 +646,33 @@ series `real`."
 			      activation-threshold
 			      ))
 	       ;; This one doesn't use *num-rules* == 1.
-	       (if-coa
-		(reduce #'ifunion
-			(mapcar (lambda (i)
-				  (let ((ifs (nth i agent-ifss)))
-				    (reduce #'ifunion
-					    (mapcar (lambda (j)
-						      (rule
-						       (nth j inp)
-						       (nth (* j 2) ifs)
-						       (nth (1+ (* j 2)) ifs)))
-						    (iota (floor (/ (length ifs) 2)))
-						    ))))
-				(iota (length rules))
-				)))
+	       ;; (if-coa
+	       ;; 	(reduce #'ifunion
+	       ;; 		(mapcar (lambda (i)
+	       ;; 			  (let ((ifs (nth i agent-ifss)))
+	       ;; 			    (reduce #'ifunion
+	       ;; 				    (mapcar (lambda (j)
+	       ;; 					      (rule
+	       ;; 					       (nth j inp)
+	       ;; 					       (nth (* j 2) ifs)
+	       ;; 					       (nth (1+ (* j 2)) ifs)))
+	       ;; 					    (iota (floor (/ (length ifs) 2)))
+	       ;; 					    ))))
+	       ;; 			(iota (length rules))
+	       ;; 			)))
+	       (mean (mapcar (lambda (i)
+			       (let ((ifs (nth i agent-ifss)))
+				 (if-coa
+				  (reduce #'ifunion
+					  (mapcar (lambda (j)
+						    (rule
+						     (nth j inp)
+						     (nth (* j 2) ifs)
+						     (nth (1+ (* j 2)) ifs)))
+						  (iota (floor (/ (length ifs) 2)))
+						  )))))
+			     (iota (length rules))
+			     ))
 	       0))
 	    (iota (length inputs))
 	    inputs)))
@@ -815,7 +775,7 @@ series `real`."
 ;; (let ((sim (agents-simulation (mapcar (lambda (idx)
 ;;                                         (nth idx *test-agents*))
 ;;                                       '(67 74)))))
-;;   (float (corrects sim (get-real-data (length sim)))))
+;;   (float (corrects sim (get-closes (length sim)))))
 
 ;; (map nil (lambda (n)
 ;;            (print (second (first (agents-err-adjust *test-agents* n)))))
@@ -849,21 +809,10 @@ series `real`."
       (remove nil
 	      (shuffle (concatenate 'list (make-list (- (length options) (length nums))) nums))))))
 
-(defun gen-rules (num-rules)
-  ;; (gen-rules 2)
-  (mapcar (lambda (_)
-	    (mapcar (lambda (_) `(,(random-float *rand-gen* 0 100)
-				   ,(random-float *rand-gen* 0 100)
-				   ,(random-float *rand-gen* 0 1)
-				   ;; 0
-				   ))
-		    (cl21:iota (* 2 num-rules))))
-	  (cl21:iota *num-inputs*)))
-
 (defun gen-activations (max-num-rules)
   ;; (gen-rules 1)
   (let* ((percs (flatten (mapcar #'butlast (funcall *perception-fn* nil))))
-	 (reals (get-real-data-deltas omper:*data-count*))
+	 (reals (get-deltas omper:*data-count*))
 	 (mn-perc (apply #'min percs))
 	 (mx-perc (apply #'max percs))
 	 (mn-real (apply #'min reals))
@@ -890,23 +839,46 @@ series `real`."
 			     (cl21:iota max-num-rules))))
 	    (cl21:iota *num-inputs*))))
 
+(defun get-idxs-same-direction (nums count delta-gap)
+  (let ((pred (if (> (random-float *rand-gen* 0 1) 0.5) #'plusp #'minusp))
+	(idxs nil))
+    (loop
+       for idx from 0 to (length nums)
+       for num in nums
+       do (when (and (funcall pred num) (>= idx delta-gap)) (push idx idxs)))
+    (subseq (shuffle idxs) 0 count)
+    ))
+;; (get-idxs-same-direction '(1 -1 3 -4 -5 10 10 10) 2 2)
+
 (defun gen-rules (num-rules)
   "This one uses *num-rules* == N and each MF uses an input as its mean."
   ;; (gen-rules 3)
   (let* ((inputs (mapcar #'butlast (funcall *perception-fn* nil)))
-	 (outputs (get-real-data-deltas omper:*data-count*))
-	 (chosen-idxs (loop repeat num-rules
-	 		 collect (random-int *rand-gen* 0 (- (length outputs) *delta-gap*))))
-	 ;; (chosen-idxs (subseq (shuffle (random-elt (km-positions (mapcar #'list outputs) 10))) 0 num-rules))
-	 ;; (chosen-idxs (subseq (shuffle (random-elt (km-positions inputs 10 :key #'butlast))) 0 num-rules))
-	 (chosen-inputs (loop for i in chosen-idxs collect (nth i inputs)))
-	 (chosen-outputs (loop for i in chosen-idxs collect (nth (+ i *delta-gap*) outputs)))
+	 (outputs (get-deltas omper:*data-count*))
+	 ;; (chosen-idxs (loop repeat num-rules
+	 ;; 		 collect (random-int *rand-gen* 0 (- (length outputs) *delta-gap*))))
+	 (chosen-idxs (get-idxs-same-direction outputs num-rules *delta-gap*))
+	 ;; (chosen-idxs (try-until-successful
+	 ;; 	       (let* ((idxs (loop repeat num-rules
+	 ;; 			       collect (random-int *rand-gen* 0 (- (length outputs) *delta-gap*))))
+	 ;; 		      (outs (loop for i in idxs collect (nth (+ i *delta-gap*) outputs)))
+	 ;; 		      (wanted-direction (first outs)))
+	 ;; 		 (when (not (every (lambda (elt) (> (* elt wanted-direction) 0)) outs))
+	 ;; 		   (error "not all outputs point to same direction"))
+	 ;; 		 idxs)))
+	 ;; (chosen-inputs (loop for i in chosen-idxs collect (nth i inputs)))
+	 ;; (chosen-outputs (loop for i in chosen-idxs collect (nth (+ i *delta-gap*) outputs)))
+	 (chosen-inputs (loop for i in chosen-idxs collect (nth (- i *delta-gap*) inputs)))
+	 (chosen-outputs (loop for i in chosen-idxs collect (nth i outputs)))
 	 (inp-sd (mapcar (lambda (inp) (/ (standard-deviation inp) 1)) (apply #'mapcar #'list chosen-inputs)))
 	 (out-sd (/ (standard-deviation chosen-outputs) 1))
 	 (mn-inp (- (apply #'min (flatten chosen-inputs)) (apply #'max inp-sd)))
 	 (mx-inp (+ (apply #'max (flatten chosen-inputs)) (apply #'max inp-sd)))
-	 (mn-out (- (apply #'min chosen-outputs) out-sd))
-	 (mx-out (+ (apply #'max chosen-outputs) out-sd)))
+	 ;; (mn-out (- (apply #'min chosen-outputs) out-sd))
+	 ;; (mx-out (+ (apply #'max chosen-outputs) out-sd))
+	 (mn-out (let ((min-chosen (apply #'min chosen-outputs))) (if (and (> min-chosen 0) (< (- min-chosen out-sd) 0)) 0.0 (- min-chosen out-sd))))
+	 (mx-out (let ((max-chosen (apply #'max chosen-outputs))) (if (and (< max-chosen 0) (> (+ max-chosen out-sd) 0)) 0.0 (+ max-chosen out-sd))))
+	 )
     (mapcar (lambda (j)
 	      (apply #'nconc
 		     (mapcar (lambda (i)
@@ -932,174 +904,9 @@ series `real`."
 			     (iota *num-inputs*)
 			     ;; (iota (length chosen-outputs))
 			     )))
-	    ;; (iota *num-inputs*)
 	    (iota (length chosen-outputs))
-	    )
-    ;; (mapcar (lambda (j)
-    ;; 	      (apply #'nconc
-    ;; 		     (mapcar (lambda (i)
-    ;; 			       (let ((input (nth i chosen-inputs))
-    ;; 				     (output (nth i chosen-outputs)))
-    ;; 				 (list
-    ;; 				  (list (nth j input)
-    ;; 					(nth j input)
-    ;; 					(random-float *rand-gen* 0 0)
-    ;; 					(nth j inp-sd)
-    ;; 					mn-inp
-    ;; 					mx-inp
-    ;; 					)
-    ;; 				  (list output
-    ;; 					output
-    ;; 					(random-float *rand-gen* 0 0)
-    ;; 					out-sd
-    ;; 					mn-out
-    ;; 					mx-out
-    ;; 					))))
-    ;; 			       (iota num-rules))))
-    ;; 	    (iota *num-inputs*))
-    ))
-;; (gen-rules 3)
-
-(defun agent-perception-deltas (agent)
-  (mapcar (lambda (percs close)
-	    (append percs (list close)))
-	  (remove nil
-		  (maplist (lambda (deltas)
-			     (when (>= (length deltas) *num-inputs*)
-			       (subseq deltas 0 *num-inputs*)))
-			   (get-real-data-deltas (+ *num-inputs* omper:*data-count*))
-			   ))
-	  (get-real-data omper:*data-count*)))
-
-(defun agent-perception-prices (agent)
-  (mapcar (lambda (percs close)
-	    (append percs (list close)))
-	  (remove nil
-		  (maplist (lambda (deltas)
-			     (when (>= (length deltas) *num-inputs*)
-			       (subseq deltas 0 *num-inputs*)))
-			   (get-real-data (+ *num-inputs* omper:*data-count*))
-			   ))
-	  (get-real-data omper:*data-count*)))
-
-(defun agent-perception-volumes (agent)
-  (mapcar (lambda (percs close)
-	    (append percs (list close)))
-	  (remove nil
-		  (maplist (lambda (deltas)
-			     (when (>= (length deltas) *num-inputs*)
-			       (subseq deltas 0 *num-inputs*)))
-			   (get-real-data-volumes (+ *num-inputs* omper:*data-count*))
-			   ))
-	  (get-real-data omper:*data-count*)))
-
-(defun agent-perception-heights (agent)
-  (mapcar (lambda (percs close)
-	    (append percs (list close)))
-	  (remove nil
-		  (maplist (lambda (highs lows)
-			     (when (>= (length highs) *num-inputs*)
-			       (mapcar #'-
-				       (subseq highs 0 *num-inputs*)
-				       (subseq lows 0 *num-inputs*))))
-			   (get-real-data-highs (+ *num-inputs* omper:*data-count*))
-			   (get-real-data-lows (+ *num-inputs* omper:*data-count*))
-			   ))
-	  (get-real-data omper:*data-count*)))
-;; (agent-perception-heights nil)
-
-(defun agent-perception-highs (agent)
-  (mapcar (lambda (percs close)
-	    (append percs (list close)))
-	  (remove nil
-		  (maplist (lambda (highs)
-			     (when (>= (length highs) *num-inputs*)
-			       (subseq highs 0 *num-inputs*)))
-			   (get-real-data-highs (+ *num-inputs* omper:*data-count*))
-			   ))
-	  (get-real-data omper:*data-count*)))
-;; (agent-perception-highs nil)
-
-(defun agent-perception-lows (agent)
-  (mapcar (lambda (percs close)
-	    (append percs (list close)))
-	  (remove nil
-		  (maplist (lambda (lows)
-			     (when (>= (length lows) *num-inputs*)
-			       (subseq lows 0 *num-inputs*)))
-			   (get-real-data-lows (+ *num-inputs* omper:*data-count*))
-			   ))
-	  (get-real-data omper:*data-count*)))
-;; (agent-perception-lows nil)
-
-(defun cluster-perceptions-deltas (perceptions deltas rules-count)
-  (let ((assoc (mapcar (lambda (d p)
-			 `(,d . ,p))
-		       deltas perceptions))
-	(delta-clusters (mapcar #'flatten (km (mapcar #'list deltas) rules-count))))
-    (mapcar (lambda (input)
-	      (apply #'append input))
-	    (apply #'mapcar #'list
-		   (mapcar (lambda (cluster)
-			     (let ((perc-cluster (mapcar (lambda (delta)
-				   			   (access assoc delta))
-				   			 cluster)))
-			       (mapcar (lambda (mean stdev)
-					 (list
-					  (list mean
-						(/ stdev 1))
-					  (list (mean cluster)
-						(/ (standard-deviation cluster) 1)
-						))
-					 )
-				       (mapcar #'float (mapcar #'mean (apply #'mapcar #'list perc-cluster)))
-				       (mapcar #'standard-deviation (apply #'mapcar #'list perc-cluster)))
-			       )
-			     )
-			   delta-clusters)))))
-
-;; (agent-perception-deltas nil)
-;; ;; here
-;; (float (mape (agents-simulation (create-agents 1 10 #'agent-perception-deltas))
-;; 	     (get-real-data-deltas omper:*data-count*)))
-;; (agent-moving-average nil)
-
-;; (slot-value (first (create-agents 1 3 #'agent-perception-deltas)) 'rules)
-
-;; (agent-trades (first (create-agents 1 4 #'agent-perception)))
-
-(defun create-agents (agents-count rules-count &optional (perception-fn #'agent-perception))
-  (let* ((agents (gen-agents agents-count))
-	 (deltas (apply #'mapcar #'list
-			(mapcar (lambda (delta)
-				  (n-into-m-parts delta agents-count))
-				(get-real-data-deltas omper:*data-count*))))
-	 (perceptions (mapcar (lambda (agent)
-				(mapcar #'butlast
-					(funcall perception-fn agent)))
-			      agents)))
-
-    (mapcar (lambda (p d agent)
-    	      ;; Setting min and max inputs and outputs for the fuzzy systems.
-    	      (let ((fp (flatten p)))
-    		(setf (slot-value agent 'input-min) (apply #'min fp))
-    		(setf (slot-value agent 'input-max) (apply #'max fp))
-    		(setf (slot-value agent 'output-min) (apply #'min d))
-    		(setf (slot-value agent 'output-max) (apply #'max d)))
-
-    	      ;; Setting agent rules.
-    	      (setf (slot-value agent 'rules)
-    		    (cluster-perceptions-deltas p
-    						d
-    						rules-count)))
-    	    perceptions
-    	    deltas
-    	    agents)
-
-    agents
-    ))
-
-;; (reduce #'+ (n-into-m-parts 777 10))
+	    )))
+;; (loop repeat 10 do (gen-rules 3))
 
 (defun n-into-m-parts (m n)
   (mapcar #'+
@@ -1127,14 +934,6 @@ series `real`."
     (mapcar (lambda (num)
 	      (* (/ num sum) n))
 	    rand-nums)))
-
-;; (float (mean (mapcar (lambda (_)
-;; 		       (length (remove-if #'plusp (n-into-m-parts 11 1))))
-;; 		     (iota 1000))))
-;; (float (mean (mapcar (lambda (_)
-;; 		       (length (remove-if #'minusp (n-into-m-parts 11 10))))
-;; 		     (iota 1000))))
-
 
 (defun gen-agents (num)
   (mapcar (lambda (_)
@@ -1196,55 +995,62 @@ series `real`."
 	  (iota num)))
 
 ;; (length (funcall *perception-fn* nil))
-;; (get-real-data-deltas omper:*data-count*)
+;; (get-deltas omper:*data-count*)
 
 (defun gen-agents (num)
   "This one uses a list of activations."
-  (mapcar (lambda (_)
-	    (let ((agent (make-instance 'agent)))
-	      ;; (setf (activations agent) (mapcar #'first (rules agent)))
-	      (setf (activations agent) (mapcar (lambda (rule)
-						  (remove nil
-							  (mapcar (lambda (i r)
-								    (when (evenp i)
-								      r))
-								  (iota (length rule))
-								  rule)))
-						(rules agent)))
-	      (let* ((outputs (get-real-data-deltas omper:*data-count*))
-		     (activations (mapcar (lambda (inp)
-					    (flatten
-					     (mapcar (lambda (j)
-						       (mapcar (lambda (i)
-								 ;; (second
-								 ;;  (membership (nth i inp)
-								 ;;  	    (agents-ifs (nth i (nth j (activations agent))))))
-								 (if-membership (nth i inp)
-										(agents-ifs (nth i (nth j (activations agent)))))
-								 )
-							       (iota *num-inputs*)))
-						     ;; (funcall *perception-fn* nil)
-						     (iota *num-rules*)
-						     )))
-					  ;; (iota *num-rules*)
-					  (funcall *perception-fn* nil)))
-		     (reductions (mapcar (lambda (act) (reduce #'+ act)) activations))
-		     (sorted-reductions-idxs (largest-number-indexes reductions))
-		     (wanted-direction (nth (first sorted-reductions-idxs) outputs))
-		     (activation-threshold (apply #'mapcar (lambda (&rest acts)
-							     (apply #'min acts))
-						  (let ((result))
-						    (dolist (idx (subseq sorted-reductions-idxs 0 *activation-level*))
-						      (if (> (* (nth idx outputs)
-								wanted-direction)
-							     0)
-							  (push (nth idx activations) result)
-							  (return)))
-						    (nreverse result))))
-		     )
-		(setf (activation-threshold agent) activation-threshold)
-		agent)))
-	  (iota num)))
+  (loop repeat num
+     collect (try-until-successful
+	      (let ((agent (make-instance 'agent)))
+		;; (setf (activations agent) (mapcar #'first (rules agent)))
+		(setf (activations agent) (mapcar (lambda (rule)
+						    (remove nil
+							    (mapcar (lambda (i r)
+								      (when (evenp i)
+									r))
+								    (iota (length rule))
+								    rule)))
+						  (rules agent)))
+		(let* ((activations (mapcar (lambda (inp)
+					      (flatten
+					       (mapcar (lambda (j)
+							 (mapcar (lambda (i)
+								   (if-membership (nth i inp)
+										  (agents-ifs (nth i (nth j (activations agent)))))
+								   )
+								 (iota *num-inputs*)))
+						       ;; (funcall *perception-fn* nil)
+						       (iota *num-rules*)
+						       )))
+					    ;; (iota *num-rules*)
+					    (subseq (funcall *perception-fn* nil) 0 (- omper:*data-count* *delta-gap*))))
+		       (reductions (mapcar (lambda (act) (reduce #'+ act)) activations))
+		       (sorted-reductions-idxs (largest-number-indexes reductions))
+		       (outputs (get-deltas omper:*data-count*))
+		       (wanted-direction (nth (+ (first sorted-reductions-idxs) *delta-gap*) outputs))
+		       ;; (activation-threshold (apply #'mapcar (lambda (&rest acts)
+		       ;; 					     (apply #'min acts))
+		       ;; 				  (mapcar (lambda (idx)
+		       ;; 					    (nth idx activations))
+		       ;; 					  (subseq sorted-reductions-idxs 0 *activation-level*))))
+		       (activation-threshold (apply #'mapcar (lambda (&rest acts)
+		       					       (apply #'min acts))
+		       				    (let ((result))
+		       				      (dolist (idx sorted-reductions-idxs)
+		       					(if (> (* (nth (+ idx *delta-gap*) outputs)
+		       						  wanted-direction)
+		       					       0)
+		       					    (push (nth idx activations) result)
+		       					    (return)))
+		       				      (when (< (length result) *required-activations*)
+		       				      	(error "not enough activations"))
+						      (setf (consecutive-activations agent) (length result))
+		       				      result)))
+		       )
+		  (setf (activation-threshold agent) activation-threshold)
+		  agent)))))
+
+;; (time (gen-agents 1))
 
 (defun calc-trade-scale ()
   (/ (mean (mapcar (lambda (next curr)
@@ -1273,7 +1079,7 @@ series `real`."
 ;; (calc-leverage-stdev)
 
 (defun calc-stdev-deltas ()
-  (standard-deviation (get-real-data-deltas omper:*data-count*)))
+  (standard-deviation (get-deltas omper:*data-count*)))
 ;; (calc-stdev-deltas)
 
 (defun median-elt (sample)
@@ -1289,7 +1095,7 @@ series `real`."
 (defun csv-real-sim ()
   (map nil (lambda (real sim)
              (format t "~a, ~a~%" real sim))
-       (get-real-data-deltas omper:*data-count*)
+       (get-deltas omper:*data-count*)
        (mapcar (lambda (rate)
                  (format nil "~f" rate))
                (agents-indexes-simulation (agents-best (agents-distribution *population*
@@ -1617,14 +1423,6 @@ series `real`."
 ;;   (unless (find-symbol (symbol-name sym) :overmind-agents)
 ;;     `(defparameter ,sym ,value)))
 
-(defun wrap1 ()
-  (init)
-  (with-postgres-connection (execute (delete-from :populations)))
-  (with-postgres-connection (execute (delete-from :populations-closure)))
-  ;; (time (train 100000 100 :fitness-fn #'corrects :sort-fn #'> :save-every 1 :epsilon 1.8))
-  (train 100000 100 :fitness-fn #'mase :sort-fn #'< :save-every 1 :epsilon 0.00 :gd-epsilon 0.000)
-  )
-;; (wrap1)
 ;; (agents-corrects (agents-best (agents-distribution *population* #'corrects #'>) #'>))
 ;; (dolist (pop *population*)
 ;;   (print (float (agents-corrects pop))))
@@ -1633,23 +1431,6 @@ series `real`."
   (let* ((*end* (ceiling (+ *end* (* omper:*data-count* (+ validation-ratio testing-ratio)))))
 	 (omper:*data-count* (ceiling (* omper:*data-count* (+ 1 validation-ratio testing-ratio)))))
     (mapcar #'butlast (funcall *perception-fn* (extract-agent-from-pool 1)))))
-
-(defun get-clustered-data-points (cluster-index)
-  (all-positions cluster-index
-		 (mapcar (lambda (datum)
-			   (position datum *data-sample-clusters*
-				     :test (lambda (datum cluster)
-					     (find datum cluster :test #'equal))))
-			 *data-sample*)))
-
-;; (length (get-clustered-data-points 1))
-
-(defun extract-training-clustered-trades (trades)
-  ;; (mapcar (lambda (idx)
-  ;; 	    (nth idx trades))
-  ;; 	  (get-clustered-data-points *current-cluster*))
-  trades
-  )
 
 (defun remove-nth (idx list)
   (append (subseq list 0 idx)
@@ -1728,14 +1509,51 @@ series `real`."
   (with-postgres-connection (execute (delete-from :tests))))
 ;; (drop-tests)
 
-(defun draw-optimization (iterations &optional (agents-fitness-fn #'agents-mase) (fitness-fn #'mase) (sort-fn #'<) &key (key #'identity) (label "") (reset-db nil) (starting-population ""))
-  (format t "~%starting~%")
-  (init)
+(defun get-n-best (n candidate)
+  "Used in `DRAW-OPTIMIZATION`."
+  (let* ((n (if (> n (length candidate)) (length candidate) n))
+	 (idxs (subseq (largest-number-indexes
+			(loop
+			   for agent in (extract-agents-from-pool candidate)
+			   collect (consecutive-activations agent)))
+		       0 n)))
+    (loop
+       for idx in idxs
+       collect (nth idx candidate))
+    ))
+
+
+(defun get-median-best (candidate)
+  "Used in `DRAW-OPTIMIZATION`."
+  (let* ((consecutives (loop
+			  for agent in (extract-agents-from-pool candidate)
+			  collect (consecutive-activations agent)))
+	 (med (median (remove-duplicates consecutives)))
+	 (idxs (loop
+		  for cons in consecutives
+		  for idx from 0 to (length consecutives)
+		  when (>= cons med)
+		  collect idx)))
+    (loop
+       for idx in idxs
+       collect (nth idx candidate))
+    ))
+
+(defun draw-optimization (iterations &optional (agents-fitness-fn #'agents-mase) (fitness-fn #'mase) (sort-fn #'<) &key (label "") (reset-db nil) (starting-population ""))
+  ;; TODO: We're running `INIT` in multiple functions because some variables
+  ;; depend on different points of the process. Fix this.
+  ;; (init *instrument* *timeframe*)
+  (format t "~%~%~A ~A. RUNNING FROM ~a TO ~a~%"
+	  *instrument* *timeframe*
+	  (local-time:unix-to-timestamp (/ (read-from-string (access (nth *begin* *all-rates*) :time)) 1000000))
+	  (local-time:unix-to-timestamp (/ (read-from-string (access (nth *end* *all-rates*) :time)) 1000000)))
+  ;; (init *instrument* *timeframe*)
   (when reset-db
     (drop-populations))
   (when (not (string= starting-population ""))
     (init-from-database starting-population))
-  (let ((parent-id starting-population))
+  (let ((parent-id starting-population)
+	(val+test '(0 0)))
     (let ((corrects (agents-corrects (first *population*))))
       (format t "~%~6a ~3$ ~ttrain: ~17a"
 	      *generations*
@@ -1744,99 +1562,56 @@ series `real`."
     (dotimes (i iterations)
       (incf *generations*)
       (ignore-errors
-	(let ((candidate (let ((option (random-float *rand-gen* 0 1)))
-			   (cond
-                             ;; Remove an agent.
-			     ((and (< option 0.33) (> (length (first *population*)) *community-size*))
-			      (remove-nth (random-int *rand-gen* 0 (1- (length (first *population*)))) (first *population*)))
-                             ;; Replace agent from solution using random agent.
-			     ((and (< option 0.66) (> (length (first *population*)) *community-size*))
-			      (append
-			       (remove-nth (random-int *rand-gen* 0 (1- (length (first *population*)))) (first *population*))
-			       (list (random-int *rand-gen* 0 (1- (length *agents-pool*))))
-			       ))
-                             ;; Create new agent and push to pool.
-			     ((< option 1.00)
-			      (setf *agents-pool* (append *agents-pool* (gen-agents 1)))
-			      (append
-			       (first *population*)
-			       (list (1- (length *agents-pool*)))))
-                             ;; Append random agent from pool.
-                             ;; ((<= option 1.0)
-                             ;;  (append
-                             ;;   (first *population*)
-                             ;;   (list (random-int *rand-gen* 0 (1- (length *agents-pool*))))
-                             ;;   ))
-			     ))))
-	  (let ((cand-error (funcall agents-fitness-fn candidate))
-	        (best-error (funcall agents-fitness-fn (first *population*))))
-	    (when (and (funcall sort-fn cand-error best-error)
-                       ;; (> (length (remove-if #'zerop (agent-trades (extract-agent-from-pool (last-elt candidate))))) 1)
-                       ;; Checking if candidate is messing with multiple trades.
-                       ;; (let ((filled-trades (flatten (mapcar (lambda (i)
-                       ;; 					     (all-positions-not 0 (agent-trades (nth i (extract-agents-from-pool candidate)))))
-                       ;; 					   (iota (length candidate))))))
-                       ;;   (= (length filled-trades)
-                       ;; 	  (length (remove-duplicates filled-trades))))
-		       )
+	(let ((candidate (let* ((option (random-float *rand-gen* 0 1))
+				(cand (cond
+					;; Remove an agent.
+					((and (< option 0.5) (> (length (first *population*)) *community-size*))
+					 (remove-nth (random-int *rand-gen* 0 (1- (length (first *population*)))) (first *population*)))
+					;; Replace agent from solution using random agent.
+					;; ((and (< option 0.66) (> (length (first *population*)) *community-size*))
+					;;  (append
+					;;   (remove-nth (random-int *rand-gen* 0 (1- (length (first *population*)))) (first *population*))
+					;;   (list (random-int *rand-gen* 0 (1- (length *agents-pool*))))
+					;;   ))
+					;; Create new agent and push to pool.
+					((< option 1.00)
+					 (setf *agents-pool* (append *agents-pool* (gen-agents 1)))
+					 (append
+					  (first *population*)
+					  (list (1- (length *agents-pool*)))))
+					;; Append random agent from pool.
+					;; ((<= option 1.0)
+					;;  (append
+					;;   (first *population*)
+					;;   (list (random-int *rand-gen* 0 (1- (length *agents-pool*))))
+					;;   ))
+					)))
+			   ;; (get-n-best *only-best* cand)
+			   cand
+			   )))
+	  (let ((cand-error (funcall agents-fitness-fn (get-median-best candidate)))
+		(best-error (funcall agents-fitness-fn (get-median-best (first *population*)))))
+	    (when (funcall sort-fn cand-error best-error)
 	    
 	      (setf (first *population*) candidate)
 	      (setf parent-id (insert-best-agents parent-id label fitness-fn sort-fn))
 
-	      (let* ((corrects (agents-corrects candidate))
+	      (let* ((corrects (agents-corrects (get-median-best candidate)))
 		     (report (first (get-reports 1 *testing-ratio*)))
 		     (val-corrects (accesses report :validation :performance-metrics :corrects))
 		     (test-corrects (accesses report :test :performance-metrics :corrects)))
-	        (format t "~%~6a ~3$ ~ttrain: ~17a ~tval: ~17a ~ttest: ~17a"
-		        (1+ *generations*)
-		        (float (funcall agents-fitness-fn candidate))
-		        (format-corrects corrects)
-		        (format-corrects val-corrects)
-		        (format-corrects test-corrects))
-                ;; (when (and (>= (aref corrects 1) 1)
-                ;; 		 ;; (> (aref corrects 1) 15)
-                ;; 		 (>= (/ (aref corrects 0)
-                ;; 			(aref corrects 1)) 0.9)
-                ;; 		 )
-                ;; 	(return))
-	        )
+		(format t "~%~6a ~3$ ~ttrain: ~17a ~tval: ~17a ~ttest: ~17a"
+			(1+ *generations*)
+			(float (funcall agents-fitness-fn (get-median-best candidate)))
+			(format-corrects corrects)
+			(format-corrects val-corrects)
+			(format-corrects test-corrects))
+	        (setf val+test (list (+ (aref val-corrects 0) (aref test-corrects 0))
+				     (+ (aref val-corrects 1) (aref test-corrects 1))))
+		)
 	      ))))
-      )))
-
-(progn
-  ;; (defparameter *delta-gap* 63)
-  (defparameter *delta-gap* 10)
-  (defparameter *num-inputs* 5)
-  (defparameter *num-rules* 3)
-  ;; (defparameter *activation-level* (1- omper:*data-count*))
-  (defparameter *activation-level* (floor (/ (1- omper:*data-count*) 4)))
-  ;; (defparameter *activation-level* 10)
-  ;; (defparameter *perception-fn* #'agent-perception-deltas)
-  (defparameter *perception-fn*
-    (lambda (agent)
-      (apply #'mapcar (lambda (&rest inputs)
-			(append (apply #'append
-				       (mapcar (lambda (input)
-						 (last (butlast input) (floor (/ *num-inputs* (length inputs)))))
-					       inputs))
-				(list (last-elt (first inputs))))
-			)
-	     (let ((*num-inputs* (/ *num-inputs* 1)))
-	       (list
-		(agent-moving-average nil)
-		;; (agent-stochastic-oscillator nil)
-		;; (agent-perception-prices nil)
-		;; (agent-perception-highs nil)
-		;; (agent-perception-lows nil)
-
-	        ;; (agent-perception nil)
-		;; (agent-perception-heights nil)
-		;; (let ((*delta-gap* 10))
-		;;   (agent-perception-deltas nil))
-		;; (agent-perception-volumes nil)
-		))
-	     )))
-  (defparameter *rates* nil))
+      )
+    val+test))
 
 (defun get-starting-population (is-cold-start instrument timeframe)
   "Used by `OPTIMIZE-ALL` and `OPTIMIZE-ONE`."
@@ -1852,13 +1627,16 @@ series `real`."
 	)))
 
 (defun optimize-one (instrument timeframe iterations &key (is-cold-start t))
+  ;; We need to run init in here and in `DRAW-OPTIMIZATION`, because using
+  ;; random range needs to set `*MIN-DATASET-SIZE*` to a bigger size.
+  ;; We need to change that one first and then load `*ALL-RATES*`.
+  ;; (init instrument timeframe)
   (let ((*instrument* instrument)
 	(*timeframe* timeframe)
-	(*all-rates* (get-rates-count instrument timeframe (+ *min-dataset-size* 2)))
+	;; (*all-rates* (get-rates-count instrument timeframe *min-dataset-size*))
 	(starting-population (get-starting-population is-cold-start instrument timeframe)))
     (draw-optimization iterations #'agents-mase #'mase #'<
 		       :label "" :reset-db nil :starting-population starting-population)))
-
 
 (defun optimize-all (timeframe iterations
 		     &key (instruments ominp:*instruments*)
@@ -1903,16 +1681,48 @@ instruments `INSTRUMENTS-KEYS` for `ITERATIONS`."
 	     (dolist (instrument instruments)
 	       (dolist (timeframe timeframes)
 		 (format t "~%~%~a, ~a~%" instrument timeframe)
+		 (init instrument timeframe)
 		 (optimize-one instrument timeframe iterations :is-cold-start nil)
 		 (test-market instrument timeframe)))))))
      (prune-populations)))
+
+(defun tweaking (&key (instrument :EUR_USD) (timeframe :D) (iterations 100) (experiments-count 10))
+  (let ((*instrument* instrument)
+	(*timeframe* timeframe)
+	(nums nil)
+	(denoms nil))
+    (dotimes (i experiments-count)
+      (init instrument timeframe)
+      (let ((run (optimize-one instrument timeframe iterations :is-cold-start t)))
+	 (push (first run) nums)
+	 (push (second run) denoms)
+	 (format t "~%~%#~a - ACCUMULATION: (~a ~a) = ~a"
+		 (1+ i)
+		 (reduce #'+ nums)
+		 (reduce #'+ denoms)
+		 (float (* 100 (if (/= (reduce #'+ denoms) 0) (/ (reduce #'+ nums) (reduce #'+ denoms)) 0))))))
+    (format t "~%~%RESULTS: ~a~%" (list nums denoms))))
+
+;; (tweaking :instrument :AUD_USD :timeframe :D :iterations 300 :experiments-count 60)
+;; *population*
+;; *generations*
+
+;; (get-n-best 2 (first *population*))
+;; (get-median-best (first *population*))
+;; (loop for agent in (extract-agents-from-pool (get-n-best *only-best* (first *population*))) collect (print (consecutive-activations agent)))
+;; (loop for agent in (extract-agents-from-pool (get-median-best (first *population*))) collect (print (consecutive-activations agent)))
+
+;; (float 
+;;  (/ (+ )
+;;     (+ )))
+
 ;; (loop-optimize-test 25 :instruments-keys '(:all))
 ;; (test-all-markets :D ominp:*instruments*)
 ;; (optimize-all :H1 1000)
 ;; (optimize-all :H1 100 :instruments ominp:*instruments* :is-cold-start t)
-;; (optimize-one :JP225_USD :D 10000 :is-cold-start nil)
+;; (optimize-one :AUD_USD :D 50 :is-cold-start t)
 ;; (optimize-one :EUR_USD :H1 10000 :is-cold-start t)
-;; (init)
+;; (init *instrument* *timeframe*)
 ;; (mean-test-error :H1) ;; 0.42777777, 30 *data-count*
 ;; (mean-test-error :D)
 ;; (mean-test-error :H1)
@@ -1985,101 +1795,18 @@ instruments `INSTRUMENTS-KEYS` for `ITERATIONS`."
 ;; (length *agents-pool*)
 ;; (dotimes (i (length (first *population*))) (print (extract-training-clustered-trades (agent-trades (nth i (extract-agents-from-pool (first *population*)))))))
 
-(defun init ()
-  (org.tfeb.hax.memoize:clear-memoized-functions)
-  ;; (defparameter *testing-ratio* 0.05)
-  ;; (defparameter *testing-ratio* 0.25)
-  (defparameter *testing-ratio* 0.5)
-  ;; (defparameter *testing-ratio* 0.0)
-  (setf lparallel:*kernel* (lparallel:make-kernel 32))
-  ;; (setf omper:*data-count* 200)
-  (setf omper:*data-count* (* 252 1))
-  (setf omper:*partition-size* 50)
-  (defparameter *community-size* 1
-    "Represents the number of agents in an 'individual' or solution. A simulation (a possible solution) will be generated using this number of agents.")
-  (defparameter *population-size* 1
-    "How many 'communities', 'individuals' or 'solutions' will be participating in the optimization process.")
+(defun init (instrument timeframe)
+  (let ((default-config #P"../config/default.lisp")
+	(general-config #P"../config/general.lisp")
+	(config (pathname (format nil "../config/~a-~a.lisp" instrument timeframe))))
+    ;; We always load default.
+    (load default-config)
+    ;; Then we override parameters according to custom config files.
+    (when (probe-file config)
+      (load config))
+    (load general-config)))
 
-  ;; (defparameter *min-dataset-size* (ceiling (+ omper:*data-count* *num-inputs* *delta-gap* omper:*partition-size*
-  ;; 					       ;; Size for training and testing.
-  ;; 					       (+ (* 2 omper:*data-count* *testing-ratio*)
-  ;; 						  (* 2 (+ *num-inputs* *delta-gap* omper:*partition-size*)))
-  ;; 					       )))
-
-  (defparameter *min-dataset-size* (ceiling (+ omper:*data-count* (* omper:*data-count* 2 *testing-ratio*) *num-inputs* *delta-gap* omper:*partition-size*)))
-  
-  ;; (print (length *all-rates*))
-  ;; (print (- (length *all-rates*) (+ omper:*data-count* (* omper:*data-count* 2 *testing-ratio*) *num-inputs* *delta-gap* omper:*partition-size*)))
-  
-  ;; Random range.
-  ;; (defparameter *begin* (random-int *rand-gen* 0 (floor (- (length *all-rates*) (+ omper:*data-count* (* omper:*data-count* 2 *testing-ratio*) *num-inputs* *delta-gap* omper:*partition-size*))))
-  ;; "The starting timestamp for the data used for training or testing.")
-  ;; (defparameter *end* (1- (+ *begin* *min-dataset-size*))
-  ;;   "The ending timestamp for the data used for training or testing.")
-
-  ;; last N range
-  (defparameter *begin* (- (floor (- (length *all-rates*) (+ omper:*data-count* (* omper:*data-count* 2 *testing-ratio*) *num-inputs* *delta-gap* omper:*partition-size*))) 2))
-  (defparameter *end* (1- (floor (- (length *all-rates*) (+ (* omper:*data-count* 2 *testing-ratio*))))))
-
-  ;; (- *end* *begin*)
-
-  ;; ;; For sunspot
-  ;; (defparameter *begin* 0)
-  ;; (defparameter *end* 299)
-
-  (defparameter *rates* (subseq *all-rates* *begin* *end*)
-    "The rates used to generate the agents' perceptions.")
-
-  (defparameter *moving-average-start* 5)
-  (defparameter *moving-average-step* 10)
-  (defparameter *mutation-chance* 0.1)
-  
-  (defparameter *trade-scale* (calc-trade-scale))
-  (defparameter *generations* 0
-    "Keeps track of how many generations have elapsed in an evolutionary process.")
-  (defparameter *num-pool-agents* *community-size*
-    "How many agents will be created for `*agents-pool*`. Relatively big numbers are recommended, as this increases diversity and does not significantly impact performance.")
-  (defparameter *rules-config* `((:mf-type . :gaussian)
-                                 (:sd . 5)
-                                 (:mf-mean-adjusting . t)
-                                 (:nmf-height-style . :complement)
-                                 ;; (:trade-scale . ,(calc-trade-scale))
-                                 )
-    "Configuration used to create the rules of the agents for a population.")
-  (defparameter *agents-pool* (try-until-successful (gen-agents *num-pool-agents*))
-    "Instances of `agent` that are available to create solutions.")
-  (defparameter *population* (gen-communities *community-size* *population-size*)
-    "Represents a list of lists of indexes to *agents-pool*.")
-  ;; (defparameter *cached-agents* (make-hash-table :test #'equal :size 2000 :synchronized t)
-  ;;   "Used for memoizing an agent's simulation.")
-  (defparameter *cached-agents* (make-hash-table :test #'equal :size 2000)
-    "Used for memoizing an agent's simulation.")
-  (defparameter *fitnesses* nil
-    "List of fitnesses obtained after evolving a population.")
-  (defparameter *fitnesses-validation* nil
-    "List of fitnesses in the validation stage obtained after evolving a population.")
-  (defparameter *fitness-fn* :mase)
-  ;; Setting boundaries.
-  ;; (let* ((percs (flatten (mapcar #'butlast (funcall *perception-fn* (first *agents-pool*)))))
-  ;; 	 (reals (get-real-data-deltas omper:*data-count*))
-  ;; 	 (mn-perc (apply #'min percs))
-  ;; 	 (mx-perc (apply #'max percs))
-  ;; 	 (mn-real (apply #'min reals))
-  ;; 	 (mx-real (apply #'max reals)))
-  ;;   (dolist (agent *agents-pool*)
-  ;;     (setf (slot-value agent 'input-min) mn-perc)
-  ;;     (setf (slot-value agent 'input-max) mx-perc)
-  ;;     (setf (slot-value agent 'output-min) mn-real)
-  ;;     (setf (slot-value agent 'output-max) mx-real))
-  ;;   )
-  (defparameter *agents-cluster-size* 10)
-  ;; (defparameter *data-sample* (get-data-sample *validation-ratio* *testing-ratio*))
-  (defparameter *data-sample* (get-data-sample 0 0))
-  (defparameter *data-sample-clusters* (km *data-sample* *agents-cluster-size*))
-  (defparameter *current-cluster* 1)
-  )
-;; (init)
-;; (wrap1)
+;; (init *instrument* *timeframe*)
 
 ;; (time (train 100000 100 :fitness-fn #'corrects :sort-fn #'> :save-every 10 :epsilon 1.8))
 ;; (time (train 100000 100 :fitness-fn #'mase :sort-fn #'< :save-every 1 :epsilon 0.00 :gd-epsilon 0.000))
@@ -2122,11 +1849,11 @@ instruments `INSTRUMENTS-KEYS` for `ITERATIONS`."
 ;; (float (mase (agents-indexes-simulation (agents-best (agents-distribution *population* #'mase
 ;; 									  #'<)
 ;; 						     #'<))
-;; 	     (get-real-data-deltas omper:*data-count*)))
+;; 	     (get-deltas omper:*data-count*)))
 
 ;; (mapcar (lambda (pop)
 ;; 	  (float (corrects (agents-indexes-simulation pop)
-;; 			   (get-real-data omper:*data-count*))))
+;; 			   (get-closes omper:*data-count*))))
 ;; 	*population*)
 
 ;; Check if there are duplicates.
@@ -2159,7 +1886,7 @@ instruments `INSTRUMENTS-KEYS` for `ITERATIONS`."
 ;; (agents-corrects (agents-best (agents-distribution *population*)))
 
 ;; (agents-indexes-simulation (agents-best (agents-distribution *population*)))
-;; (get-real-data-deltas omper:*data-count*)
+;; (get-deltas omper:*data-count*)
 ;; (agents-corrects (agents-best (agents-distribution *population*)))
 ;; (mapcar (lambda (agent)
 ;;           (slot-value agent 'leverage))
@@ -2169,7 +1896,7 @@ instruments `INSTRUMENTS-KEYS` for `ITERATIONS`."
 ;; (agents-corrects (nth 8 *population*))
 ;; (agents-indexes-simulation (nth 8 *population*))
 ;; (agents-test (extract-agents-from-pool (nth 8 *population*)) (subseq *all-rates* *begin* (+ *end* (* 11 omper:*data-count*))))
-;; (get-real-data 20)
+;; (get-closes 20)
 
 ;; Get agent trades.
 ;; (apply #'mapcar (lambda (&rest nums)
@@ -2181,7 +1908,7 @@ instruments `INSTRUMENTS-KEYS` for `ITERATIONS`."
 ;; (agent-trades (fourth (extract-agents-from-pool (agents-best (agents-distribution *population*)))))
 ;; (agents-simulation (extract-agents-from-pool (agents-best (agents-distribution *population*))))
 ;; (agents-indexes-simulation (nth 8 *population*))
-;; (get-real-data 20)
+;; (get-closes 20)
 ;; (agents-corrects (nth 8 *population*))
 
 ;; (get-ancestors *last-id*)
@@ -2308,11 +2035,11 @@ evolutionary process."
   (map nil (lambda (s r)
 	     (format t "~5$, ~5$~%" s r))
        (agents-indexes-simulation (agents-best (agents-distribution *population*)))
-       (get-real-data-deltas omper:*data-count*)))
+       (get-deltas omper:*data-count*)))
 
 ;; (print-simulation (first *population*) *testing-ratio* :rmse)
 ;; (print-simulation)
-;; (get-real-data-deltas (+ omper:*data-count* 10))
+;; (get-deltas (+ omper:*data-count* 10))
 
 (defun insert-best-agents (parent-id label fitness-fn sort-fn)
   (let* ((child-id (insert-population parent-id label fitness-fn sort-fn)))
@@ -2326,6 +2053,7 @@ evolutionary process."
    (rules :initarg :rules :initform (gen-rules *num-rules*) :accessor rules)
    (activations :initarg :activations :initform nil :accessor activations)
    (activation-threshold :initarg :activation-threshold :initform 0 :accessor activation-threshold)
+   (consecutive-activations :initarg :consecutive-activations :initform 0 :accessor consecutive-activations)
    (leverage :initarg :leverage :initform 1)
    (input-min :initarg :input-min :initform 0)
    (input-max :initarg :input-max :initform 100)
@@ -2334,7 +2062,7 @@ evolutionary process."
    ))
 
 (defmethod ms:class-persistent-slots ((self agent))
-  '(beliefs rules activations activation-threshold leverage input-min input-max output-min output-max))
+  '(beliefs rules activations activation-threshold consecutive-activations leverage input-min input-max output-min output-max))
 
 (defun get-most-relevant-population (instrument timeframe)
   "The most relevant population is the one that matches `instrument`,
@@ -2376,16 +2104,16 @@ is not ideal."
   (defun test-market (instrument timeframe)
     (let* ((*instrument* instrument)
 	   (*timeframe* timeframe)
-	   (*testing-ratio* 0.0)
-	   (*all-rates* (get-rates-count instrument timeframe (+ *min-dataset-size* 2)))
+	   ;; (*testing-ratio* 0.0)
+	   ;; (*all-rates* (get-rates-count instrument timeframe *min-dataset-size*))
 	   (*cached-agents* (make-hash-table))
 	   (db-pop (get-most-relevant-population instrument timeframe))
 	   (pop (decompress-object (access db-pop :population)))
 	   ;; TODO: We can fix begin and end. It's doing unnecessary things.
 	   ;; (*begin* (- (floor (- (length *all-rates*) (+ omper:*data-count* (* omper:*data-count* 2 *testing-ratio*) *num-inputs* *delta-gap*))) 2))
-	   (*begin* 0)
+	   ;; (*begin* 0)
 	   ;; (*end* (1- (floor (- (length *all-rates*) (+ (* omper:*data-count* 2 *testing-ratio*))))))
-	   (*end* (1- (length *all-rates*)))
+	   ;; (*end* (1- (length *all-rates*)))
 	   (*rates* (subseq *all-rates* *begin* *end*))
 	   (sim (agents-simulation (first pop)))
 	   (report (append `((:population-id . ,(access db-pop :id)))
@@ -2518,7 +2246,7 @@ tests performed that are stored on database."
   (cond ((eq timeframe :H1) :HOUR)
         ((eq timeframe :D) :DAY)))
 
-;; (get-real-data-deltas omper:*data-count*)
+;; (get-deltas omper:*data-count*)
 
 ;; (access (get-most-relevant-population *instrument* *timeframe*) :best-index)
 
@@ -2561,45 +2289,6 @@ granularity `timeframe`."
                 ))
     ))
 
-;; (ql:quickload :magicl)
-
-;; (magicl:multiply-complex-matrices
-;;  (magicl:inv (magicl:make-complex-matrix 3 3 '(1 2 3 1 2 3 1 2 3)))
-;;  (magicl:make-complex-matrix 3 1 '(3 6 9)))
-
-;; (magicl:multiply-complex-matrices
-;;  (magicl:inv (magicl:make-complex-matrix 3 3 '(1 0 2 1 2 5 1 5 -1)))
-;;  (magicl:make-complex-matrix 3 1 '(6 -4 27)))
-
-;; ;; get best's position
-;; (defparameter *best-idx*
-;;   (position (agents-best (agents-distribution *population*))
-;;             *population* :test #'equal))
-
-;; (dolist (agent *agents-pool*)
-;;   (print (slot-value agent 'leverage)))
-
-;; (mapcar #'agents-pmape *population*)
-
-;; (let ((begin (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 450 :day)))
-;;       (end (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 30 :day))))
-;;   (mapcar (lambda (agents)
-;;             (agents-test (extract-agents-from-pool agents)
-;;                          (get-rates-range *instrument*
-;;                                           *timeframe*
-;;                                           begin end
-;;                                           )))
-;;           *population*))
-
-;; Get all corrects from current population in training stage.
-;; (mapcar (lambda (i)
-;; 	  (setf *cached-agents* (make-hash-table :test #'equal))
-;; 	  (print (float
-;; 		  (accesses (agents-test (extract-agents-from-pool (nth i *population*))
-;; 					 (subseq *all-rates* *begin* *end*))
-;; 			    :performance-metrics :corrects))))
-;; 	(alexandria:iota (length *population*)))
-
 (defun make-history-function (periods evaluator)
   "Returns a function that takes a series of data points, one at a
 time, and returns the results of calling the evaluator with a sequence
@@ -2626,67 +2315,179 @@ history."
   (make-history-function periods (lambda (history)
 				   (ta-average history :key key))))
 
-(defun get-moving-average (periods)
-  (remove nil
-	  (mapcar (moving-average periods)
-		  (get-real-data
-		   (+ omper:*data-count*
-		      (1- periods))))))
+;; Agent inputs "getters".
 
-(defparameter *stochastic-key-high* 5)
-(defparameter *stochastic-key-low* 3)
-(defparameter *stochastic-key-close* 3)
+(defun subseq-input (seq)
+  (subseq seq 0 omper:*data-count*))
 
-;; (mapcar (stochastic 5 3 3)
-;; 	(get-real-data 10))
+(defun get-deltas (count)
+  "This one predicts N periods in future as a big single delta."
+  (let ((reals (get-closes (+ count *delta-gap*))))
+    (remove nil
+	    (maplist (lambda (real)
+		       (unless (<= (length real) *delta-gap*)
+			 (- (nth *delta-gap* real)
+			    (nth 0 real)
+			    )))
+		     reals))))
 
-(defun get-stochastic-oscillator (periods)
-  (remove nil
-	  (mapcar (stochastic *stochastic-key-high*
-			      *stochastic-key-low*
-			      *stochastic-key-close*
-			      periods)
-		  (get-real-data
-		   ;; omper:*data-count*
-		   (+ omper:*data-count*
-		      (1- periods))
-		   ))))
+(defun get-closes (count)
+  (reverse (subseq (reverse (mapcar (lambda (rate) (cdr (assoc :close-bid rate))) *rates*)) 0 count)))
 
-(defun agent-moving-average (agent)
-  "TODO: `agent` is unused"
-  (mapcar (lambda (mas rate)
-	     (append
-	      ;; (mapcar (lambda (ma)
-	      ;; 		(+ 50
-	      ;; 		   (* 1000
-	      ;; 		      (/ (- (first rate) ma)
-	      ;; 			 (first rate)))))
-	      ;; 	      mas)
-	      mas
-	      rate))
-	   (apply #'mapcar #'list
-		  (mapcar (lambda (i)
-			    (get-moving-average i))
-			  (iota *num-inputs* :start *moving-average-start* :step *moving-average-step*)))
-	   (mapcar #'list (get-real-data omper:*data-count*))))
+(defun get-volumes (count)
+  (reverse (subseq (reverse (mapcar (lambda (rate) (cdr (assoc :volume rate))) *rates*)) 0 count)))
 
-(defun agent-stochastic-oscillator (agent)
-  "TODO: `agent` is unused"
-  (mapcar (lambda (stochastic rate)
-            (append
-             ;; (mapcar (lambda (s)
-             ;;           (/ (+ 100 s) 2))
-             ;;         stochastic)
-	     stochastic
-             rate))
-          (apply #'mapcar #'list
-                 (remove nil
-			 (mapcar (lambda (i)
-				   (get-stochastic-oscillator i i))
-				 (iota *num-inputs* :start 1 :step 2))))
-          (mapcar #'list (get-real-data omper:*data-count*))))
-;; (length (agent-stochastic-oscillator nil))
-;; (length (agent-perception nil))
+(defun get-highs (count)
+  (reverse (subseq (reverse (mapcar (lambda (rate) (cdr (assoc :high-bid rate))) *rates*)) 0 count)))
+
+(defun get-lows (count)
+  (reverse (subseq (reverse (mapcar (lambda (rate) (cdr (assoc :low-bid rate))) *rates*)) 0 count)))
+
+(defun io-closes (&key (offset 0))
+  (subseq-input (get-closes (+ offset omper:*data-count*))))
+
+(defun io-volumes (&key (offset 0))
+  (subseq-input (get-volumes (+ offset omper:*data-count*))))
+
+(defun io-highs (&key (offset 0))
+  (subseq-input (get-highs (+ offset omper:*data-count*))))
+
+(defun io-lows (&key (offset 0))
+  (subseq-input (get-lows (+ offset omper:*data-count*))))
+
+(defun io-high-heights (&key (offset 0))
+  (subseq-input
+   (loop for candle in (get-full-real-data (+ offset omper:*data-count*))
+      collect (if (> (access candle :open-bid)
+		     (access candle :close-bid))
+		  (- (access candle :high-bid)
+		     (access candle :open-bid))
+		  (- (access candle :high-bid)
+		     (access candle :close-bid))))))
+
+(defun io-low-heights (&key (offset 0))
+  (subseq-input
+   (loop for candle in (get-full-real-data (+ offset omper:*data-count*))
+      collect (if (> (access candle :open-bid)
+		     (access candle :close-bid))
+		  (- (access candle :close-bid)
+		     (access candle :low-bid))
+		  (- (access candle :open-bid)
+		     (access candle :low-bid))))))
+
+(defun io-candle-heights (&key (offset 0))
+  (subseq-input
+   (loop for candle in (get-full-real-data (+ offset omper:*data-count*))
+      collect (abs (- (access candle :close-bid)
+		      (access candle :open-bid))))))
+
+
+(defun io-deltas (delta-gap &key (offset 0))
+  "This one predicts N periods in future as a big single delta."
+  (let ((reals (get-closes (+ offset omper:*data-count* delta-gap))))
+    (remove nil
+	    (maplist (lambda (real)
+		       (unless (<= (length real) delta-gap)
+			 (- (nth delta-gap real)
+			    (nth 0 real)
+			    )))
+		     reals))))
+
+(defun io-full-heights (&key (offset 0))
+  (subseq-input (mapcar #'- (get-highs (+ offset omper:*data-count*))
+			(get-lows (+ offset omper:*data-count*)))))
+
+;; (io-deltas 10 :offset 1)
+
+(defun io-fibos (z-count &key (offset 0))
+  "Generates the fibos of a market."
+  (subseq-input
+   (last (mapcar (lambda (heat)
+		   (let ((heat (cl21:gethash heat :heat))
+			 (close (cl21:gethash heat :close)))
+		     (let* ((z (cl21:gethash heat :z))
+			    (index (+ (if-let
+					  ((res (search `(,close) (cl21:gethash heat :y)
+							:key (lambda (elt)
+							       (when (> close elt) t)))))
+					res
+					(1- (length (cl21:gethash heat :y)))
+					)
+				      (floor (/ z-count 2))))
+			    (res (append (mapcar (lambda (i)
+						   (nth (if (< (- index (- z-count i 1)) 0)
+							    i
+							    (if (>= (- index (- z-count i 1))
+								    (length z))
+								(1- (length z))
+								(- index (- z-count i 1))))
+							z))
+						 (iota (1- z-count)))
+					 (list (if-let ((nth-z (nth index z)))
+						 nth-z 0.0)))))
+
+		       ;; (append res (list close))
+		       res
+		       )))
+		 ;; TODO: generalize (get-data) so it doesn't need an `instrument`.
+		 ;; (get-data *instrument* *rates* :levels (slot-value agent 'beliefs))
+		 ;; (get-data *instrument* *rates*)
+		 (get-data *instrument* *rates*))
+	 (+ offset omper:*data-count*))))
+
+;; (length (time (io-fibos 6 :offset 0)))
+
+(defun io-stochastic-oscillator (%k-periods %d-periods &key (offset 0))
+  (subseq-input
+   (last (remove nil
+		 (mapcar (stochastic
+			  (lambda (rate)
+			    (access rate :high-bid))
+			  (lambda (rate)
+			    (access rate :low-bid))
+			  (lambda (rate)
+			    (access rate :close-bid))
+			  :%k-periods %k-periods
+			  :%d-periods %d-periods)
+			 (get-full-real-data (+ omper:*data-count*
+						offset
+						(+ %d-periods %k-periods)
+						))))
+	 (+ offset omper:*data-count*))))
+
+(defun io-sma (periods &key (offset 0))
+  (subseq-input
+   (sma periods (get-closes
+		 (+ omper:*data-count*
+		    (1- periods))))))
+
+(defun io-awma (period &key (offset 0))
+  (subseq-input
+   (awma period (get-closes
+		 (+ omper:*data-count*
+		    (1- period))))))
+
+(defun io-ema (period &key (offset 0))
+  (subseq-input
+   (ema period (get-closes
+		(+ omper:*data-count*
+		   offset
+		   (1- period))))))
+
+;; (length (io-ema 10 :offset 2))
+;; (time (dotimes (x 10) (io-ema 10 :offset 0)))
+
+(defun io-macd (period-a period-b &key (offset 0))
+  (subseq-input (macd period-a period-b
+		      (get-closes (+ offset (1- (max period-a period-b)) omper:*data-count*)))))
+
+;; (time (dotimes (x 10) (io-macd 10 20 :offset 0)))
+
+(defun io-macd-signal (smoothing-period period-a period-b &key (offset 0))
+  (subseq-input (macd-signal smoothing-period
+			     period-a
+			     period-b
+			     (get-closes (- (+ offset smoothing-period (max period-a period-b) omper:*data-count*) 2)))))
 
 (defun ta-average (sequence &key (key #'identity))
   (let ((len 1))
@@ -2711,39 +2512,6 @@ Bollinger band points."
 (defun min-price (history &key key)
   (apply #'max (mapcar key history)))
 
-(defun get-stochastic-oscillator (&optional (%k-periods 5) (%d-periods 5))
-  ;; (last (remove nil
-  ;;         (mapcar (stochastic
-  ;;                  (lambda (rate)
-  ;;                    (access rate :high-bid))
-  ;;                  (lambda (rate)
-  ;;                    (access rate :low-bid))
-  ;;                  (lambda (rate)
-  ;;                    (access rate :close-bid))
-  ;;                  :%k-periods %k-periods
-  ;;                  :%d-periods %d-periods)
-  ;;                 (get-full-real-data (+ omper:*data-count*
-  ;;                                        (+ %d-periods %k-periods)))))
-  ;;       omper:*data-count*)
-  (remove nil
-          (mapcar (stochastic
-                   (lambda (rate)
-                     (access rate :high-bid))
-                   (lambda (rate)
-                     (access rate :low-bid))
-                   (lambda (rate)
-                     (access rate :close-bid))
-                   :%k-periods %k-periods
-                   :%d-periods %d-periods)
-                  (get-full-real-data (+ omper:*data-count*
-                                         (+ %d-periods %k-periods)
-					 )))))
-;; (length (get-stochastic-oscillator 3 15))
-;; (sort (get-stochastic-oscillator 5 3) (lambda (e1 e2)
-;;                                         (if (null e2)
-;;                                             0
-;;                                             (< e1 e2))) :key #'second)
-
 (defun stochastic (key-high key-low key-close
 		   &key (%k-periods 5) (%d-periods 5))
   "Creates a function that computes the stochastic indicator over the
@@ -2765,7 +2533,7 @@ from each sample."
 
 (defun get-report (db-pop instrument timeframe rates
                    &optional (begin *begin*) (end *end*) (ratio *testing-ratio*))
-  ;; (format t "dbg.get-report: ~a, ~a, ~a, ~a~%" begin end (length *all-rates*) (length rates))
+  ;; (format t "~%dbg.get-report: ~a, ~a, ~a, ~a, ~a, ~a" begin end (length *all-rates*) (length rates) ratio omper:*data-count*)
   (let* ((omper:*data-count* (ceiling (* omper:*data-count* ratio)))
          (*instrument* instrument)
          (*timeframe* timeframe)
@@ -2793,17 +2561,8 @@ from each sample."
 			      (limit count))))))
 ;; (get-reports 1)
 
-(defun run-random-rates (iterations)
-  (dotimes (_ iterations)
-    (init)
-    (train 1000 1000 :fitness-fn #'mase :sort-fn #'< :save-every 10 :epsilon 0.02)
-    )
-  ;; (train 1000 :fitness-fn #'corrects :sort-fn #'> :save-every 1 :epsilon 1.8))
-  (get-reports 1))
-
 ;; (filter-reports *reports*)
 ;; (defparameter *reports* (get-reports 1))
-;; (defparameter *results* (run-random-rates 1))
 ;; *cached-agents*
 ;; *generations*
 
@@ -2851,7 +2610,7 @@ from each sample."
   "Runs a simulation of a market defined by `rates` using `agents`. Returns multiple performance metrics."
   (let* ((*rates* rates)
          (sim (agents-simulation agents))
-         (real (get-real-data-deltas (length sim)))
+         (real (get-deltas (length sim)))
 
          (mae (mae sim real))
 	 (mse (mse sim real))
@@ -2880,14 +2639,14 @@ from each sample."
 ;;   (dolist (beliefs (slot-value pop 'beliefs))
 ;;     (print beliefs)))
 
-;; ;; (dolist (real (get-real-data))
+;; ;; (dolist (real (get-closes))
 ;; ;;   (print real))
 
 ;; ;; ;; make a test-all method to test a model against multiple markets, multiple testing sets
 ;; ;; ;; the objective is to prove that our architecture is generalized enough to work anywhere
 ;; ;; (let ((*rates* (subseq (ms:unmarshal (read-from-string (file-get-contents "/home/amherag/quicklisp/local-projects/neuropredictions/data/aud_usd.dat"))) 500 1000)))
 ;; ;;   (corrects (agents-indexes-simulation (agents-best (agents-distribution *population*)))
-;; ;; 	  (get-real-data)))
+;; ;; 	  (get-closes)))
 
 ;; (defparameter *best-agent* (agents-best (agents-distribution *population*)))
 
@@ -3045,7 +2804,7 @@ extracted from `*agents-pool*` using the indexes stored in `agents-indexes`."
     deltas
     ;; (mapcar #'+
     ;; 	    deltas
-    ;; 	    (get-real-data (length deltas)))
+    ;; 	    (get-closes (length deltas)))
     ))
 
 ;; (length (agent-simulation (first *agents-pool*)))
@@ -3113,7 +2872,7 @@ extracted from `*agents-pool*` using the indexes stored in `agents-indexes`."
   "Uses the market simulation created by the agents represented by `agents-indexes` to generate a list of profits generated by comparing the simulation against the real market data."
   ;; (agents-profit '(1 2 4))
   (let ((sim (agents-indexes-simulation agents-indexes)))
-    (revenue sim (get-real-data-deltas (length sim)))))
+    (revenue sim (get-deltas (length sim)))))
 
 (defun agents-describe (agents-indexes)
   (let* ((fibos (mapcar (lambda (agent-index)
@@ -3434,37 +3193,37 @@ extracted from `*agents-pool*` using the indexes stored in `agents-indexes`."
 each point in the real prices."
   ;; (agents-revenue (first *population*))
   (let ((sim (agents-indexes-simulation agents-indexes)))
-    (revenue sim (get-real-data-deltas (length sim)))))
+    (revenue sim (get-deltas (length sim)))))
 
 (defun agents-corrects (agents-indexes &optional (mape-constraint nil))
   "Returns the number of correct direction predictions made by the agents in
 `agents-indexes` for the real prices."
   ;; (agents-corrects (first *population*))
   (let ((sim (agents-indexes-simulation agents-indexes)))
-    (corrects sim (get-real-data-deltas (length sim)) mape-constraint)))
+    (corrects sim (get-deltas (length sim)) mape-constraint)))
 
 (defun agents-pmape (agents-indexes &optional (zero-metric-constraint t))
   "Returns the penalized mean absolute percentage error obtained by the agents' simulation in
 `agents-indexes` for the real prices."
   ;; (agents-mse (first *population*))
   (let ((sim (agents-indexes-simulation agents-indexes)))
-    (pmape sim (get-real-data-deltas (length sim)) zero-metric-constraint)))
+    (pmape sim (get-deltas (length sim)) zero-metric-constraint)))
 
 (defun agents-mape (agents-indexes &optional (zero-metric-constraint nil))
   "Returns the mean absolute percentage error obtained by the agents' simulation in
 `agents-indexes` for the real prices."
   ;; (agents-mse (first *population*))
   (let ((sim (agents-indexes-simulation agents-indexes)))
-    (mape sim (get-real-data-deltas (length sim)) zero-metric-constraint)))
+    (mape sim (get-deltas (length sim)) zero-metric-constraint)))
 
 (defun agents-mase (agents-indexes &optional (zero-metric-constraint nil))
   "Returns the mean absolute scaled error obtained by the agents' simulation in
 `agents-indexes` for the real prices."
   (let ((sim (agents-indexes-simulation agents-indexes)))
-    (mase sim (get-real-data-deltas (length sim)) zero-metric-constraint)))
+    (mase sim (get-deltas (length sim)) zero-metric-constraint)))
 
 ;; (agents-mape (second *population*))
-;; (get-real-data-deltas 10)
+;; (get-deltas 10)
 ;; (agents-indexes-simulation (first *population*))
 
 (defun agents-rmse (agents-indexes)
@@ -3472,21 +3231,21 @@ each point in the real prices."
 `agents-indexes` for the real prices."
   ;; (agents-mse (first *population*))
   (let ((sim (agents-indexes-simulation agents-indexes)))
-    (rmse sim (get-real-data-deltas (length sim)))))
+    (rmse sim (get-deltas (length sim)))))
 
 (defun agents-mae (agents-indexes)
   "Returns the mean absolute error obtained by the agents' simulation in
 `agents-indexes` for the real prices."
   ;; (agents-mse (first *population*))
   (let ((sim (agents-indexes-simulation agents-indexes)))
-    (mae sim (get-real-data-deltas (length sim)))))
+    (mae sim (get-deltas (length sim)))))
 
 (defun agents-mse (agents-indexes)
   "Returns the mean squared error obtained by the agents' simulation in
 `agents-indexes` for the real prices."
   ;; (agents-mse (first *population*))
   (let ((sim (agents-indexes-simulation agents-indexes)))
-    (mse sim (get-real-data-deltas (length sim)))))
+    (mse sim (get-deltas (length sim)))))
 
 (defun plot-mfs ()
   "Returns an `alist` with the plots (y-values) of all the membership"
@@ -3525,32 +3284,6 @@ each point in the real prices."
   (let ((diff (abs (- (nth 0 ifs) (nth 1 ifs)))))
     diff))
 
-(defun get-real-data-deltas (count)
-  "This one predicts N periods in future as a big single delta."
-  (let ((reals (get-real-data (+ count *delta-gap*))))
-    (remove nil
-	    (maplist (lambda (real)
-		       (unless (<= (length real) *delta-gap*)
-			 (- (nth (1- *delta-gap*) real)
-			    (nth 0 real)
-			    )))
-		     reals))))
-
-;; (get-real-data-deltas 10)
-;; (get-real-data 10)
-
-(defun get-real-data (count)
-  (reverse (subseq (reverse (mapcar (lambda (rate) (cdr (assoc :close-bid rate))) *rates*)) 0 count)))
-
-(defun get-real-data-volumes (count)
-  (reverse (subseq (reverse (mapcar (lambda (rate) (cdr (assoc :volume rate))) *rates*)) 0 count)))
-
-(defun get-real-data-highs (count)
-  (reverse (subseq (reverse (mapcar (lambda (rate) (cdr (assoc :high-bid rate))) *rates*)) 0 count)))
-
-(defun get-real-data-lows (count)
-  (reverse (subseq (reverse (mapcar (lambda (rate) (cdr (assoc :low-bid rate))) *rates*)) 0 count)))
-
 (defun get-full-real-data (count)
   (reverse (subseq (reverse *rates*) 0 count)))
 
@@ -3561,21 +3294,8 @@ each point in the real prices."
 	 vals)
     (rest (reverse results))))
 
-;; (defparameter *num-pool-agents* 2000)
-;; (defparameter *num-rules* 2)
-;; (defparameter *community-size* 20)
-;; (defparameter *population-size* 20)
-;; (defparameter *agents-pool* (gen-agents *num-pool-agents*))
-;; (defparameter *population* (gen-communities *community-size* *population-size*))
-;; (defparameter *cached-agents* (make-hash-table :test #'equal))
-;; (defparameter *fitnesses* nil)
-;; (defparameter *ifs-sd* 20)
-;; (defparameter *continue?* t)
-;; (defparameter *num-pool-agents* 10)
-;; (defparameter *num-rules* 2)
-;; (defparameter *cached-agents* (make-hash-table :test #'equal))
-;; (defparameter *ifs-sd* 30)
-;; (defparameter *random-best* nil)
+;; (get-deltas 10)
+;; (get-closes 10)
 
 (defun agent-uncertainty (agents)
   "Used for only one agent."
@@ -3661,4 +3381,372 @@ each point in the real prices."
 ;; (access (last-elt (get-descendants "0AE3D091-AED6-4C66-9498-F0E5647AA3F6")) :id)
 
 ;; Initializing Overmind Agents
-;; (init)
+;; (init *instrument* *timeframe*)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+(defun simple-moving-average (period sequence)
+  "This function calculates the simple moving average (SMA) of a sequence."
+  (assert (sigma/numeric:positive-integer? period))
+  (assert (sigma/sequence:sequence? sequence))
+  (loop for end from period to (length sequence) collect
+        (/ (sigma/numeric:sum sequence :start (- end period) :end end)
+           period)))
+
+(sigma/control:function-alias 'simple-moving-average 'sma)
+;; (org.tfeb.hax.memoize:memoize-function 'simple-moving-average)
+;; (org.tfeb.hax.memoize:memoize-function 'sma)
+
+(defun arithmetically-weighted-moving-average (period sequence)
+  "This function calculates the arithmetically weighted moving average (WMA) of
+a sequence, which is the specific WMA generally meant in technical analysis
+whenever WMA is discussed."
+  (assert (sigma/numeric:positive-integer? period))
+  (assert (sigma/sequence:sequence? sequence))
+  (loop for end from period to (length sequence) collect
+        (/ (sigma/numeric:sum (mapcar #'*
+                        ;; These are the weights.  The oldest data point is
+                        ;; weighted at 1 and the newest at n for an n-period
+                        ;; arithmetically weighted moving average.
+                        (loop for i from 1 to period collect i)
+                        (subseq sequence (- end period) end)))
+           ;; The denominator is actually n+(n-1)+(n-2)+...+2+1, but this is a
+           ;; triangular number, which can be determined by this formula.
+           (* period (1+ period) 1/2))))
+
+(sigma/control:function-alias 'arithmetically-weighted-moving-average 'awma)
+;; (org.tfeb.hax.memoize:memoize-function 'arithmetically-weighted-moving-average)
+;; (org.tfeb.hax.memoize:memoize-function 'awma)
+
+;; (awma 2 '(1 2 3 4))
+
+(defun exponential-moving-average (period sequence)
+  "This function calculates the exponential moving average (EMA) of a sequence."
+  ;;; XXX: This is too slow!
+  (assert (sigma/numeric:positive-integer? period))
+  (assert (sigma/sequence:sequence? sequence))
+  (let ((smoothing-factor (/ 2 (1+ period)))) ; This is alpha.
+    (loop for end from period to (length sequence) collect
+          ;; This should actually be divided by 1+(1-a)+(1-a)**2+... as an
+          ;; infinite summation, but this approaches 1/a.
+          (* smoothing-factor
+             (sigma/numeric:sum (mapcar #'*
+                          ;; These are the weights.
+                          (loop for e from 0 to (length sequence) collect
+                                (expt (1- smoothing-factor) e))
+                          (subseq sequence (- end period) end)))))))
+
+(sigma/control:function-alias 'exponential-moving-average 'ema)
+;; (org.tfeb.hax.memoize:memoize-function 'exponential-moving-average)
+;; (org.tfeb.hax.memoize:memoize-function 'ema)
+
+(defun moving-average-convergence-divergence (period-a period-b sequence)
+  "This is the moving average convergence/divergence (MACD) of a sequence."
+  (mapcar #'- (ema period-a sequence) (ema period-b sequence)))
+
+(sigma/control:function-alias 'moving-average-convergence-divergence 'macd)
+;; (org.tfeb.hax.memoize:memoize-function 'moving-average-convergence-divergence)
+;; (org.tfeb.hax.memoize:memoize-function 'macd)
+
+(defun macd-signal (smoothing-period period-a period-b sequence)
+  "This is the MACD of a sequence with an EMA applied to smooth the results.
+It is routinely used as a signal/trigger."
+  (ema smoothing-period (macd period-a period-b sequence)))
+
+;; (org.tfeb.hax.memoize:memoize-function 'macd-signal)
+
+(defun upward-changes (sequence)
+  (mapcar #'(lambda (yesterday today)
+              (if (< yesterday today) ; Are we upward?
+                (- today yesterday)
+                0))
+          sequence
+          (rest sequence)))
+
+(defun downward-changes (sequence)
+  (mapcar #'(lambda (yesterday today)
+              (if (> yesterday today) ; Are we downward?
+                (- yesterday today)
+                0))
+          sequence
+          (rest sequence)))
+
+(defun relative-strength (moving-average sequence)
+  (mapcar #'/
+          (funcall moving-average (upward-changes sequence))
+          (funcall moving-average (downward-changes sequence))))
+
+(sigma/control:function-alias 'relative-strength 'rs)
+
+(defun ema-rs (period sequence)
+  (relative-strength (curry #'ema period) sequence))
+
+(sigma/control:function-alias 'ema-rs 'wilder-rs)
+
+(defun ema-rs-27 (sequence)
+  "This is the RS that Wilder recommended originally."
+  (ema-rs 27 sequence))
+
+(sigma/control:function-alias 'ema-rs-27 'rs-textbook)
+
+(defun sma-rs (period sequence)
+  (relative-strength (curry #'ema period) sequence))
+
+(sigma/control:function-alias 'sma-rs 'cutler-rs)
+
+(defun relative-strength-index (rs sequence)
+  (- 100 (* 100 (/ (1+ (funcall rs sequence))))))
+
+(sigma/control:function-alias 'relative-strength-index 'rsi)
+
+(defun ema-rsi (period sequence)
+  (rsi (curry #'ema-rs period) sequence))
+
+(sigma/control:function-alias 'ema-rsi 'wilder-rsi)
+
+(defun ema-rsi-27 (sequence)
+  (rsi #'ema-rs-27 sequence))
+
+(sigma/control:function-alias 'ema-rsi-27 'rsi-textbook)
+
+(defun sma-rsi (period sequence)
+  (rsi (curry #'ema-rs period) sequence))
+
+(sigma/control:function-alias 'sma-rsi 'cutler-rsi)
+
+(defun simple-directional-signal (period sequence)
+  (assert (sigma/numeric:positive-integer? period))
+  (mapcar #'< sequence (nthcdr period sequence)))
+
+(defun simple-directional-gains (period sequence)
+  (let* ((signals (simple-directional-signal period sequence))
+         (start (- (length sequence) (length signals))))
+    (mapcar #'(lambda (today tomorrow signal)
+                (if signal
+                  (/ tomorrow today)
+                  1))
+            (nthcdr start sequence)
+            (nthcdr (1+ start) sequence)
+            signals)))
+
+(defun simple-directional-performance (period sequence)
+  (product (simple-directional-gains period sequence)))
+
+(defun dual-simple-directional-signal (period-a period-b sequence)
+  (reverse (mapcar #'(lambda (a b) (and a b))
+                   (reverse (simple-directional-signal period-a sequence))
+                   (reverse (simple-directional-signal period-b sequence)))))
+
+(defun dual-simple-directional-gains (period-a period-b sequence)
+  (let* ((signals (dual-simple-directional-signal period-a period-b sequence))
+         (start (- (length sequence) (length signals))))
+    (mapcar #'(lambda (today tomorrow signal)
+                (if signal
+                  (/ tomorrow today)
+                  1))
+            (nthcdr start sequence)
+            (nthcdr (1+ start) sequence)
+            signals)))
+
+(defun dual-simple-directional-performance (period-a period-b sequence)
+  (product (dual-simple-directional-gains period-a period-b sequence)))
+
+(defun sma-crossover-signal (short-period long-period ratio sequence)
+  (assert (sigma/numeric:positive-integer? short-period))
+  (assert (sigma/numeric:positive-integer? long-period))
+  (assert (< short-period long-period))
+  (let* ((short-sma (sma short-period sequence))
+         (long-sma (sma long-period sequence))
+         (start (- (length short-sma) (length long-sma))))
+    (mapcar #'(lambda (short long)
+                (< (* ratio long) short))
+            (nthcdr start short-sma)
+            long-sma)))
+
+(defun directional-sma-crossover-signal
+  (short-period long-period ratio sequence)
+  (assert (sigma/numeric:positive-integer? short-period))
+  (assert (sigma/numeric:positive-integer? long-period))
+  (assert (< short-period long-period))
+  (let* ((short-sma (sma short-period sequence))
+         (long-sma (sma long-period sequence))
+         (start (1+ (- (length short-sma) (length long-sma)))))
+    (mapcar #'(lambda (short long previous-long)
+                (cond ((and (< (* ratio long) short)
+                            (< previous-long long))
+                       :long)
+                      ((and (> (/ long ratio) short)
+                            (> previous-long long))
+                       :short)
+                      (t :cash)))
+            (nthcdr start short-sma)
+            (cdr long-sma)
+            long-sma)))
+
+(defun sma-crossover-gains (short-period long-period ratio sequence)
+  (let* ((signals (sma-crossover-signal short-period long-period ratio
+                                        sequence))
+         (start (- (length sequence) (length signals))))
+    (mapcar #'(lambda (today tomorrow signal)
+                (if signal
+                  (/ tomorrow today)
+                  1))
+            (nthcdr start sequence)
+            (nthcdr (1+ start) sequence)
+            signals)))
+
+(defun directional-sma-crossover-gains (short-period long-period ratio sequence)
+  (let* ((signals (directional-sma-crossover-signal
+                    short-period long-period ratio sequence))
+         (start (- (length sequence) (length signals))))
+    (mapcar #'(lambda (today tomorrow signal)
+                (case signal
+                  (:long (/ tomorrow today))
+                  (:cash 1)
+                  (:short (/ today tomorrow))))
+            (nthcdr start sequence)
+            (nthcdr (1+ start) sequence)
+            signals)))
+
+(defun sma-crossover-long/short-gains (short-period long-period ratio sequence)
+  (let* ((signals (sma-crossover-signal short-period long-period ratio
+                                        sequence))
+         (start (- (length sequence) (length signals))))
+    (mapcar #'(lambda (today tomorrow signal)
+                (if signal
+                  (/ tomorrow today)
+                  (/ today tomorrow)))
+            (nthcdr start sequence)
+            (nthcdr (1+ start) sequence)
+            signals)))
+
+(defun sma-crossover-performance (short-period long-period ratio sequence)
+  (product (sma-crossover-gains short-period long-period ratio sequence)))
+
+(defun directional-sma-crossover-performance
+  (short-period long-period ratio sequence)
+  (product (directional-sma-crossover-gains
+             short-period long-period ratio sequence)))
+
+(defun sma-crossover-long/short-performance
+  (short-period long-period ratio sequence)
+  (product (sma-crossover-long/short-gains short-period long-period ratio
+                                           sequence)))
+
+(defun sma-crossover-optimal (sequence)
+  (let ((optimal-short-period nil)
+        (optimal-long-period nil)
+        (optimal-ratio nil)
+        (optimal-performance nil)
+        (b&h-performance (buy-and-hold-performance sequence)))
+    (loop for ratio from 1.00 to 1.05 by 0.01 do
+          (loop for long-period from 2 to 200 do
+                (loop for short-period from 1 to (1- long-period) do
+                      (let ((performance (sma-crossover-performance short-period
+                                                                    long-period
+                                                                    ratio
+                                                                    sequence)))
+                        (when (or (null optimal-performance)
+                                (< optimal-performance performance))
+                          (format t "New optimal: (SMA-CROSSOVER ~A ~A ~A) => ~A ~A B&H => ~A.~%"
+                                  short-period long-period ratio
+                                  performance
+                                  (cond ((< performance b&h-performance) "<")
+                                        ((= performance b&h-performance) "=")
+                                        ((> performance b&h-performance) ">"))
+                                  b&h-performance)
+                          (setf optimal-short-period short-period
+                                optimal-long-period long-period
+                                optimal-ratio ratio
+                                optimal-performance performance))))))
+    (list optimal-short-period optimal-long-period optimal-ratio
+          optimal-performance)))
+
+(defun sma-crossover-long/short-optimal (sequence)
+  (let ((optimal-short-period nil)
+        (optimal-long-period nil)
+        (optimal-ratio nil)
+        (optimal-performance nil)
+        (b&h-performance (buy-and-hold-performance sequence)))
+    (loop for ratio from 1.00 to 1.05 by 0.01 do
+          (loop for long-period from 2 to 200 do
+                (loop for short-period from 1 to (1- long-period) do
+                      (let ((performance
+                              (sma-crossover-long/short-performance
+                                short-period long-period ratio sequence)))
+                        (when (or (null optimal-performance)
+                                (< optimal-performance performance))
+                          (format t "New optimal: (SMA-CROSSOVER-LONG/SHORT ~A ~A ~A) => ~A ~A B&H => ~A.~%"
+                                  short-period long-period ratio
+                                  performance
+                                  (cond ((< performance b&h-performance) "<")
+                                        ((= performance b&h-performance) "=")
+                                        ((> performance b&h-performance) ">"))
+                                  b&h-performance)
+                          (setf optimal-short-period short-period
+                                optimal-long-period long-period
+                                optimal-ratio ratio
+                                optimal-performance performance))))))
+    (list optimal-short-period optimal-long-period optimal-ratio
+          optimal-performance)))
+
+(defun directional-sma-crossover-optimal (sequence)
+  (let ((optimal-short-period nil)
+        (optimal-long-period nil)
+        (optimal-ratio nil)
+        (optimal-performance nil)
+        (b&h-performance (buy-and-hold-performance sequence)))
+    (loop for ratio from 1.00 to 1.05 by 0.01 do
+          (loop for long-period from 2 to 200 do
+                (loop for short-period from 1 to (1- long-period) do
+                      (let ((performance
+                              (directional-sma-crossover-performance
+                                short-period long-period ratio sequence)))
+                        (when (or (null optimal-performance)
+                                (< optimal-performance performance))
+                          (format t "New optimal: (DIRECTIONAL-SMA-CROSSOVER ~A ~A ~A) => ~A ~A B&H => ~A.~%"
+                                  short-period long-period ratio
+                                  performance
+                                  (cond ((< performance b&h-performance) "<")
+                                        ((= performance b&h-performance) "=")
+                                        ((> performance b&h-performance) ">"))
+                                  b&h-performance)
+                          (setf optimal-short-period short-period
+                                optimal-long-period long-period
+                                optimal-ratio ratio
+                                optimal-performance performance))))))
+    (list optimal-short-period optimal-long-period optimal-ratio
+          optimal-performance)))
+
+(defun fibs (low high)
+  (let* ((phi (/ (1+ (sqrt 5)) 2))
+         (inverse-phi (/ phi))
+         (range (- high low))
+         (r/2 (/ range 2))
+         (mid (+ low r/2))
+         (mid+z (+ low (* inverse-phi range)))
+         (z (- mid+z mid)))
+    (format t "Range: ~$ ~$~%Low: ~$ ~$ ~$~%Mid: ~$ ~$ ~$~%High: ~$ ~$ ~$"
+            range r/2
+            (- low z) low (+ low z)
+            (- mid z) mid mid+z
+            (- high z) high (+ high z))))
+
+(defun fibonacci (table &key (key 'adjusted-closing-price))
+  (fibs (reduce #'min (funcall key table))
+        (reduce #'max (funcall key table))))

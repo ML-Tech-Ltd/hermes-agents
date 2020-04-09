@@ -21,6 +21,7 @@
 	       :cl-json
 	       :dexador
 	       :alexandria
+	       :sigma
 
 	       :overmind-intuition
 	       :overmind-input

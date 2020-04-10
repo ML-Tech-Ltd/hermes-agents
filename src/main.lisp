@@ -1703,7 +1703,10 @@ instruments `INSTRUMENTS-KEYS` for `ITERATIONS`."
 		 (float (* 100 (if (/= (reduce #'+ denoms) 0) (/ (reduce #'+ nums) (reduce #'+ denoms)) 0))))))
     (format t "~%~%RESULTS: ~a~%" (list nums denoms))))
 
-;; (tweaking :instrument :AUD_USD :timeframe :D :iterations 300 :experiments-count 60)
+;; (dolist (instrument '(:EUR_GBP :EUR_JPY :EUR_USD :GBP_USD :USD_CHF :USD_CAD :USD_CNH :USD_HKD))
+;;   (tweaking :instrument instrument :timeframe :H1 :iterations 300 :experiments-count 60))
+
+;; (tweaking :instrument :EUR_GBP :timeframe :H1 :iterations 300 :experiments-count 30)
 ;; *population*
 ;; *generations*
 

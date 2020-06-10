@@ -1,7 +1,7 @@
 ;; (ql:quickload :overmind-agents)
 ;; (ql:quickload :mlforecasting)
-;; (mlforecasting:start :port 2000)
-;; (loop-optimize-test 100 :instruments-keys '(:all) :timeframes-keys '(:longterm))
+;; (mlforecasting:start :port 2001)
+;; (loop-optimize-test 100 :instruments-keys '(:forex) :timeframes-keys '(:all) :print-log? t)
 ;; (loop-optimize-test 50 :instruments-keys '(:forex) :timeframes-keys '(:all))
 ;; (loop-optimize-test 50 :instruments-keys '(:all) :timeframes-keys '(:longterm))
 ;; (loop-optimize-test 50 :instruments-keys '(:metals) :timeframes-keys '(:longterm))
@@ -27,7 +27,8 @@
 	:overmind-agents.km
 	)
   (:export :query-test-instruments
-	   :query-test-timeframes)
+	   :query-test-timeframes
+	   :loop-optimize-test)
   (:nicknames :omage))
 (in-package :overmind-agents)
 
@@ -85,9 +86,9 @@
 	(denominator 0)
 	(markets 0))
     (dolist (test (query-test-instruments timeframe))
-      (when (/= (aref (access test :corrects) 1) 0)
-	(incf numerator (aref (access test :corrects) 0))
-	(incf denominator (aref (access test :corrects) 1))
+      (when (/= (aref (access test :accuracy) 1) 0)
+	(incf numerator (aref (access test :accuracy) 0))
+	(incf denominator (aref (access test :accuracy) 1))
 	(incf markets)))
     (format t "Mean: ~$%, Corrects: ~a, Trades: ~a, Markets: ~a~%"
 	    (if (= denominator 0) 0 (float (* 100 (/ numerator denominator)))) numerator denominator markets)))
@@ -168,7 +169,13 @@
                          :not-null t)
                     (rmse :type '(:numeric)
                           :not-null t)
-                    (corrects :type '(:numeric[2])
+		    (recall :type '(:numeric)
+			    :not-null t)
+		    (precision :type '(:numeric)
+			       :not-null t)
+		    (f1-score :type '(:numeric)
+			      :not-null t)
+                    (accuracy :type '(:numeric[2])
                               :not-null t)
                     (revenue :type '(:numeric)
                              :not-null t)
@@ -204,7 +211,13 @@
                        :not-null t)
                   (rmse :type '(:numeric)
                         :not-null t)
-                  (corrects :type '(:numeric[2])
+		  (recall :type '(:numeric)
+			  :not-null t)
+		  (precision :type '(:numeric)
+			     :not-null t)
+		  (f1-score :type '(:numeric)
+			    :not-null t)
+                  (accuracy :type '(:numeric[2])
                             :not-null t)
                   (revenue :type '(:numeric)
                            :not-null t)
@@ -257,8 +270,8 @@ agents parameters according to it."
     ;;          (setf *fitnesses* (list (access:access retrieved-pop :pmape))))
     ;;         ((eq fit-fn :rmse)
     ;;          (setf *fitnesses* (list (access:access retrieved-pop :rmse))))
-    ;;         ((eq fit-fn :corrects)
-    ;;          (setf *fitnesses* (list (access:access retrieved-pop :corrects))))
+    ;;         ((eq fit-fn :accuracy)
+    ;;          (setf *fitnesses* (list (access:access retrieved-pop :accuracy))))
     ;;         ((eq fit-fn :revenue)
     ;;          (setf *fitnesses* (list (access:access retrieved-pop :revenue))))
     ;;         (t ;; default
@@ -331,125 +344,116 @@ agents parameters according to it."
 
 ;; (marshal:marshal (extract-agents-from-pool (agents-best (agents-distribution *population*))))
 
-(defun check-zero-metric (sim real)
-  (if (< (mean (mapcar (lambda (s r)
-			 (abs (/ (- r s) (1+ r))))
-		       sim real))
-  	 0.001)
-      t))
-
 (defun pmape (sim real &optional (zero-metric-constraint nil))
   "Penalized MAPE. If a simulation has a different direction than that of the real price, it gets penalized with a weight."
-  (let* ((rmax (apply #'max real))
-	 (rmin (apply #'min real)))
-    (/ (reduce #'+ (mapcar (lambda (s r)
-			     (if (>= (* r s) 0)
-				 (abs (/ (- r s) (1+ (abs r))))
-				 (* 3
-				    (abs (/ (- r s) (1+ (abs r)))))))
-			   (scale-sim sim rmin rmax)
-			   real))
-       (length real))))
+  (let ((real (subseq real *delta-gap*))
+	(trades (remove nil
+			(mapcar (lambda (s r)
+				  (when (/= s 0)
+				    (if (>= (* r s) 0)
+					(abs (/ (- r s) (1+ (abs r))))
+					(* 3
+					   (abs (/ (- r s) (1+ (abs r))))))))
+				sim
+				real))))
+    (if trades
+	(/ (reduce #'+ trades)
+	   (length real))
+	cl:most-positive-fixnum)))
 
 (defun mase (sim real &optional (zero-metric-constraint nil))
   "Mean absolute scaled error between a simulated time series `sim` and a real time series `real`."
-  (let ((real (subseq real *delta-gap*)))
-    (/ (mean (mapcar (lambda (s r)
-		       (abs (- r s)))
-		     sim
-		     real))
-       (mean (mapcar (lambda (next current)
-		       (abs (- next current)))
-		     (rest real)
-		     real)))))
+  (let* ((real (subseq real *delta-gap*))
+	 (numerators (mapcar (lambda (s r)
+			       (if (/= s 0)
+				   (abs (- r s))))
+			     sim
+			     real))
+	 (denominators (remove nil
+			       (mapcar (lambda (next current num)
+					 (if num
+					     (abs (- next current))))
+				       (rest real)
+				       real
+				       numerators))))
+    (if denominators
+	(/ (mean (remove nil numerators))
+	   (mean (remove nil denominators)))
+	cl:most-positive-fixnum)
+    ))
 
 (defun mape (sim real &optional (zero-metric-constraint nil))
   "Mean absolute percentage error between a simulated time series `sim` and a real time series `real`.
 This version scales the simulation."
-  (/ (reduce #'+ (mapcar (lambda (s r)
-			   (/ (abs (- r s)) (1+ (abs r))))
-			 sim
-			 real
-			 ))
-     (length real)
-     ))
-
-;; (check-zero-metric '(1.001 1.999 1.001 1.999 1.001 1.999)
-;; 		   '(1 2 1 2 1 2))
+  (let ((real (subseq real *delta-gap*))
+	(trades (remove nil
+			(mapcar (lambda (s r)
+				  (if (/= s 0)
+				      (/ (abs (- r s)) (1+ (abs r)))))
+				sim
+				real
+				))))
+    (if trades
+	(/ (reduce #'+ trades)
+	   (length trades))
+	cl:most-positive-fixnum)))
 
 (defun mse (sim real)
   "Mean squared error between a simulated time series `sim` and a real time series `real`."
-  (/ (reduce #'+ (mapcar (lambda (elt) (expt elt 2)) (mapcar #'- sim real)))
-     (length real)))
+  (let ((real (subseq real *delta-gap*))
+	(trades (mapcar (lambda (elt) (expt elt 2))
+			(remove nil
+				(mapcar (lambda (s r)
+					  (if (/= s 0)
+					      (- s r)))
+					sim real)))))
+    (if trades
+	(/ (reduce #'+ trades)
+	   (length trades))
+	cl:most-positive-fixnum)))
 
 (defun mae (sim real)
   "Mean absolute error between a simulated time series `sim` and a real time
 series `real`."
-  (/ (reduce #'+ (mapcar (lambda (s r)
-			   (abs (- s r)))
-			 sim
-			 real))
-     (length real)))
+  (let ((real (subseq real *delta-gap*))
+	(trades (remove nil
+			(mapcar (lambda (s r)
+				  (if (/= s 0)
+				      (abs (- s r))))
+				sim
+				real))))
+    (if trades
+	(/ (reduce #'+ trades)
+	   (length real))
+	cl:most-positive-fixnum)))
 
 (defun rmse (sim real)
   "Root mean square error between a simulated time series `sim` and a real time
 series `real`."
-  (sqrt (mse sim real)))
+  (let ((real (subseq real *delta-gap*)))
+    (sqrt (mse sim real))))
 
 (defun revenue (sim real)
   "Average revenue per trade."
-  (let* ((trades-count 0)
-	 (trades-sum (apply #'+
-			    (remove nil
-				    (mapcar (lambda (s r)
-					      (when (/= s 0)
-						(incf trades-count)
-						(if (> (* s r) 0)
-						    (abs r)
-						    (- (abs r)))
-						))
-					    sim real)))))
-    (if (> trades-count 0)
-        (/ trades-sum trades-count)
-    	0)))
+  (let ((real (subseq real *delta-gap*)))
+    (let* ((trades-count 0)
+	   (trades-sum (apply #'+
+			      (remove nil
+				      (mapcar (lambda (s r)
+						(when (/= s 0)
+						  (incf trades-count)
+						  (if (> (* s r) 0)
+						      (abs r)
+						      (- (abs r)))
+						  ))
+					      sim real)))))
+      (if (> trades-count 0)
+	  (/ trades-sum trades-count)
+	  0))))
 
-;; (float 399/500)
-;; (corrects '(3 8 2 5) '(0 10 5 0) nil)
-;; (agent-trades (extract-agent-from-pool (first (agents-best (agents-distribution *population*)))))
-
-;; (map nil #'print (agents-indexes-simulation (agents-best (agents-distribution *population*))))
-;; (agents-indexes-simulation (agents-best (agents-distribution *population*)))
-;; ;; Get agent trades.
-;; ;; (agents-corrects (agents-best (agents-distribution *population*)) nil)
-;; (map nil 'print
-;;      (apply #'mapcar (lambda (&rest nums)
-;; 		       (apply #'+ nums))
-;; 	    (mapcar (lambda (agent)
-;; 		      (agent-trades agent))
-;; 		    (extract-agents-from-pool
-;; 		     (agents-best (agents-distribution *population*))))))
-
-;; (mapcar #'+
-;; 	(apply #'mapcar (lambda (&rest nums)
-;; 			  (apply #'+ nums))
-;; 	       (mapcar (lambda (agent)
-;; 			 (agent-trades agent))
-;; 		       (extract-agents-from-pool
-;; 			(agents-best (agents-distribution *population*)))))
-;; 	(get-closes *data-count*))
-
-
-
-;; (map nil 'print
-;;      (mapcar (lambda (s r)
-;; 	       (- s r))
-;; 	     (agents-indexes-simulation (agents-best (agents-distribution *population*)))
-;; 	     (get-closes 501)))
-
-
-(defun corrects (sim real &optional (mape-constraint nil))
+(defun accuracy (sim real &optional (mape-constraint nil))
   "How many trades were correct."
-  ;; (corrects (agents-indexes-simulation (agents-best (agents-distribution *population*))) (get-closes))
+  ;; (accuracy (agents-indexes-simulation (agents-best (agents-distribution *population*))) (get-closes))
   (let* ((real (subseq real *delta-gap*))
          (trades-count 0)
 	 (trades-sum (apply #'+
@@ -465,7 +469,47 @@ series `real`."
     	#(0 0))
     ))
 
-;; (corrects '(9.5 9.7 9.5 9.4) '(10 9 10 9 10))
+(defun recall (sim real)
+  (let* ((real (subseq real *delta-gap*))
+	 (true-positives 0)
+	 (false-negatives 0))
+    (map nil (lambda (s r)
+	       (when (/= s 0)
+		 ;; False negatives.
+		 (when (and (< s 0) (> r 0))
+		   (incf false-negatives))
+		 ;; True positives.
+		 (when (and (> s 0) (> r 0))
+		   (incf true-positives))))
+	 sim real)
+    (if (or (/= true-positives 0) (/= false-negatives 0))
+	(/ true-positives (+ true-positives false-negatives))
+	0)))
+
+(defun precision (sim real)
+  (let* ((real (subseq real *delta-gap*))
+	 (true-positives 0)
+	 (false-positives 0))
+    (map nil (lambda (s r)
+	       (when (/= s 0)
+		 ;; False positives.
+		 (when (and (> s 0) (< r 0))
+		   (incf false-positives))
+		 ;; True positives.
+		 (when (and (> s 0) (> r 0))
+		   (incf true-positives))))
+	 sim real)
+    (if (or (/= true-positives 0) (/= false-positives 0))
+	(/ true-positives (+ true-positives false-positives))
+	0)))
+
+(defun f1-score (sim real)
+  (let ((rec (recall sim real))
+	(prec (precision sim real)))
+    (if (or (/= rec 0) (/= prec 0))
+	(/ (* 2 rec prec)
+	   (+ rec prec))
+	0)))
 
 (defun combinations (&rest lists)
   (if (endp lists)
@@ -766,7 +810,7 @@ series `real`."
 ;;                   (get-rates-range *instrument* *timeframe*
 ;;                                    (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 512 :day))
 ;;                                    (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 188 :day))))
-;;                  :performance-metrics :corrects))
+;;                  :performance-metrics :accuracy))
 
 ;; (defparameter *test-agents* (gen-agents 200))
 ;; (setf *agents-pool* *test-agents*)
@@ -775,7 +819,7 @@ series `real`."
 ;; (let ((sim (agents-simulation (mapcar (lambda (idx)
 ;;                                         (nth idx *test-agents*))
 ;;                                       '(67 74)))))
-;;   (float (corrects sim (get-closes (length sim)))))
+;;   (float (accuracy sim (get-closes (length sim)))))
 
 ;; (map nil (lambda (n)
 ;;            (print (second (first (agents-err-adjust *test-agents* n)))))
@@ -1280,7 +1324,7 @@ series `real`."
 	(when (< mase best-error)
 	  (setf best-error mase)
 	  (setf best y))
-	;; (format t "~a, ~a, ~a~%" mase (float (agents-corrects *best* nil)) (validate-test *best* 0.1 :corrects))
+	;; (format t "~a, ~a, ~a~%" mase (float (agents-accuracy *best* nil)) (validate-test *best* 0.1 :accuracy))
 	;; (print mase)
 	)
       )))
@@ -1297,7 +1341,7 @@ series `real`."
 ;;   (setf (slot-value agent 'rules-deltas)
 ;; 	(make-list (* 2 *num-rules* *num-inputs*) :initial-element 0)))
 
-;; (defparameter *best* (agents-best (agents-distribution *population* #'corrects #'>) #'>))
+;; (defparameter *best* (agents-best (agents-distribution *population* #'accuracy #'>) #'>))
 ;; (defparameter *best* (agents-best (agents-distribution *population* #'mase)))
 (defun descent-leverages (community error rate max-steps)
   (descent community
@@ -1312,8 +1356,8 @@ series `real`."
 	   :rate rate
 	   :max-steps max-steps))
 ;; (dotimes (i 20) (descent-leverages *best* 6.0d-50 1d-5 5))
-;; (float (agents-corrects *best* nil))
-;; (validate-test *best* 1.0 :corrects)
+;; (float (agents-accuracy *best* nil))
+;; (validate-test *best* 1.0 :accuracy)
 
 ;; 0.905592098739329d0, 0.6025, (0.575 0.5)
 ;; 0.910618936775545d0, 0.5675, (0.525 0.4)
@@ -1321,8 +1365,8 @@ series `real`."
 ;; Init using last entry (generations)
 ;; (init-from-database (access (first (with-postgres-connection (retrieve-all (select (:*) (from :populations) (order-by (:asc :mase)))))) :id))
 
-;; Init using agents with most corrects
-;; (init-from-database (access (first (with-postgres-connection (retrieve-all (select (:*) (from :populations) (order-by (:desc :corrects)))))) :id))
+;; Init using agents with most accuracy
+;; (init-from-database (access (first (with-postgres-connection (retrieve-all (select (:*) (from :populations) (order-by (:desc :accuracy)))))) :id))
 
 ;; Print metrics.
 ;; (csv-real-sim)
@@ -1376,11 +1420,11 @@ series `real`."
 						    *instrument* *timeframe*
 						    (subseq *all-rates* *begin* (+ *end* (* 2 omper:*data-count*)))))
 			       (result `((:train . ((:mase . ,(float (accesses test :training :performance-metrics :mase)))
-						    (:corrects . ,(accesses test :training :performance-metrics :corrects))))
+						    (:accuracy . ,(accesses test :training :performance-metrics :accuracy))))
 					 (:validation . ((:mase . ,(float (accesses validation :testing :performance-metrics :mase)))
-							 (:corrects . ,(accesses validation :testing :performance-metrics :corrects))))
+							 (:accuracy . ,(accesses validation :testing :performance-metrics :accuracy))))
 					 (:test . ((:mase . ,(float (accesses test :testing :performance-metrics :mase)))
-						   (:corrects . ,(accesses test :testing :performance-metrics :corrects)))
+						   (:accuracy . ,(accesses test :testing :performance-metrics :accuracy)))
 						))))
 			  result)
 	      
@@ -1423,9 +1467,9 @@ series `real`."
 ;;   (unless (find-symbol (symbol-name sym) :overmind-agents)
 ;;     `(defparameter ,sym ,value)))
 
-;; (agents-corrects (agents-best (agents-distribution *population* #'corrects #'>) #'>))
+;; (agents-accuracy (agents-best (agents-distribution *population* #'accuracy #'>) #'>))
 ;; (dolist (pop *population*)
-;;   (print (float (agents-corrects pop))))
+;;   (print (float (agents-accuracy pop))))
 
 (defun get-data-sample (validation-ratio testing-ratio)
   (let* ((*end* (ceiling (+ *end* (* omper:*data-count* (+ validation-ratio testing-ratio)))))
@@ -1470,15 +1514,15 @@ series `real`."
 ;; 	      2
 ;; 	      :key #'butlast)
 
-(defun format-corrects (corrects)
+(defun format-accuracy (accuracy)
   (format nil "~a/~a (~$%)"
-	  (aref corrects 0)
-	  (aref corrects 1)
-	  (if (= (aref corrects 1) 0)
+	  (aref accuracy 0)
+	  (aref accuracy 1)
+	  (if (= (aref accuracy 1) 0)
 	      0.0
 	      (* 100
-		 (/ (aref corrects 0)
-		    (aref corrects 1))))))
+		 (/ (aref accuracy 0)
+		    (aref accuracy 1))))))
 
 
 ;; (ql:quickload :cl-mathstats)
@@ -1486,14 +1530,14 @@ series `real`."
 ;; (let ((reports (get-reports 2 *testing-ratio*)))
 ;;   (float (mase
 ;; 	  (mapcar (lambda (elt)
-;; 		    (let ((val (accesses elt :validation :corrects)))
+;; 		    (let ((val (accesses elt :validation :accuracy)))
 ;; 		      (if (= (aref val 1) 0)
 ;; 			  0
 ;; 			  (/ (aref val 0)
 ;; 			     (aref val 1)))))
 ;; 		  reports)
 ;; 	  (mapcar (lambda (elt)
-;; 		    (let ((test (accesses elt :test :corrects)))
+;; 		    (let ((test (accesses elt :test :accuracy)))
 ;; 		      (if (= (aref test 1) 0)
 ;; 			  0
 ;; 			  (/ (aref test 0)
@@ -1539,14 +1583,15 @@ series `real`."
        collect (nth idx candidate))
     ))
 
-(defun draw-optimization (iterations &optional (agents-fitness-fn #'agents-mase) (fitness-fn #'mase) (sort-fn #'<) &key (label "") (reset-db nil) (starting-population ""))
+(defun draw-optimization (iterations &key (label "") (reset-db nil) (starting-population "") (print-log? t) (agents-fitness-fn #'agents-mase) (fitness-fn #'mase) (sort-fn #'<))
   ;; TODO: We're running `INIT` in multiple functions because some variables
   ;; depend on different points of the process. Fix this.
   ;; (init *instrument* *timeframe*)
-  (format t "~%~%~A ~A. RUNNING FROM ~a TO ~a~%"
-	  *instrument* *timeframe*
-	  (local-time:unix-to-timestamp (/ (read-from-string (access (nth *begin* *all-rates*) :time)) 1000000))
-	  (local-time:unix-to-timestamp (/ (read-from-string (access (nth *end* *all-rates*) :time)) 1000000)))
+  (when print-log?
+    (format t "~%~%~A ~A. RUNNING FROM ~a TO ~a~%"
+	    *instrument* *timeframe*
+	    (local-time:unix-to-timestamp (/ (read-from-string (access (nth *begin* *all-rates*) :time)) 1000000))
+	    (local-time:unix-to-timestamp (/ (read-from-string (access (nth *end* *all-rates*) :time)) 1000000))))
   ;; (init *instrument* *timeframe*)
   (when reset-db
     (drop-populations))
@@ -1554,64 +1599,156 @@ series `real`."
     (init-from-database starting-population))
   (let ((parent-id starting-population)
 	(val+test '(0 0)))
-    (let ((corrects (agents-corrects (first *population*))))
-      (format t "~%~6a ~3$ ~ttrain: ~17a"
-	      *generations*
-	      (float (funcall agents-fitness-fn (first *population*)))
-	      (format-corrects corrects)))
+    (when print-log?
+      ;; (let ((accuracy (agents-accuracy (first *population*))))
+      ;; 	(format t "~%~6a ~4$ ~ttrain: ~17a"
+      ;; 		*generations*
+      ;; 		(float (funcall agents-fitness-fn (first *population*)))
+      ;; 		(format-accuracy accuracy)))
+      (format t "~%GENERATIONS, #AGENTS, MAPE(train), MAPE(val), MAPE(test), MASE(train), MASE(val), MASE(test), PMAPE(train), PMAPE(val), PMAPE(test), MAE(train), MAE(val), MAE(test), MSE(train), MSE(val), MSE(test), RMSE(train), RMSE(val), RMSE(test), RECALL(train), RECALL(val), RECALL(test), PRECISION(train), PRECISION(val), PRECISION(test), F1-SCORE(train), F1-SCORE(val), F1-SCORE(test), ACCURACY(train), ACCURACY(val), ACCURACY(test), REVENUE(train), REVENUE(val), REVENUE(test)"))
     (dotimes (i iterations)
       (incf *generations*)
-      (ignore-errors
-	(let ((candidate (let* ((option (random-float *rand-gen* 0 1))
-				(cand (cond
-					;; Remove an agent.
-					((and (< option 0.5) (> (length (first *population*)) *community-size*))
-					 (remove-nth (random-int *rand-gen* 0 (1- (length (first *population*)))) (first *population*)))
-					;; Replace agent from solution using random agent.
-					;; ((and (< option 0.66) (> (length (first *population*)) *community-size*))
-					;;  (append
-					;;   (remove-nth (random-int *rand-gen* 0 (1- (length (first *population*)))) (first *population*))
-					;;   (list (random-int *rand-gen* 0 (1- (length *agents-pool*))))
-					;;   ))
-					;; Create new agent and push to pool.
-					((< option 1.00)
-					 (setf *agents-pool* (append *agents-pool* (gen-agents 1)))
-					 (append
-					  (first *population*)
-					  (list (1- (length *agents-pool*)))))
-					;; Append random agent from pool.
-					;; ((<= option 1.0)
-					;;  (append
-					;;   (first *population*)
-					;;   (list (random-int *rand-gen* 0 (1- (length *agents-pool*))))
-					;;   ))
-					)))
-			   ;; (get-n-best *only-best* cand)
-			   cand
-			   )))
-	  (let ((cand-error (funcall agents-fitness-fn (get-median-best candidate)))
-		(best-error (funcall agents-fitness-fn (get-median-best (first *population*)))))
-	    (when (funcall sort-fn cand-error best-error)
+      (let ((candidate (let* ((option (random-float *rand-gen* 0 1))
+			      (cand (cond
+				      ;; Remove an agent.
+				      ((and (< option 0.5) (> (length (first *population*)) *community-size*))
+				       (remove-nth (random-int *rand-gen* 0 (1- (length (first *population*)))) (first *population*)))
+				      ;; Replace agent from solution using random agent.
+				      ;; ((and (< option 0.66) (> (length (first *population*)) *community-size*))
+				      ;;  (append
+				      ;;   (remove-nth (random-int *rand-gen* 0 (1- (length (first *population*)))) (first *population*))
+				      ;;   (list (random-int *rand-gen* 0 (1- (length *agents-pool*))))
+				      ;;   ))
+				      ;; Create new agent and push to pool.
+				      ((< option 1.00)
+				       (setf *agents-pool* (append *agents-pool* (gen-agents 1)))
+				       (append
+					(first *population*)
+					(list (1- (length *agents-pool*)))))
+				      ;; Append random agent from pool.
+				      ;; ((<= option 1.0)
+				      ;;  (append
+				      ;;   (first *population*)
+				      ;;   (list (random-int *rand-gen* 0 (1- (length *agents-pool*))))
+				      ;;   ))
+				      )))
+			 ;; (get-n-best *only-best* cand)
+			 cand
+			 )))
+	(let ((cand-error (funcall agents-fitness-fn (get-median-best candidate)))
+	      (best-error (funcall agents-fitness-fn (get-median-best (first *population*)))))
+	  (when (funcall sort-fn cand-error best-error)
 	    
-	      (setf (first *population*) candidate)
-	      (setf parent-id (insert-best-agents parent-id label fitness-fn sort-fn))
+	    (setf (first *population*) candidate))
 
-	      (let* ((corrects (agents-corrects (get-median-best candidate)))
-		     (report (first (get-reports 1 *testing-ratio*)))
-		     (val-corrects (accesses report :validation :performance-metrics :corrects))
-		     (test-corrects (accesses report :test :performance-metrics :corrects)))
-		(format t "~%~6a ~3$ ~ttrain: ~17a ~tval: ~17a ~ttest: ~17a"
-			(1+ *generations*)
-			(float (funcall agents-fitness-fn (get-median-best candidate)))
-			(format-corrects corrects)
-			(format-corrects val-corrects)
-			(format-corrects test-corrects))
-	        (setf val+test (list (+ (aref val-corrects 0) (aref test-corrects 0))
-				     (+ (aref val-corrects 1) (aref test-corrects 1))))
-		)
-	      ))))
-      )
+	  (when (or (> i (- iterations 2))
+		    (and print-log?
+			 (funcall sort-fn cand-error best-error)))
+	    (setf parent-id (insert-best-agents parent-id label fitness-fn sort-fn))
+
+	    (let* ((report (first (get-reports 1 *testing-ratio*)))
+		   (median-best (get-median-best candidate))
+
+		   (train-mape (agents-mape median-best))
+		   (val-mape (accesses report :validation :performance-metrics :mape))
+		   (test-mape (accesses report :testing :performance-metrics :mape))
+
+		   (train-mase (agents-mase median-best))
+		   (val-mase (accesses report :validation :performance-metrics :mase))
+		   (test-mase (accesses report :testing :performance-metrics :mase))
+
+		   (train-pmape (agents-pmape median-best))
+		   (val-pmape (accesses report :validation :performance-metrics :pmape))
+		   (test-pmape (accesses report :testing :performance-metrics :pmape))
+
+		   (train-mae (agents-mae median-best))
+		   (val-mae (accesses report :validation :performance-metrics :mae))
+		   (test-mae (accesses report :testing :performance-metrics :mae))
+
+		   (train-mse (agents-mse median-best))
+		   (val-mse (accesses report :validation :performance-metrics :mse))
+		   (test-mse (accesses report :testing :performance-metrics :mse))
+
+		   (train-rmse (agents-rmse median-best))
+		   (val-rmse (accesses report :validation :performance-metrics :rmse))
+		   (test-rmse (accesses report :testing :performance-metrics :rmse))
+
+		   (train-recall (agents-recall median-best))
+		   (val-recall (accesses report :validation :performance-metrics :recall))
+		   (test-recall (accesses report :testing :performance-metrics :recall))
+
+		   (train-precision (agents-precision median-best))
+		   (val-precision (accesses report :validation :performance-metrics :precision))
+		   (test-precision (accesses report :testing :performance-metrics :precision))
+
+		   (train-f1-score (agents-f1-score median-best))
+		   (val-f1-score (accesses report :validation :performance-metrics :f1-score))
+		   (test-f1-score (accesses report :testing :performance-metrics :f1-score))
+		     
+		   (train-accuracy (agents-accuracy median-best))
+		   (val-accuracy (accesses report :validation :performance-metrics :accuracy))
+		   (test-accuracy (accesses report :testing :performance-metrics :accuracy))
+		     
+		   (train-revenue (agents-revenue median-best))
+		   (val-revenue (accesses report :validation :performance-metrics :revenue))
+		   (test-revenue (accesses report :testing :performance-metrics :revenue)))
+	      (when print-log?
+		(format t "~%~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a"
+		        *generations*
+			(length (first *population*))
+			train-mape
+			val-mape
+			test-mape
+
+			train-mase
+			val-mase
+			test-mase
+
+			train-pmape
+			val-pmape
+			test-pmape
+
+			train-mae
+			val-mae
+			test-mae
+
+			train-mse
+			val-mse
+			test-mse
+
+			train-rmse
+			val-rmse
+			test-rmse
+
+			train-recall
+			val-recall
+			test-recall
+
+			train-precision
+			val-precision
+			test-precision
+
+			train-f1-score
+			val-f1-score
+			test-f1-score
+
+			(format-accuracy train-accuracy)
+			(format-accuracy val-accuracy)
+			(format-accuracy test-accuracy)
+			  
+			train-revenue
+			val-revenue
+			test-revenue))
+	      (setf val+test (list
+			      (+ (aref val-accuracy 0) (aref test-accuracy 0))
+			      (+ (aref val-accuracy 1) (aref test-accuracy 1))))
+	      ))
+	  )))
     val+test))
+
+(defun print-iteration (report agents-indexes)
+  "Used by `DRAW-OPTIMIZATION`."
+  )
 
 (defun get-starting-population (is-cold-start instrument timeframe)
   "Used by `OPTIMIZE-ALL` and `OPTIMIZE-ONE`."
@@ -1626,7 +1763,7 @@ series `real`."
 		""))
 	)))
 
-(defun optimize-one (instrument timeframe iterations &key (is-cold-start t))
+(defun optimize-one (instrument timeframe iterations &key (is-cold-start t) (print-log? t) (agents-fitness-fn #'agents-mase) (fitness-fn #'mase) (sort-fn #'<))
   ;; We need to run init in here and in `DRAW-OPTIMIZATION`, because using
   ;; random range needs to set `*MIN-DATASET-SIZE*` to a bigger size.
   ;; We need to change that one first and then load `*ALL-RATES*`.
@@ -1635,8 +1772,9 @@ series `real`."
 	(*timeframe* timeframe)
 	;; (*all-rates* (get-rates-count instrument timeframe *min-dataset-size*))
 	(starting-population (get-starting-population is-cold-start instrument timeframe)))
-    (draw-optimization iterations #'agents-mase #'mase #'<
-		       :label "" :reset-db nil :starting-population starting-population)))
+    (draw-optimization iterations
+		       :label "" :reset-db nil :starting-population starting-population :print-log? print-log?
+		       :agents-fitness-fn agents-fitness-fn :fitness-fn fitness-fn :sort-fn sort-fn)))
 
 (defun optimize-all (timeframe iterations
 		     &key (instruments ominp:*instruments*)
@@ -1662,7 +1800,7 @@ series `real`."
 ;; (test-all-markets :D *popular-instruments*)
 ;; (test-market :USD_JPY :H1)
 
-(defun loop-optimize-test (iterations &key (instruments-keys '(:all)) (timeframes-keys '(:all)))
+(defun loop-optimize-test (iterations &key (instruments-keys '(:all)) (timeframes-keys '(:all)) (print-log? t))
   "Infinitely optimize and test markets represented by the bag of
 instruments `INSTRUMENTS-KEYS` for `ITERATIONS`."
   (loop
@@ -1680,33 +1818,38 @@ instruments `INSTRUMENTS-KEYS` for `ITERATIONS`."
 				   )))
 	     (dolist (instrument instruments)
 	       (dolist (timeframe timeframes)
-		 (format t "~%~%~a, ~a~%" instrument timeframe)
-		 (init instrument timeframe)
-		 (optimize-one instrument timeframe iterations :is-cold-start nil)
-		 (test-market instrument timeframe)))))))
+		 (let ((*instrument* instrument)
+		       (*timeframe* timeframe))
+		   (when print-log? (format t "~%~%~a, ~a~%" instrument timeframe))
+		   (init instrument timeframe)
+		   (optimize-one instrument timeframe iterations :is-cold-start nil :print-log? print-log?)
+		   (test-market instrument timeframe))))))))
      (prune-populations)))
 
-(defun tweaking (&key (instrument :EUR_USD) (timeframe :D) (iterations 100) (experiments-count 10))
+(defun tweaking (&key (instrument :EUR_USD) (timeframe :D) (iterations 100) (experiments-count 10) (agents-fitness-fn #'agents-mase) (fitness-fn #'mase) (sort-fn #'<))
   (let ((*instrument* instrument)
 	(*timeframe* timeframe)
 	(nums nil)
 	(denoms nil))
     (dotimes (i experiments-count)
       (init instrument timeframe)
-      (let ((run (optimize-one instrument timeframe iterations :is-cold-start t)))
+      (let ((run (optimize-one instrument timeframe iterations :is-cold-start t :agents-fitness-fn agents-fitness-fn :fitness-fn fitness-fn :sort-fn sort-fn)))
 	 (push (first run) nums)
 	 (push (second run) denoms)
-	 (format t "~%~%#~a - ACCUMULATION: (~a ~a) = ~a"
-		 (1+ i)
-		 (reduce #'+ nums)
-		 (reduce #'+ denoms)
-		 (float (* 100 (if (/= (reduce #'+ denoms) 0) (/ (reduce #'+ nums) (reduce #'+ denoms)) 0))))))
-    (format t "~%~%RESULTS: ~a~%" (list nums denoms))))
+	 ;; (format t "~%~%#~a - ACCUMULATION: (~a ~a) = ~a"
+	 ;; 	 (1+ i)
+	 ;; 	 (reduce #'+ nums)
+	 ;; 	 (reduce #'+ denoms)
+	 ;; 	 (float (* 100 (if (/= (reduce #'+ denoms) 0) (/ (reduce #'+ nums) (reduce #'+ denoms)) 0))))
+	 ))
+    ;; (format t "~%~%RESULTS: ~a~%" (list nums denoms))
+    ))
 
 ;; (dolist (instrument '(:EUR_GBP :EUR_JPY :EUR_USD :GBP_USD :USD_CHF :USD_CAD :USD_CNH :USD_HKD))
 ;;   (tweaking :instrument instrument :timeframe :H1 :iterations 300 :experiments-count 60))
 
-;; (tweaking :instrument :EUR_GBP :timeframe :H1 :iterations 300 :experiments-count 30)
+;; (tweaking :instrument :USD_JPY :timeframe :D :iterations 50 :experiments-count 30 :agents-fitness-fn #'agents-mase :fitness-fn #'mase :sort-fn #'<)
+;; (tweaking :instrument :EUR_USD :timeframe :H1 :iterations 300 :experiments-count 30)
 ;; *population*
 ;; *generations*
 
@@ -1740,7 +1883,7 @@ instruments `INSTRUMENTS-KEYS` for `ITERATIONS`."
 ;; (get-reports 1 *testing-ratio*)
 ;; (print-simulation (first *population*) *testing-ratio* :rmse)
 ;; (print-simulation)
-;; (time (report-all-best-corrects))
+;; (time (report-all-best-accuracy))
 
 ;; (get-best-descendant (access (first (get-root-populations-ids)) :id))
 
@@ -1772,12 +1915,12 @@ instruments `INSTRUMENTS-KEYS` for `ITERATIONS`."
 ;; (mean '(100 100 87.50 100 100 0 100 100 0 100 100 100 100 100 71.43 100 100 45.45))
 ;; (mean '(100 100 57.14 92.31 100 76.47 100 100 92.86 46.67 88.89 100 50 100 85.71 100 61.54 100 57.14 33.33))
 
-(defun report-all-best-corrects ()
+(defun report-all-best-accuracy ()
   (map nil (lambda (leaf)
 	     (format t "~a, ~a, ~a~%"
-		     (format-corrects (accesses leaf :train :corrects))
-		     (format-corrects (accesses leaf :validation :corrects))
-		     (format-corrects (accesses leaf :test :corrects))
+		     (format-accuracy (accesses leaf :train :accuracy))
+		     (format-accuracy (accesses leaf :validation :accuracy))
+		     (format-accuracy (accesses leaf :testing :accuracy))
 		     ))
        (report-all-best-database)))
 
@@ -1792,7 +1935,7 @@ instruments `INSTRUMENTS-KEYS` for `ITERATIONS`."
 ;;   (agents-simulation (extract-agents-from-pool (first *population*))))
 
 ;; (print-simulation)
-;; (format-corrects (accesses (first (get-reports 1 1.0)) :validation :corrects))
+;; (format-accuracy (accesses (first (get-reports 1 1.0)) :validation :accuracy))
 ;; (length (first *population*))
 ;; (dotimes (i (length (first *population*))) (print (length (remove-if #'zerop (agent-trades (nth i (extract-agents-from-pool (first *population*))))))))
 ;; (length *agents-pool*)
@@ -1811,7 +1954,7 @@ instruments `INSTRUMENTS-KEYS` for `ITERATIONS`."
 
 ;; (init *instrument* *timeframe*)
 
-;; (time (train 100000 100 :fitness-fn #'corrects :sort-fn #'> :save-every 10 :epsilon 1.8))
+;; (time (train 100000 100 :fitness-fn #'accuracy :sort-fn #'> :save-every 10 :epsilon 1.8))
 ;; (time (train 100000 100 :fitness-fn #'mase :sort-fn #'< :save-every 1 :epsilon 0.00 :gd-epsilon 0.000))
 ;; *cached-agents*
 ;; *population*
@@ -1826,14 +1969,14 @@ instruments `INSTRUMENTS-KEYS` for `ITERATIONS`."
 ;; Communities' sizes.
 ;; (mapcar #'length *population*)
 
-;; Get corrects of *results*.
+;; Get accuracy of *results*.
 ;; (dolist (res (reverse *results*))
-;;   (format t "~a,~a,~a~%" (accesses res :train :corrects)
-;; 	  (accesses res :validation :corrects)
-;; 	  (accesses res :test :corrects)))
+;;   (format t "~a,~a,~a~%" (accesses res :train :accuracy)
+;; 	  (accesses res :validation :accuracy)
+;; 	  (accesses res :test :accuracy)))
 
 ;; Report
-;; (map nil (lambda (lst) (format t "gen: ~a ~t mase:~a ~t corrects: ~a ~t revenue: ~a~%" (access:access lst :generations) (float (access:access lst :mase)) (* (float (access:access lst :corrects)) 100) (float (access:access lst :revenue)))) (with-postgres-connection (retrieve-all (select (:*) (from :populations) (order-by (:asc :creation-time))))))
+;; (map nil (lambda (lst) (format t "gen: ~a ~t mase:~a ~t accuracy: ~a ~t revenue: ~a~%" (access:access lst :generations) (float (access:access lst :mase)) (* (float (access:access lst :accuracy)) 100) (float (access:access lst :revenue)))) (with-postgres-connection (retrieve-all (select (:*) (from :populations) (order-by (:asc :creation-time))))))
 
 ;; Setting *begin* and *end* according to last entry in database.
 ;; (with-postgres-connection (retrieve-all (select (:*) (from :populations) (order-by (:asc :creation-time)))))
@@ -1855,7 +1998,7 @@ instruments `INSTRUMENTS-KEYS` for `ITERATIONS`."
 ;; 	     (get-deltas omper:*data-count*)))
 
 ;; (mapcar (lambda (pop)
-;; 	  (float (corrects (agents-indexes-simulation pop)
+;; 	  (float (accuracy (agents-indexes-simulation pop)
 ;; 			   (get-closes omper:*data-count*))))
 ;; 	*population*)
 
@@ -1872,31 +2015,31 @@ instruments `INSTRUMENTS-KEYS` for `ITERATIONS`."
 ;; continue from database
 ;; (setq *last-id* (train 50000 :starting-population (access (first (with-postgres-connection (retrieve-all (select (:*) (from :populations) (order-by (:desc :generations)))))) :id) :fitness-fn #'mase :sort-fn #'<))
 
-;; Init using agents with most corrects
-;; (init-from-database (access (first (with-postgres-connection (retrieve-all (select (:*) (from :populations) (order-by (:desc :corrects)))))) :id))
+;; Init using agents with most accuracy
+;; (init-from-database (access (first (with-postgres-connection (retrieve-all (select (:*) (from :populations) (order-by (:desc :accuracy)))))) :id))
 
-;; Check most corrects from database.
-;; (float (access (first (with-postgres-connection (retrieve-all (select (:*) (from :populations) (order-by (:desc :corrects)))))) :corrects))
+;; Check most accuracy from database.
+;; (float (access (first (with-postgres-connection (retrieve-all (select (:*) (from :populations) (order-by (:desc :accuracy)))))) :accuracy))
 
 ;; Woofing individually.
 ;; (woof (agents-best (agents-distribution *population*)))
-;; (agents-corrects (agents-best (agents-distribution *population*)))
+;; (agents-accuracy (agents-best (agents-distribution *population*)))
 ;; (let ((omper:*data-count* (ceiling (* omper:*data-count* 0.1))))
 ;;   (agents-test (extract-agents-from-pool
 ;;                 (agents-best (agents-distribution *population*)))
 ;;                (subseq *all-rates* *begin* (+ *end* omper:*data-count*))))
 
-;; (agents-corrects (agents-best (agents-distribution *population*)))
+;; (agents-accuracy (agents-best (agents-distribution *population*)))
 
 ;; (agents-indexes-simulation (agents-best (agents-distribution *population*)))
 ;; (get-deltas omper:*data-count*)
-;; (agents-corrects (agents-best (agents-distribution *population*)))
+;; (agents-accuracy (agents-best (agents-distribution *population*)))
 ;; (mapcar (lambda (agent)
 ;;           (slot-value agent 'leverage))
 ;;         (extract-agents-from-pool (agents-best (agents-distribution *population*))))
 
 ;; Checking simulation.
-;; (agents-corrects (nth 8 *population*))
+;; (agents-accuracy (nth 8 *population*))
 ;; (agents-indexes-simulation (nth 8 *population*))
 ;; (agents-test (extract-agents-from-pool (nth 8 *population*)) (subseq *all-rates* *begin* (+ *end* (* 11 omper:*data-count*))))
 ;; (get-closes 20)
@@ -1912,7 +2055,7 @@ instruments `INSTRUMENTS-KEYS` for `ITERATIONS`."
 ;; (agents-simulation (extract-agents-from-pool (agents-best (agents-distribution *population*))))
 ;; (agents-indexes-simulation (nth 8 *population*))
 ;; (get-closes 20)
-;; (agents-corrects (nth 8 *population*))
+;; (agents-accuracy (nth 8 *population*))
 
 ;; (get-ancestors *last-id*)
 ;; (access:access (get-population *last-id*) :generations)
@@ -2053,7 +2196,7 @@ evolutionary process."
 
 (defclass agent ()
   ((beliefs :initarg :beliefs :initform (gen-beliefs) :accessor beliefs)
-   (rules :initarg :rules :initform (gen-rules *num-rules*) :accessor rules)
+   (rules :initarg :rules :initform (try-until-successful(gen-rules *num-rules*)) :accessor rules)
    (activations :initarg :activations :initform nil :accessor activations)
    (activation-threshold :initarg :activation-threshold :initform 0 :accessor activation-threshold)
    (consecutive-activations :initarg :consecutive-activations :initform 0 :accessor consecutive-activations)
@@ -2080,7 +2223,7 @@ is not ideal."
 								 (format nil "~s" instrument)))
 						      (where (:= :timeframe
 								 (format nil "~s" timeframe)))
-						      (order-by (:desc :end) (:desc :corrects))
+						      (order-by (:desc :end) (:desc :accuracy))
                                                       ))))
 	both-match
 	;; Couldn't find any. Now trying to retrieve results where instrument matches.
@@ -2088,127 +2231,230 @@ is not ideal."
 							(from :populations)
 							(where (:= :instrument
 								   (format nil "~s" instrument)))
-							(order-by (:desc :end) (:desc :corrects))))))
+							(order-by (:desc :end) (:desc :accuracy))))))
 	  inst-match
 	  ;; Couldn't find any. Now trying to retrieve results where timeframe matches.
 	  (alexandria:when-let ((time-match (retrieve-one (select :*
 							    (from :populations)
 							    (where (:= :timeframe
 								       (format nil "~s" timeframe)))
-							    (order-by (:desc :end) (:desc :corrects))))))
+							    (order-by (:desc :end) (:desc :accuracy))))))
 	    time-match
 	    )))))
 
 ;; (test-market :SKY :D)
 ;; (optimize-one :SKY :D 1000 :is-cold-start nil)
 
-(let ((cached-tests (make-hash-table)))
-  (setf cached-tests (make-hash-table))
+(defun getSecondsToExpire (timeframe)
+  (cond ((string= timeframe "H1") (* 60 60))
+	((string= timeframe "D") (* 24 60 60))))
+
+(let ((cached-tests '()))
+  (setf cached-tests '())
   (defun test-market (instrument timeframe)
     (let* ((*instrument* instrument)
 	   (*timeframe* timeframe)
-	   ;; (*testing-ratio* 0.0)
-	   ;; (*all-rates* (get-rates-count instrument timeframe *min-dataset-size*))
 	   (*cached-agents* (make-hash-table))
 	   (db-pop (get-most-relevant-population instrument timeframe))
 	   (pop (decompress-object (access db-pop :population)))
-	   ;; TODO: We can fix begin and end. It's doing unnecessary things.
-	   ;; (*begin* (- (floor (- (length *all-rates*) (+ omper:*data-count* (* omper:*data-count* 2 *testing-ratio*) *num-inputs* *delta-gap*))) 2))
-	   ;; (*begin* 0)
-	   ;; (*end* (1- (floor (- (length *all-rates*) (+ (* omper:*data-count* 2 *testing-ratio*))))))
-	   ;; (*end* (1- (length *all-rates*)))
 	   (*rates* (subseq *all-rates* *begin* *end*))
-	   (sim (agents-simulation (first pop)))
 	   (report (append `((:population-id . ,(access db-pop :id)))
 			   (get-report db-pop instrument timeframe *rates*
 				       *begin*
-				       *end*)
-			   `((:forecast (:delta . ,(last-elt sim))
-					(:decision . ,(if (> (last-elt sim) 0)
-							  :BUY
-							  (if (= (last-elt sim) 0)
-							      :HOLD
-							      :SELL))))))))
+				       *end*)))
+	   (pop-id (accesses report :population-id))
+	   (str-instrument (format nil "~a" (accesses report :testing :instrument)))
+	   (str-timeframe (format nil "~a" (accesses report :testing :timeframe)))
+	   ;; The testing period is from validation :begin to testing :end.
+	   (begin (accesses report :validation :begin))
+	   (end (accesses report :testing :end))
+	   (creation-time (local-time:timestamp-to-unix (local-time:now)))
+	   (test-mape (/ (+ (accesses report :validation :performance-metrics :mape)
+			    (accesses report :testing :performance-metrics :mape))
+			 2))
+	   (test-mase (/ (+ (accesses report :validation :performance-metrics :mase)
+			    (accesses report :testing :performance-metrics :mase))
+			 2))
+	   (test-pmape (/ (+ (accesses report :validation :performance-metrics :pmape)
+			     (accesses report :testing :performance-metrics :pmape))
+			  2))
+	   (test-mae (/ (+ (accesses report :validation :performance-metrics :mae)
+			   (accesses report :testing :performance-metrics :mae))
+			2))
+	   (test-mse (/ (+ (accesses report :validation :performance-metrics :mse)
+			   (accesses report :testing :performance-metrics :mse))
+			2))
+	   (test-rmse (/ (+ (accesses report :validation :performance-metrics :rmse)
+			    (accesses report :testing :performance-metrics :rmse))
+			 2))
+	   (test-recall (/ (+ (accesses report :validation :performance-metrics :recall)
+			    (accesses report :testing :performance-metrics :recall))
+			   2))
+	   (test-precision (/ (+ (accesses report :validation :performance-metrics :precision)
+				 (accesses report :testing :performance-metrics :precision))
+			      2))
+	   (test-f1-score (/ (+ (accesses report :validation :performance-metrics :f1-score)
+				 (accesses report :testing :performance-metrics :f1-score))
+			      2))
+	   (test-accuracy (let ((val-corr (accesses report :validation :performance-metrics :accuracy))
+				(test-corr (accesses report :testing :performance-metrics :accuracy)))
+			    (vector (+ (aref val-corr 0) (aref test-corr 0))
+				    (+ (aref val-corr 1) (aref test-corr 1)))))
+	   (test-revenue (+ (accesses report :validation :performance-metrics :revenue)
+			    (accesses report :testing :performance-metrics :revenue)))
+	   (decision (format nil "~a" (accesses report :testing :forecast :decision)))
+	   (delta (accesses report :testing :forecast :delta)))
       ;; Caching report into `CACHED-TESTS`.
-      (setf (gethash timeframe (gethash instrument cached-tests))
-	    `((:population-id . ,(accesses report :population-id))
-	      (:instrument . ,(format nil "~a" (accesses report :validation :instrument)))
-	      (:timeframe . ,(format nil "~a" (accesses report :validation :timeframe)))
-	      (:begin . ,(accesses report :validation :begin))
-	      (:end . ,(accesses report :validation :end))
-	      (:creation-time . ,(local-time:timestamp-to-unix (local-time:now)))
-	      (:mape . ,(accesses report :validation :performance-metrics :mape))
-	      (:mase . ,(accesses report :validation :performance-metrics :mase))
-	      (:pmape . ,(accesses report :validation :performance-metrics :pmape))
-	      (:mae . ,(accesses report :validation :performance-metrics :mae))
-	      (:mse . ,(accesses report :validation :performance-metrics :mse))
-	      (:rmse . ,(accesses report :validation :performance-metrics :rmse))
-	      (:corrects . ,(accesses report :validation :performance-metrics :corrects))
-	      (:revenue . ,(accesses report :validation :performance-metrics :revenue))
-	      (:decision . ,(format nil "~a" (accesses report :forecast :decision)))
-	      (:delta . ,(accesses report :forecast :delta))))
+      ;; We'll only cache the result if the decision is different to "HOLD"
+      ;; or if there's no test at all for that market/timeframe.
+      ;; (when (or (not (string= decision "HOLD"))
+      ;; 	        (= (length (remove-if-not (lambda (test)
+      ;; 					    (and (string= (access test :timeframe) str-timeframe)
+      ;; 						 (string= (access test :instrument) str-instrument)))
+      ;; 					  cached-tests))
+      ;; 		   0))
+      ;; 	)
+
+      ;; Check if we need to remove tests with a "HOLD" decision,
+      ;; considering that we're now adding one with an actual decision.
+      (setf cached-tests
+	    (remove-if (lambda (test)
+			 (and (string= (access test :decision) "HOLD")
+			      (string= (access test :timeframe) str-timeframe)
+			      (string= (access test :instrument) str-instrument)))
+		       cached-tests))
       
-      (format t "~%" (accesses report :validation :performance-metrics :corrects))
+      ;; Storing the test.
+      (push `((:population-id . ,pop-id)
+	      (:instrument . ,str-instrument)
+	      (:timeframe . ,str-timeframe)
+	      (:begin . ,begin)
+	      (:end . ,end)
+	      (:creation-time . ,creation-time)
+	      (:mape . ,test-mape)
+	      (:mase . ,test-mase)
+	      (:pmape . ,test-pmape)
+	      (:mae . ,test-mae)
+	      (:mse . ,test-mse)
+	      (:rmse . ,test-rmse)
+	      (:recall . ,test-recall)
+	      (:precision . ,test-precision)
+	      (:f1-score . ,test-f1-score)
+	      (:accuracy . ,test-accuracy)
+	      (:revenue . ,test-revenue)
+	      (:decision . ,decision)
+	      (:delta . ,delta))
+	    cached-tests)
+
+      ;; Removing old cached tests.
+      (setf cached-tests
+	    (remove-if (lambda (test)
+			 (let ((seconds (getSecondsToExpire (access test :timeframe))))
+			   ;; If creation time + `seconds` already happened, then it's an old prediction.
+			   (< (+ (access test :creation-time)
+				 seconds)
+			      (local-time:timestamp-to-unix (local-time:now)))))
+		       cached-tests))
+
       (with-postgres-connection
 	  (execute (insert-into :tests
-		     (set= :population-id (accesses report :population-id)
-			   :instrument (format nil "~a" (accesses report :validation :instrument))
-			   :timeframe (format nil "~a" (accesses report :validation :timeframe))
-			   :begin (accesses report :validation :begin)
-			   :end (accesses report :validation :end)
-			   :creation-time (local-time:timestamp-to-unix (local-time:now))
-			   :mape (accesses report :validation :performance-metrics :mape)
-			   :mase (accesses report :validation :performance-metrics :mase)
-			   :pmape (accesses report :validation :performance-metrics :pmape)
-			   :mae (accesses report :validation :performance-metrics :mae)
-			   :mse (accesses report :validation :performance-metrics :mse)
-			   :rmse (accesses report :validation :performance-metrics :rmse)
-			   :corrects (accesses report :validation :performance-metrics :corrects)
-			   :revenue (accesses report :validation :performance-metrics :revenue)
-			   :decision (format nil "~a" (accesses report :forecast :decision))
-			   :delta (accesses report :forecast :delta)
+		     (set= :population-id pop-id
+			   :instrument str-instrument
+			   :timeframe str-timeframe
+			   :begin begin
+			   :end end
+			   :creation-time creation-time
+			   :mape test-mape
+			   :mase test-mase
+			   :pmape test-pmape
+			   :mae test-mae
+			   :mse test-mse
+			   :rmse test-rmse
+			   :recall test-recall
+			   :precision test-precision
+			   :f1-score test-f1-score
+			   :accuracy test-accuracy
+			   :revenue test-revenue
+			   :decision decision
+			   :delta delta
 			   ))))
       report))
 
   (defun query-db-tests (instrument)
-    (ignore-errors
-      (let (results)
-    	(dolist (timeframe ominp:*timeframes*)
-    	  (push (with-postgres-connection
-    		    (retrieve-one (select :*
-				    (from :tests)
-				    (where (:= :instrument (format nil "~a" instrument)))
-				    (where (:= :timeframe  (format nil "~a" timeframe)))
-				    (order-by (:desc :creation-time))
-				    )
-    				  :as 'trivial-types:association-list))
-    		results))
-    	(nreverse (remove nil results)))))
-  ;; (query-db-tests :AUD_USD)
+    (let (results)
+      (dolist (timeframe ominp:*timeframes*)
+	(let ((str-instrument (format nil "~a" instrument))
+	      (str-timeframe (format nil "~a" timeframe)))
+	  ;; Latest "HOLD".
+	  (with-postgres-connection
+	      (let ((res (retrieve-one (select :*
+					 (from :tests)
+					 (where (:= :instrument str-instrument))
+					 (where (:= :timeframe  str-timeframe))
+					 (where (:= :decision "HOLD"))
+					 (where (:> :creation-time (- (local-time:timestamp-to-unix (local-time:now))
+								      (getSecondsToExpire str-timeframe))))
+					 (order-by (:desc :creation-time))
+					 )
+				       :as 'trivial-types:association-list)))
+		(when res
+		  (push res results)))
+	    (dolist (test (retrieve-all (select :*
+					  (from :tests)
+					  (where (:= :instrument str-instrument))
+					  (where (:= :timeframe  str-timeframe))
+					  (where (:!= :decision "HOLD"))
+					  (where (:> :creation-time (- (local-time:timestamp-to-unix (local-time:now))
+								       (getSecondsToExpire str-timeframe))))
+					  (order-by (:desc :creation-time))
+					  )
+					:as 'trivial-types:association-list))
+	      (setf results
+		    (remove-if (lambda (test)
+				 (and (string= (access test :decision) "HOLD")
+				      (string= (access test :timeframe) str-timeframe)
+				      (string= (access test :instrument) str-instrument)))
+			       results))
+	      (when test
+		(push test results)))
+	    )))
+      (nreverse (remove nil results))))
+  ;; (query-db-tests :USD_JPY)
 
   (defun query-test-instruments (timeframe)
-    (let ((results))
-      (maphash (lambda (k v)
-		 (when (gethash timeframe v)
-		   (push (gethash timeframe v) results)))
-	       cached-tests)
-      (nreverse results)))
+    (remove-if-not (lambda (test)
+		     (string= (access test :timeframe)
+			      timeframe))
+		   cached-tests))
 
   (defun query-test-timeframes (instrument)
-    (hash-table-values (gethash instrument cached-tests)))
+    (remove-if-not (lambda (test)
+		     (string= (access test :instrument)
+			      instrument))
+		   cached-tests))
 
   (defun check-cached-tests ()
     "Function used to check if `CACHED-TESTS` is empty. If it is
 empty, `CHECK-CACHED-TESTS` will fill `CACHED-TESTS` with the latest
 tests performed that are stored on database."
-    (when (= (hash-table-count cached-tests) 0)
+    (when (= (length cached-tests) 0)
       (map nil (lambda (instrument)
-		 (let ((entries (make-hash-table)))
-		   (map nil (lambda (entry)
-			      ;; Timeframe entries will be strings, not keywords.
-			      (setf (gethash (read-from-string (format nil ":~a" (access entry :timeframe))) entries) entry))
-			(query-db-tests instrument))
-		   (setf (gethash instrument cached-tests) entries))
+		 (map nil (lambda (entry)
+			    ;; Timeframe entries will be strings, not keywords.
+			    (push entry cached-tests)
+			    ;; (map nil (lambda (test)
+			    ;; 	       (push test cached-tests))
+			    ;; 	 entry)
+			    ;; (setf (gethash (read-from-string (format nil ":~a" (access entry :timeframe))) entries) entry)
+			    )
+		      (query-db-tests instrument))
+		 
+		 ;; (let ((entries (make-hash-table)))
+		 ;;   (map nil (lambda (entry)
+		 ;; 	      ;; Timeframe entries will be strings, not keywords.
+		 ;; 	      (setf (gethash (read-from-string (format nil ":~a" (access entry :timeframe))) entries) entry))
+		 ;; 	(query-db-tests instrument))
+		 ;;   (setf (gethash instrument cached-tests) entries))
 		 )
 	   ominp:*instruments*))
     cached-tests)
@@ -2238,7 +2484,7 @@ tests performed that are stored on database."
 ;; 			       (format nil "~s" :AUD_USD)))
 ;; 		    (where (:= :timeframe
 ;; 			       (format nil "~s" :H1)))
-;; 		    (order-by (:desc :end) (:desc :corrects))
+;; 		    (order-by (:desc :end) (:desc :accuracy))
 ;; 		    )))
 
 ;; querying latest market reports (query `tests`)
@@ -2278,13 +2524,16 @@ granularity `timeframe`."
                  (:performance-metrics . ((:mae . ,(access db-pop :mae))
                                           (:mse . ,(access db-pop :mse))
                                           (:rmse . ,(access db-pop :rmse))
+					  (:recall . ,(access db-pop :recall))
+					  (:precision . ,(access db-pop :precision))
+					  (:f1-score . ,(access db-pop :f1-score))
                                           (:mape . ,(access db-pop :mape))
 					  (:mase . ,(access db-pop :mase))
                                           (:pmape . ,(access db-pop :pmape))
-                                          (:corrects . ,(access db-pop :corrects))
+                                          (:accuracy . ,(access db-pop :accuracy))
                                           (:revenue . ,(access db-pop :revenue)))))
       (:testing (:begin . ,(read-from-string (access (first rates) :time)))
-		 (:end . ,(read-from-string (access (alexandria:last-elt rates) :time)))
+		(:end . ,(read-from-string (access (alexandria:last-elt rates) :time)))
                 (:instrument . ,instrument)
                 (:timeframe . ,timeframe)
                 ,@(agents-test best rates)
@@ -2383,7 +2632,6 @@ history."
    (loop for candle in (get-full-real-data (+ offset omper:*data-count*))
       collect (abs (- (access candle :close-bid)
 		      (access candle :open-bid))))))
-
 
 (defun io-deltas (delta-gap &key (offset 0))
   "This one predicts N periods in future as a big single delta."
@@ -2549,8 +2797,8 @@ from each sample."
 			      (subseq *all-rates* begin (+ end (* 2 omper:*data-count*)))))
 	 (result `((:train . ,(accesses test :training))
 		   (:validation . ,(accesses validation :testing))
-		   (:test . ,(accesses test :testing)
-			  ))))
+		   (:testing . ,(accesses test :testing)
+			     ))))
     result))
 
 (defun get-reports (count &optional (ratio *testing-ratio*))
@@ -2571,36 +2819,36 @@ from each sample."
 
 (defun filter-reports (reports)
   (let ((train-mase 0)
-	(train-corrects 0)
+	(train-accuracy 0)
 	(val-mase 0)
-	(val-corrects 0)
+	(val-accuracy 0)
 	(test-mase 0)
-	(test-corrects 0)
+	(test-accuracy 0)
 	(len 0))
     (dolist (report reports)
-      (when (and ;; (> (accesses report :train :corrects) 0.5)
+      (when (and ;; (> (accesses report :train :accuracy) 0.5)
              (< (accesses report :train :mase) 0.01)
-             ;; (> (accesses report :validation :corrects) 0.6)
+             ;; (> (accesses report :validation :accuracy) 0.6)
              ;; (< (accesses report :validation :mase) 0.02)
              )
 	(incf train-mase (accesses report :train :mase))
-	(incf train-corrects (accesses report :train :corrects))
+	(incf train-accuracy (accesses report :train :accuracy))
 	(incf val-mase (accesses report :validation :mase))
-	(incf val-corrects (accesses report :validation :corrects))
-	(incf test-mase (accesses report :test :mase))
-	(incf test-corrects (accesses report :test :corrects))
+	(incf val-accuracy (accesses report :validation :accuracy))
+	(incf test-mase (accesses report :testing :mase))
+	(incf test-accuracy (accesses report :testing :accuracy))
 	(incf len)))
     (when (> len 0)
       `((:train-mase . ,(float (/ train-mase len)))
-	(:train-corrects . ,(float (/ train-corrects len)))
+	(:train-accuracy . ,(float (/ train-accuracy len)))
 	(:validation-mase . ,(float (/ val-mase len)))
-	(:validation-corrects . ,(float (/ val-corrects len)))
+	(:validation-accuracy . ,(float (/ val-accuracy len)))
 	(:test-mase . ,(float (/ test-mase len)))
-	(:test-corrects . ,(float (/ test-corrects len)))
+	(:test-accuracy . ,(float (/ test-accuracy len)))
         (:sample-size . ,len)))))
 
-;; (accesses *market-report* :training :performance-metrics :corrects)
-;; (accesses *market-report* :testing :performance-metrics :corrects)
+;; (accesses *market-report* :training :performance-metrics :accuracy)
+;; (accesses *market-report* :testing :performance-metrics :accuracy)
 ;; (time (market-report :EUR_USD :H1 *begin* *end*))
 
 ;; (accesses (agents-indexes-test (first *population*)
@@ -2614,24 +2862,35 @@ from each sample."
   (let* ((*rates* rates)
          (sim (agents-simulation agents))
          (real (get-deltas (length sim)))
-
          (mae (mae sim real))
 	 (mse (mse sim real))
 	 (rmse (rmse sim real))
+	 (recall (recall sim real))
+	 (precision (precision sim real))
+	 (f1-score (f1-score sim real))
 	 (mape (mape sim real nil))
 	 (mase (mase sim real nil))
 	 (pmape (pmape sim real))
-	 (corrects (corrects sim real nil))
+	 (accuracy (accuracy sim real nil))
 	 (revenue (revenue sim real)))
     `((:performance-metrics . ((:mae . ,mae)
                                (:mse . ,mse)
                                (:rmse . ,rmse)
+			       (:recall . ,recall)
+			       (:precision . ,precision)
+			       (:f1-score . ,f1-score)
                                (:mape . ,mape)
 			       (:mase . ,mase)
                                (:pmape . ,pmape)
-                               (:corrects . ,corrects)
+                               (:accuracy . ,accuracy)
                                (:revenue . ,revenue)))
       ;; (:simulation . ,sim)
+      (:forecast (:delta . ,(last-elt sim))
+		 (:decision . ,(if (> (last-elt sim) 0)
+				   :BUY
+				   (if (= (last-elt sim) 0)
+				       :HOLD
+				       :SELL))))
       )))
 
 (defun agents-indexes-test (agents-indexes rates)
@@ -2648,7 +2907,7 @@ from each sample."
 ;; ;; ;; make a test-all method to test a model against multiple markets, multiple testing sets
 ;; ;; ;; the objective is to prove that our architecture is generalized enough to work anywhere
 ;; ;; (let ((*rates* (subseq (ms:unmarshal (read-from-string (file-get-contents "/home/amherag/quicklisp/local-projects/neuropredictions/data/aud_usd.dat"))) 500 1000)))
-;; ;;   (corrects (agents-indexes-simulation (agents-best (agents-distribution *population*)))
+;; ;;   (accuracy (agents-indexes-simulation (agents-best (agents-distribution *population*)))
 ;; ;; 	  (get-closes)))
 
 ;; (defparameter *best-agent* (agents-best (agents-distribution *population*)))
@@ -3198,12 +3457,24 @@ each point in the real prices."
   (let ((sim (agents-indexes-simulation agents-indexes)))
     (revenue sim (get-deltas (length sim)))))
 
-(defun agents-corrects (agents-indexes &optional (mape-constraint nil))
+(defun agents-accuracy (agents-indexes &optional (mape-constraint nil))
   "Returns the number of correct direction predictions made by the agents in
 `agents-indexes` for the real prices."
-  ;; (agents-corrects (first *population*))
+  ;; (agents-accuracy (first *population*))
   (let ((sim (agents-indexes-simulation agents-indexes)))
-    (corrects sim (get-deltas (length sim)) mape-constraint)))
+    (accuracy sim (get-deltas (length sim)) mape-constraint)))
+
+(defun agents-recall (agents-indexes)
+  (let ((sim (agents-indexes-simulation agents-indexes)))
+    (recall sim (get-deltas (length sim)))))
+
+(defun agents-precision (agents-indexes)
+  (let ((sim (agents-indexes-simulation agents-indexes)))
+    (precision sim (get-deltas (length sim)))))
+
+(defun agents-f1-score (agents-indexes)
+  (let ((sim (agents-indexes-simulation agents-indexes)))
+    (f1-score sim (get-deltas (length sim)))))
 
 (defun agents-pmape (agents-indexes &optional (zero-metric-constraint t))
   "Returns the penalized mean absolute percentage error obtained by the agents' simulation in
@@ -3333,9 +3604,12 @@ each point in the real prices."
 				   :mase (float (agents-mase best))
 			           :pmape (float (agents-pmape best))
 			           :rmse (float (agents-rmse best))
+				   :recall (float (agents-recall best))
+				   :precision (float (agents-precision best))
+				   :f1-score (float (agents-f1-score best))
 			           :mae (float (agents-mae best))
 			           :mse (float (agents-mse best))
-			           :corrects (agents-corrects best nil)
+			           :accuracy (agents-accuracy best nil)
 			           :revenue (float (agents-revenue best))
 			           ))))
               id))

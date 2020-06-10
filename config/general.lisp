@@ -2,8 +2,9 @@
 
 (org.tfeb.hax.memoize:clear-memoized-functions)
 
-(defparameter *testing-ratio* 0.05)
-(defparameter *required-activations* 0)
+;; (defparameter *testing-ratio* 2.5)
+(defparameter *testing-ratio* 0.15)
+(defparameter *required-activations* 5)
 (defparameter *activation-level* 1)
 (defparameter *only-best* 1)
 (defparameter *delta-gap* 1)
@@ -17,6 +18,9 @@
 ;; (defparameter *end* (1- (+ *begin* omper:*data-count* *num-inputs* *delta-gap* omper:*partition-size*))
 ;;   "The ending timestamp for the data used for training or testing.")
 
+(defparameter *provider* :oanda)
+(defparameter *markets-type* :fx)
+
 ;; last N range
 (defparameter *min-dataset-size*
   (ceiling (+ omper:*data-count* (* omper:*data-count* 2 *testing-ratio*) *num-inputs* *delta-gap* omper:*partition-size*)))
@@ -24,7 +28,7 @@
 (defparameter *end* (1- (floor (- *min-dataset-size* (+ (* omper:*data-count* 2 *testing-ratio*))))))
 
 ;; (defparameter *all-rates* (get-rates-count *instrument* *timeframe* *min-dataset-size*))
-(defparameter *all-rates* (get-random-rates-count *instrument* *timeframe* *min-dataset-size*))
+(defparameter *all-rates* (get-random-rates-count *instrument* *timeframe* *min-dataset-size* :provider *provider* :type *markets-type*))
 (defparameter *rates* (subseq *all-rates* *begin* *end*)
   "The rates used to generate the agents' perceptions.")
 

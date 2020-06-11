@@ -21,7 +21,7 @@
 
 (setf (config-env-var) "APP_ENV")
 
-(defparameter *application-root*   (asdf:system-source-directory :neuropredictions))
+(defparameter *application-root*   (asdf:system-source-directory :overmind-agents))
 (defparameter *static-directory*   (merge-pathnames #P"static/" *application-root*))
 (defparameter *template-directory* (merge-pathnames #P"templates/" *application-root*))
 

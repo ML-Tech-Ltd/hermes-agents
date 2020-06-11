@@ -1848,7 +1848,7 @@ instruments `INSTRUMENTS-KEYS` for `ITERATIONS`."
 ;; (dolist (instrument '(:EUR_GBP :EUR_JPY :EUR_USD :GBP_USD :USD_CHF :USD_CAD :USD_CNH :USD_HKD))
 ;;   (tweaking :instrument instrument :timeframe :H1 :iterations 300 :experiments-count 60))
 
-;; (tweaking :instrument :USD_JPY :timeframe :D :iterations 50 :experiments-count 30 :agents-fitness-fn #'agents-mase :fitness-fn #'mase :sort-fn #'<)
+;; (tweaking :instrument :EUR_USD :timeframe :D :iterations 50 :experiments-count 30 :agents-fitness-fn #'agents-mase :fitness-fn #'mase :sort-fn #'<)
 ;; (tweaking :instrument :EUR_USD :timeframe :H1 :iterations 300 :experiments-count 30)
 ;; *population*
 ;; *generations*

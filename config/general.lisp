@@ -3,8 +3,8 @@
 (org.tfeb.hax.memoize:clear-memoized-functions)
 
 ;; (defparameter *testing-ratio* 2.5)
-;; (defparameter *testing-ratio* 0.15)
-(defparameter *testing-ratio* 0.05)
+(defparameter *testing-ratio* 0.15)
+;; (defparameter *testing-ratio* 0.05)
 (defparameter *required-activations* 5)
 (defparameter *activation-level* 1)
 (defparameter *only-best* 1)

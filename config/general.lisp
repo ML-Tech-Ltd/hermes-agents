@@ -5,7 +5,7 @@
 ;; (defparameter *testing-ratio* 2.5)
 (defparameter *testing-ratio* 0.15)
 ;; (defparameter *testing-ratio* 0.05)
-(defparameter *required-activations* 5)
+(defparameter *required-activations* 9)
 (defparameter *activation-level* 1)
 (defparameter *only-best* 1)
 (defparameter *delta-gap* 1)
@@ -28,8 +28,8 @@
 (defparameter *begin* (floor (- *min-dataset-size* (+ omper:*data-count* (* omper:*data-count* 2 *testing-ratio*) *num-inputs* *delta-gap* omper:*partition-size*))))
 (defparameter *end* (1- (floor (- *min-dataset-size* (+ (* omper:*data-count* 2 *testing-ratio*))))))
 
-(defparameter *all-rates* (get-rates-count *instrument* *timeframe* *min-dataset-size*))
-;; (defparameter *all-rates* (get-random-rates-count *instrument* *timeframe* *min-dataset-size* :provider *provider* :type *markets-type*))
+;; (defparameter *all-rates* (get-rates-count *instrument* *timeframe* *min-dataset-size*))
+(defparameter *all-rates* (get-random-rates-count *instrument* *timeframe* *min-dataset-size* :provider *provider* :type *markets-type*))
 (defparameter *rates* (subseq *all-rates* *begin* *end*)
   "The rates used to generate the agents' perceptions.")
 

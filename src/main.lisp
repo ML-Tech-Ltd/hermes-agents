@@ -680,46 +680,73 @@ series `real`."
 			     )))
 		  inputs)))
     (mapcar (lambda (j inp)
-	      (if ;; (>= (nth j reductions) activation-threshold)
-	       (every (lambda (elt) (not (null elt)))
-		      (mapcar (lambda (act thresh)
-				(>= act
-				    thresh
-				    ))
-			      (nth j activations)
-			      activation-threshold
-			      ))
-	       ;; This one doesn't use *num-rules* == 1.
-	       ;; (if-coa
-	       ;; 	(reduce #'ifunion
-	       ;; 		(mapcar (lambda (i)
-	       ;; 			  (let ((ifs (nth i agent-ifss)))
-	       ;; 			    (reduce #'ifunion
-	       ;; 				    (mapcar (lambda (j)
-	       ;; 					      (rule
-	       ;; 					       (nth j inp)
-	       ;; 					       (nth (* j 2) ifs)
-	       ;; 					       (nth (1+ (* j 2)) ifs)))
-	       ;; 					    (iota (floor (/ (length ifs) 2)))
-	       ;; 					    ))))
-	       ;; 			(iota (length rules))
-	       ;; 			)))
-	       (mean (mapcar (lambda (i)
-			       (let ((ifs (nth i agent-ifss)))
-				 (if-coa
-				  (reduce #'ifunion
-					  (mapcar (lambda (j)
-						    (rule
-						     (nth j inp)
-						     (nth (* j 2) ifs)
-						     (nth (1+ (* j 2)) ifs)))
-						  (iota (floor (/ (length ifs) 2)))
-						  )))))
-			     (iota (length rules))
-			     ))
-	       0))
-	    (iota (length inputs))
-	    inputs)))
+    	      (let ((activation-weight (mean
+    					(mapcar (lambda (act thresh)
+    						  (if (>= act thresh)
+    						      act
+    						      (- act)))
+    						(nth j activations)
+    						activation-threshold))))
+    		(* activation-weight
+    		   (mean (mapcar (lambda (i)
+    				   (let ((ifs (nth i agent-ifss)))
+    				     (if-coa
+    				      (reduce #'ifunion
+    					      (mapcar (lambda (j)
+    							(rule
+    							 (nth j inp)
+    							 (nth (* j 2) ifs)
+    							 (nth (1+ (* j 2)) ifs)))
+    						      (iota (floor (/ (length ifs) 2)))
+    						      )))))
+    				 (iota (length rules))
+    				 )))))
+    	    (iota (length inputs))
+    	    inputs)
+    
+    ;; (mapcar (lambda (j inp)
+    ;; 	      (if ;; (>= (nth j reductions) activation-threshold)
+    ;; 	       t
+    ;; 	       ;; (every (lambda (elt) (not (null elt)))
+    ;; 	       ;; 	      (mapcar (lambda (act thresh)
+    ;; 	       ;; 			(>= act
+    ;; 	       ;; 			    thresh
+    ;; 	       ;; 			    ))
+    ;; 	       ;; 		      (nth j activations)
+    ;; 	       ;; 		      activation-threshold
+    ;; 	       ;; 		      ))
+    ;; 	       ;; This one doesn't use *num-rules* == 1.
+    ;; 	       ;; (if-coa
+    ;; 	       ;; 	(reduce #'ifunion
+    ;; 	       ;; 		(mapcar (lambda (i)
+    ;; 	       ;; 			  (let ((ifs (nth i agent-ifss)))
+    ;; 	       ;; 			    (reduce #'ifunion
+    ;; 	       ;; 				    (mapcar (lambda (j)
+    ;; 	       ;; 					      (rule
+    ;; 	       ;; 					       (nth j inp)
+    ;; 	       ;; 					       (nth (* j 2) ifs)
+    ;; 	       ;; 					       (nth (1+ (* j 2)) ifs)))
+    ;; 	       ;; 					    (iota (floor (/ (length ifs) 2)))
+    ;; 	       ;; 					    ))))
+    ;; 	       ;; 			(iota (length rules))
+    ;; 	       ;; 			)))
+    ;; 	       (mean (mapcar (lambda (i)
+    ;; 			       (let ((ifs (nth i agent-ifss)))
+    ;; 				 (if-coa
+    ;; 				  (reduce #'ifunion
+    ;; 					  (mapcar (lambda (j)
+    ;; 						    (rule
+    ;; 						     (nth j inp)
+    ;; 						     (nth (* j 2) ifs)
+    ;; 						     (nth (1+ (* j 2)) ifs)))
+    ;; 						  (iota (floor (/ (length ifs) 2)))
+    ;; 						  )))))
+    ;; 			     (iota (length rules))
+    ;; 			     ))
+    ;; 	       0))
+    ;; 	    (iota (length inputs))
+    ;; 	    inputs)
+    ))
 ;; (gen-rules 2)
 
 (defun agents-distribution (population &optional (fitness-fn #'mase) (sort-fn #'<))
@@ -1041,6 +1068,17 @@ series `real`."
 ;; (length (funcall *perception-fn* nil))
 ;; (get-deltas omper:*data-count*)
 
+(defun should-add-activation? (wanted-direction direction all-directions)
+  (let ((all-directions (append (list direction) all-directions)))
+    (if (null all-directions)
+	t
+	(let ((right-count (count t
+				  (mapcar (lambda (dir)
+					    (> (* wanted-direction dir) 0))
+					  all-directions))))
+	  (if (>= right-count (* (/ (length all-directions) 3) 2))
+	      t)))))
+
 (defun gen-agents (num)
   "This one uses a list of activations."
   (loop repeat num
@@ -1079,13 +1117,16 @@ series `real`."
 		       ;; 					  (subseq sorted-reductions-idxs 0 *activation-level*))))
 		       (activation-threshold (apply #'mapcar (lambda (&rest acts)
 		       					       (apply #'min acts))
-		       				    (let ((result))
+		       				    (let ((result)
+							  (directions))
 		       				      (dolist (idx sorted-reductions-idxs)
-		       					(if (> (* (nth (+ idx *delta-gap*) outputs)
-		       						  wanted-direction)
-		       					       0)
-		       					    (push (nth idx activations) result)
-		       					    (return)))
+		       					(let ((dir (nth (+ idx *delta-gap*) outputs)))
+							  (if (should-add-activation? wanted-direction dir directions)
+							   ;; (> (* dir wanted-direction) 0)
+							      (progn
+								(push dir directions)
+								(push (nth idx activations) result))
+							      (return))))
 		       				      (when (< (length result) *required-activations*)
 		       				      	(error "not enough activations"))
 						      (setf (consecutive-activations agent) (length result))
@@ -1746,10 +1787,6 @@ series `real`."
 	  )))
     val+test))
 
-(defun print-iteration (report agents-indexes)
-  "Used by `DRAW-OPTIMIZATION`."
-  )
-
 (defun get-starting-population (is-cold-start instrument timeframe)
   "Used by `OPTIMIZE-ALL` and `OPTIMIZE-ONE`."
   (if is-cold-start
@@ -1848,7 +1885,7 @@ instruments `INSTRUMENTS-KEYS` for `ITERATIONS`."
 ;; (dolist (instrument '(:EUR_GBP :EUR_JPY :EUR_USD :GBP_USD :USD_CHF :USD_CAD :USD_CNH :USD_HKD))
 ;;   (tweaking :instrument instrument :timeframe :H1 :iterations 300 :experiments-count 60))
 
-;; (tweaking :instrument :EUR_USD :timeframe :D :iterations 50 :experiments-count 30 :agents-fitness-fn #'agents-mase :fitness-fn #'mase :sort-fn #'<)
+;; (tweaking :instrument :AUD_USD :timeframe :D :iterations 100 :experiments-count 9 :agents-fitness-fn #'agents-mase :fitness-fn #'mase :sort-fn #'<)
 ;; (tweaking :instrument :EUR_USD :timeframe :H1 :iterations 300 :experiments-count 30)
 ;; *population*
 ;; *generations*
@@ -1942,9 +1979,10 @@ instruments `INSTRUMENTS-KEYS` for `ITERATIONS`."
 ;; (dotimes (i (length (first *population*))) (print (extract-training-clustered-trades (agent-trades (nth i (extract-agents-from-pool (first *population*)))))))
 
 (defun init (instrument timeframe)
-  (let ((default-config #P"../config/default.lisp")
-	(general-config #P"../config/general.lisp")
-	(config (pathname (format nil "../config/~a-~a.lisp" instrument timeframe))))
+  (let* ((config-dir (merge-pathnames #P"config/" *application-root*))
+	 (default-config (merge-pathnames #P"default.lisp" config-dir))
+	 (general-config (merge-pathnames #P"general.lisp" config-dir))
+	 (config (merge-pathnames (pathname (format nil "~a-~a.lisp" instrument timeframe)) config-dir)))
     ;; We always load default.
     (load default-config)
     ;; Then we override parameters according to custom config files.

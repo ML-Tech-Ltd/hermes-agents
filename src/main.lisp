@@ -1,7 +1,7 @@
 ;; (ql:quickload :overmind-agents)
 ;; (ql:quickload :mlforecasting)
 ;; (mlforecasting:start :port 2001)
-;; (loop-optimize-test 100 :instruments-keys '(:forex) :timeframes-keys '(:all) :print-log? t)
+;; (loop-optimize-test 20 :instruments-keys '(:forex) :timeframes-keys '(:all) :print-log? t)
 ;; (loop-optimize-test 50 :instruments-keys '(:forex) :timeframes-keys '(:all))
 ;; (loop-optimize-test 50 :instruments-keys '(:all) :timeframes-keys '(:longterm))
 ;; (loop-optimize-test 50 :instruments-keys '(:metals) :timeframes-keys '(:longterm))
@@ -49,7 +49,7 @@
 ;;     "The financial instrument used for querying the data used to train or test.")
 ;;   (defparameter *timeframe* :Y
 ;;     "The timeframe used for querying the data used to train or test.")
-  
+
 ;;   (defparameter *all-rates* (mapcar (lambda (time point)
 ;; 				      `((:time . ,(format nil "~a" time))
 ;; 					(:close-bid . ,(* 1 point))))
@@ -132,100 +132,102 @@
   "Creates all the necessary tables for Overmind Agents."
   (with-postgres-connection
       (execute (create-table (:populations :if-not-exists t)
-                   ((id :type '(:varchar 36)
-                        :primary-key t)
-                    (label :type '(:varchar 128))
-                    (parent-id :type '(:varchar 36)
-                               :not-null t)
-                    (population :type 'bytea
-                                :not-null t)
-                    (best-index :type 'integer
-                                :not-null t)
-                    (instrument :type '(:varchar 128)
-                                :not-null t)
-                    (timeframe :type '(:varchar 128)
-                               :not-null t)
-                    (generations :type 'integer
-                                 :not-null t)
-                    (fitness-fn :type '(:varchar 128)
-                                :not-null t)
-                    (rules-config :type 'bytea
-                                  :not-null t)
-                    (begin :type 'bigint
-                           :not-null t)
-                    (end :type 'bigint
-                         :not-null t)
-                    (creation-time :type 'bigint
-                                   :not-null t)
-                    (mape :type '(:numeric)
-                          :not-null t)
-		    (mase :type '(:numeric)
-                          :not-null t)
-                    (pmape :type '(:numeric)
-                           :not-null t)
-                    (mae :type '(:numeric)
-                         :not-null t)
-                    (mse :type '(:numeric)
-                         :not-null t)
-                    (rmse :type '(:numeric)
-                          :not-null t)
-		    (recall :type '(:numeric)
-			    :not-null t)
-		    (precision :type '(:numeric)
-			       :not-null t)
-		    (f1-score :type '(:numeric)
-			      :not-null t)
-                    (accuracy :type '(:numeric[2])
-                              :not-null t)
-                    (revenue :type '(:numeric)
-                             :not-null t)
-                    )))
+			     ((id :type '(:varchar 36)
+				  :primary-key t)
+			      (label :type '(:varchar 128))
+			      (parent-id :type '(:varchar 36)
+					 :not-null t)
+			      (population :type 'bytea
+					  :not-null t)
+			      (best-index :type 'integer
+					  :not-null t)
+			      (instrument :type '(:varchar 128)
+					  :not-null t)
+			      (timeframe :type '(:varchar 128)
+					 :not-null t)
+			      (generations :type 'integer
+					   :not-null t)
+			      (fitness-fn :type '(:varchar 128)
+					  :not-null t)
+			      (rules-config :type 'bytea
+					    :not-null t)
+			      (begin :type 'bigint
+				     :not-null t)
+			      (end :type 'bigint
+				   :not-null t)
+			      (creation-time :type 'bigint
+					     :not-null t)
+			      (mape :type '(:numeric)
+				    :not-null t)
+			      (mase :type '(:numeric)
+				    :not-null t)
+			      (pmape :type '(:numeric)
+				     :not-null t)
+			      (mae :type '(:numeric)
+				   :not-null t)
+			      (mse :type '(:numeric)
+				   :not-null t)
+			      (rmse :type '(:numeric)
+				    :not-null t)
+			      (recall :type '(:numeric)
+				      :not-null t)
+			      (precision :type '(:numeric)
+					 :not-null t)
+			      (f1-score :type '(:numeric)
+					:not-null t)
+			      (accuracy :type '(:numeric[2])
+					:not-null t)
+			      (revenue :type '(:numeric)
+				       :not-null t)
+			      )))
     (execute (create-table (:populations-closure :if-not-exists t)
-                 ((parent-id :type '(:varchar 36))
-                  (child-id :type '(:varchar 36))
-                  (depth :type 'integer
-                         :not-null t))
-               (primary-key '(:parent-id :child-id))))
+			   ((parent-id :type '(:varchar 36))
+			    (child-id :type '(:varchar 36))
+			    (depth :type 'integer
+				   :not-null t))
+			   (primary-key '(:parent-id :child-id))))
     (execute (create-table (:tests :if-not-exists t)
-                 ((population-id :type '(:varchar 36)
-                                 :not-null t)
-                  (instrument :type '(:varchar 128)
-                              :not-null t)
-                  (timeframe :type '(:varchar 128)
-                             :not-null t)
-                  (begin :type 'bigint
-                         :not-null t)
-                  (end :type 'bigint
-                       :not-null t)
-		  (creation-time :type 'bigint
+			   ((population-id :type '(:varchar 36)
+					   :not-null t)
+			    (instrument :type '(:varchar 128)
+					:not-null t)
+			    (timeframe :type '(:varchar 128)
+				       :not-null t)
+			    (begin :type 'bigint
+				   :not-null t)
+			    (end :type 'bigint
 				 :not-null t)
-                  (mape :type '(:numeric)
-                        :not-null t)
-		  (mase :type '(:numeric)
-                        :not-null t)
-                  (pmape :type '(:numeric)
-                         :not-null t)
-                  (mae :type '(:numeric)
-                       :not-null t)
-                  (mse :type '(:numeric)
-                       :not-null t)
-                  (rmse :type '(:numeric)
-                        :not-null t)
-		  (recall :type '(:numeric)
-			  :not-null t)
-		  (precision :type '(:numeric)
-			     :not-null t)
-		  (f1-score :type '(:numeric)
-			    :not-null t)
-                  (accuracy :type '(:numeric[2])
-                            :not-null t)
-                  (revenue :type '(:numeric)
-                           :not-null t)
-                  (decision :type '(varchar 128)
-                            :not-null t)
-                  (delta :type '(:numeric)
-                         :not-null t)
-                  )))))
+			    (creation-time :type 'bigint
+					   :not-null t)
+			    (mape :type '(:numeric)
+				  :not-null t)
+			    (mase :type '(:numeric)
+				  :not-null t)
+			    (pmape :type '(:numeric)
+				   :not-null t)
+			    (mae :type '(:numeric)
+				 :not-null t)
+			    (mse :type '(:numeric)
+				 :not-null t)
+			    (rmse :type '(:numeric)
+				  :not-null t)
+			    (recall :type '(:numeric)
+				    :not-null t)
+			    (precision :type '(:numeric)
+				       :not-null t)
+			    (f1-score :type '(:numeric)
+				      :not-null t)
+			    (accuracy :type '(:numeric[2])
+				      :not-null t)
+			    (revenue :type '(:numeric)
+				     :not-null t)
+			    (decision :type '(varchar 128)
+				      :not-null t)
+			    (delta :type '(:numeric)
+				   :not-null t)
+			    (entry-price :type '(:numeric)
+					 :not-null t)
+			    )))))
 ;; (init-database)
 
 ;; (local-time:timestamp-to-unix (local-time:now))
@@ -234,8 +236,8 @@
 (defun get-population (population-id)
   (with-postgres-connection
       (retrieve-one (select :*
-		      (from :populations)
-		      (where (:= :id population-id))))))
+			    (from :populations)
+			    (where (:= :id population-id))))))
 
 (defun init-from-database (population-id)
   "Retrieves a population from the Overmind Agents database and initializes the
@@ -305,39 +307,39 @@ agents parameters according to it."
 (defun get-descendants (population-id)
   (with-postgres-connection
       (retrieve-all (select :p.*
-                      (from (:as :populations :p))
-                      (join (:as :populations-closure :c) :on (:= :p.id :c.child-id))
-                      (where (:= :c.parent-id population-id))
-                      (where (:> :c.depth 0))
-                      ))))
+			    (from (:as :populations :p))
+			    (join (:as :populations-closure :c) :on (:= :p.id :c.child-id))
+			    (where (:= :c.parent-id population-id))
+			    (where (:> :c.depth 0))
+			    ))))
 
 (defun get-ancestors (population-id)
   ;; (get-ancestors 3)
   (with-postgres-connection
       (retrieve-all (select :p.*
-                      (from (:as :populations :p))
-                      (join (:as :populations-closure :c) :on (:= :p.id :c.parent-id))
-                      (where (:= :c.child-id population-id))
-                      (where (:> :c.depth 0))
-                      ))))
+			    (from (:as :populations :p))
+			    (join (:as :populations-closure :c) :on (:= :p.id :c.parent-id))
+			    (where (:= :c.child-id population-id))
+			    (where (:> :c.depth 0))
+			    ))))
 
 (defun insert-initial-closure (population-id)
   (with-postgres-connection
       (execute (insert-into :populations-closure
-                 (set= :parent-id population-id
-                       :child-id population-id
-                       :depth 0)))))
+			    (set= :parent-id population-id
+				  :child-id population-id
+				  :depth 0)))))
 ;; (insert-initial-closure 4)
 
 (defun insert-closure (parent-id child-id)
   (with-postgres-connection
       (execute (insert-into :populations-closure
-                 (:parent-id :child-id :depth)
-                 (select (:p.parent-id :c.child-id (:+ :p.depth :c.depth 1))
-                   (from (:as :populations-closure :p)
-                         (:as :populations-closure :c))
-                   (where (:= :p.child-id parent-id))
-                   (where (:= :c.parent-id child-id)))))))
+			    (:parent-id :child-id :depth)
+			    (select (:p.parent-id :c.child-id (:+ :p.depth :c.depth 1))
+				    (from (:as :populations-closure :p)
+					  (:as :populations-closure :c))
+				    (where (:= :p.child-id parent-id))
+				    (where (:= :c.parent-id child-id)))))))
 ;; (insert-closure 3 4)
 
 ;; check sanitization
@@ -603,8 +605,8 @@ series `real`."
 	      (mapcar (lambda (clause)
 			(prog1
 			    (list (+ (first clause) (nth idx rules-deltas))
-				      (+ (second clause) (nth idx rules-deltas))
-				      (third clause))
+				  (+ (second clause) (nth idx rules-deltas))
+				  (third clause))
 			  (incf idx)))
 		      rule))
 	    rules)))
@@ -796,7 +798,7 @@ series `real`."
 	(pushnew newy *population* :test #'equal)
 	(when (/= (length *population*) *population-size*)
 	  (setf *population* (agents-without-worst (agents-distribution *population* fitness-fn sort-fn))))
-          
+	
 	;; (setf *population* (append (list newy) (agents-without-worst (agents-distribution *population* fitness-fn sort-fn))))
 	)))
 
@@ -982,20 +984,20 @@ series `real`."
 (defun n-into-m-parts (m n)
   (mapcar #'+
 	  (print (let ((lst (sort (append (mapcar (lambda (_)
-					     (random-float *rand-gen* 0 (* 10 m)))
-					   (iota (1- n)))
-				   `(0 ,(* 10 m)))
-			   #'<)))
-	    (mapcar #'-
-		    (rest lst) lst)))
+						    (random-float *rand-gen* 0 (* 10 m)))
+						  (iota (1- n)))
+					  `(0 ,(* 10 m)))
+				  #'<)))
+		   (mapcar #'-
+			   (rest lst) lst)))
 
 	  (print (let ((lst (sort (append (mapcar (lambda (_)
-					     (random-float *rand-gen* (- (* 9 m)) 0))
-					   (iota (1- n)))
-				   `(,(- (* 9 m)) 0))
-			   #'<)))
-	    (mapcar (lambda (n1 n2) (- (- n1 n2)))
-		    (rest lst) lst)))))
+						    (random-float *rand-gen* (- (* 9 m)) 0))
+						  (iota (1- n)))
+					  `(,(- (* 9 m)) 0))
+				  #'<)))
+		   (mapcar (lambda (n1 n2) (- (- n1 n2)))
+			   (rest lst) lst)))))
 
 (defun n-into-m-parts (n m)
   (let* ((rand-nums (mapcar (lambda (_)
@@ -1013,7 +1015,7 @@ series `real`."
 					    (mapcar (lambda (i)
 						      (second
 						       (if-membership (nth i inp)
-								   (agents-ifs (nth i (slot-value agent 'activations))))))
+								      (agents-ifs (nth i (slot-value agent 'activations))))))
 						    (iota *num-inputs*)))
 					  (funcall *perception-fn* nil)))
 		     (reductions (mapcar (lambda (act) (reduce #'+ act)) activations))
@@ -1041,19 +1043,19 @@ series `real`."
 								  rule)))
 						(rules agent)))
 	      (let* ((reductions (mapcar (lambda (inp)
-					    (reduce #'+
-						    (mapcar (lambda (j)
-							      (reduce #'+
-								      (mapcar (lambda (i)
-										(second
-										 (if-membership (nth i inp)
-											     (agents-ifs (nth i (nth j (activations agent)))))))
-									      (iota *num-inputs*))))
-							    ;; (funcall *perception-fn* nil)
-							    (iota *num-rules*)
-							    )))
-					  ;; (iota *num-rules*)
-					  (funcall *perception-fn* nil)))
+					   (reduce #'+
+						   (mapcar (lambda (j)
+							     (reduce #'+
+								     (mapcar (lambda (i)
+									       (second
+										(if-membership (nth i inp)
+											       (agents-ifs (nth i (nth j (activations agent)))))))
+									     (iota *num-inputs*))))
+							   ;; (funcall *perception-fn* nil)
+							   (iota *num-rules*)
+							   )))
+					 ;; (iota *num-rules*)
+					 (funcall *perception-fn* nil)))
 		     ;; (reductions (mapcar (lambda (act) (reduce #'+ act)) (mapcar #'flatten (print activations))))
 		     ;; (activation-threshold (nth (random-int *rand-gen* 0 *activation-level*) (sort reductions #'>)))
 		     (sorted-reductions (sort reductions #'>))
@@ -1122,7 +1124,7 @@ series `real`."
 		       				      (dolist (idx sorted-reductions-idxs)
 		       					(let ((dir (nth (+ idx *delta-gap*) outputs)))
 							  (if (should-add-activation? wanted-direction dir directions)
-							   ;; (> (* dir wanted-direction) 0)
+							      ;; (> (* dir wanted-direction) 0)
 							      (progn
 								(push dir directions)
 								(push (nth idx activations) result))
@@ -1155,10 +1157,10 @@ series `real`."
 
 (defun calc-leverage-stdev ()
   (/ (standard-deviation (mapcar (lambda (next curr)
-                     (abs (- (access next :close-bid)
-                             (access curr :close-bid))))
-                   (rest *rates*)
-                   *rates*))
+				   (abs (- (access next :close-bid)
+					   (access curr :close-bid))))
+				 (rest *rates*)
+				 *rates*))
      (* *community-size* 100)))
 ;; (calc-leverage-mean)
 ;; (calc-leverage-stdev)
@@ -1192,109 +1194,109 @@ series `real`."
 
 (defun cluster-trades-deltas (trades deltas agents-count)
   (let* (final-trades final-deltas)
-      (let ((delta-clusters (mapcar #'flatten (km (mapcar #'list deltas) 2)))
-	    (trade-clusters (make-hash-table :size 2)))
+    (let ((delta-clusters (mapcar #'flatten (km (mapcar #'list deltas) 2)))
+	  (trade-clusters (make-hash-table :size 2)))
 
-	(let* ((min-delta-clusters-size (min (length (nth 0 delta-clusters))
-					     (length (nth 1 delta-clusters))))
-	       (0-cluster-size (length (nth 0 delta-clusters)))
-	       (1-cluster-size (length (nth 1 delta-clusters)))
-	       (first-half-size (if (< min-delta-clusters-size (/ agents-count 2))
-				    (if (< 0-cluster-size (/ agents-count 2))
-					0-cluster-size
-					(- agents-count min-delta-clusters-size))
-				    (floor agents-count 2)))
-	       (second-half-size (if (< min-delta-clusters-size (/ agents-count 2))
-				     (if (< 1-cluster-size (/ agents-count 2))
-					 1-cluster-size
-					 (- agents-count first-half-size))
-				     (+ first-half-size (rem agents-count 2)))))
+      (let* ((min-delta-clusters-size (min (length (nth 0 delta-clusters))
+					   (length (nth 1 delta-clusters))))
+	     (0-cluster-size (length (nth 0 delta-clusters)))
+	     (1-cluster-size (length (nth 1 delta-clusters)))
+	     (first-half-size (if (< min-delta-clusters-size (/ agents-count 2))
+				  (if (< 0-cluster-size (/ agents-count 2))
+				      0-cluster-size
+				      (- agents-count min-delta-clusters-size))
+				  (floor agents-count 2)))
+	     (second-half-size (if (< min-delta-clusters-size (/ agents-count 2))
+				   (if (< 1-cluster-size (/ agents-count 2))
+				       1-cluster-size
+				       (- agents-count first-half-size))
+				   (+ first-half-size (rem agents-count 2)))))
 
-	  ;;(format t "~a,~a~%" (length (nth 0 delta-clusters)) (length (nth 1 delta-clusters)))
+	;;(format t "~a,~a~%" (length (nth 0 delta-clusters)) (length (nth 1 delta-clusters)))
 
-	  ;; Clustering deltas and trades.
-	  (dotimes (i (length deltas))
+	;; Clustering deltas and trades.
+	(dotimes (i (length deltas))
+	  ;; `num-cluster` is the number of the cluster in which we found the `ith` delta.
+	  (let ((num-cluster (position (nth i deltas) delta-clusters
+				       :test (lambda (elt seq)
+					       (find elt seq :test #'equal)))))
+	    ;; We save the slice of trades (different trades by different agents)
+	    ;; in its corresponding cluster.
+	    (push (mapcar (lambda (trade)
+			    (nth i trade))
+			  trades)
+		  (gethash num-cluster trade-clusters))))
+
+	;; First half.
+	(let* ((r-trade-cluster (reverse (gethash 0 trade-clusters)))
+	       (inner-trade-clusters (km r-trade-cluster first-half-size))
+	       (inner-delta-clusters (make-hash-table :size first-half-size)))
+	  ;; Clustering trades and deltas.
+	  (dotimes (i (length r-trade-cluster))
 	    ;; `num-cluster` is the number of the cluster in which we found the `ith` delta.
-	    (let ((num-cluster (position (nth i deltas) delta-clusters
+	    (let ((num-cluster (position (nth i r-trade-cluster) inner-trade-clusters
 					 :test (lambda (elt seq)
 						 (find elt seq :test #'equal)))))
 	      ;; We save the slice of trades (different trades by different agents)
 	      ;; in its corresponding cluster.
-	      (push (mapcar (lambda (trade)
-			      (nth i trade))
-			    trades)
-		    (gethash num-cluster trade-clusters))))
+	      (push (nth i (nth 0 delta-clusters))
+		    (gethash num-cluster inner-delta-clusters))))
+	  ;; Saving results.
+	  ;; (format t "First half: ~a~%" inner-trade-clusters)
+	  (push inner-trade-clusters final-trades)
+	  (push (mapcar #'reverse (mapcar #'cdr (sort (copy-sequence 'list (hash-table-alist inner-delta-clusters)) #'< :key #'first)))
+		final-deltas)
+	  )
 
-	  ;; First half.
-	  (let* ((r-trade-cluster (reverse (gethash 0 trade-clusters)))
-		 (inner-trade-clusters (km r-trade-cluster first-half-size))
-		 (inner-delta-clusters (make-hash-table :size first-half-size)))
-	    ;; Clustering trades and deltas.
-	    (dotimes (i (length r-trade-cluster))
-	      ;; `num-cluster` is the number of the cluster in which we found the `ith` delta.
-	      (let ((num-cluster (position (nth i r-trade-cluster) inner-trade-clusters
-					   :test (lambda (elt seq)
-						   (find elt seq :test #'equal)))))
-		;; We save the slice of trades (different trades by different agents)
-		;; in its corresponding cluster.
-		(push (nth i (nth 0 delta-clusters))
-		      (gethash num-cluster inner-delta-clusters))))
-	    ;; Saving results.
-	    ;; (format t "First half: ~a~%" inner-trade-clusters)
-	    (push inner-trade-clusters final-trades)
-	    (push (mapcar #'reverse (mapcar #'cdr (sort (copy-sequence 'list (hash-table-alist inner-delta-clusters)) #'< :key #'first)))
-		  final-deltas)
-	    )
+	;; Second half.
+	(let* ((r-trade-cluster (reverse (gethash 1 trade-clusters)))
+	       (inner-trade-clusters (km r-trade-cluster second-half-size))
+	       (inner-delta-clusters (make-hash-table :size second-half-size)))
+	  ;; Clustering trades and deltas.
+	  (dotimes (i (length r-trade-cluster))
+	    ;; `num-cluster` is the number of the cluster in which we found the `ith` delta.
+	    (let ((num-cluster (position (nth i r-trade-cluster) inner-trade-clusters
+					 :test (lambda (elt seq)
+						 (find elt seq :test #'equal)))))
+	      ;; We save the slice of trades (different trades by different agents)
+	      ;; in its corresponding cluster.
+	      (push (nth i (nth 1 delta-clusters))
+		    (gethash num-cluster inner-delta-clusters))))
+	  ;; (format t "Second half: ~a~%" inner-trade-clusters)
+	  (push inner-trade-clusters final-trades)
+	  (push (mapcar #'reverse (mapcar #'cdr (sort (copy-sequence 'list (hash-table-alist inner-delta-clusters)) #'< :key #'first)))
+		final-deltas))
 
-	  ;; Second half.
-	  (let* ((r-trade-cluster (reverse (gethash 1 trade-clusters)))
-		 (inner-trade-clusters (km r-trade-cluster second-half-size))
-		 (inner-delta-clusters (make-hash-table :size second-half-size)))
-	    ;; Clustering trades and deltas.
-	    (dotimes (i (length r-trade-cluster))
-	      ;; `num-cluster` is the number of the cluster in which we found the `ith` delta.
-	      (let ((num-cluster (position (nth i r-trade-cluster) inner-trade-clusters
-					   :test (lambda (elt seq)
-						   (find elt seq :test #'equal)))))
-		;; We save the slice of trades (different trades by different agents)
-		;; in its corresponding cluster.
-		(push (nth i (nth 1 delta-clusters))
-		      (gethash num-cluster inner-delta-clusters))))
-	    ;; (format t "Second half: ~a~%" inner-trade-clusters)
-	    (push inner-trade-clusters final-trades)
-	    (push (mapcar #'reverse (mapcar #'cdr (sort (copy-sequence 'list (hash-table-alist inner-delta-clusters)) #'< :key #'first)))
-		  final-deltas))
+	;; (format t "~a~%" final-trades)
+	;; (defparameter *coco* final-trades)
 
-	  ;; (format t "~a~%" final-trades)
-	  ;; (defparameter *coco* final-trades)
+	;; (values (mapcar (lambda (cluster)
+	;; 		    (apply #'mapcar (lambda (&rest trades)
+	;; 				      (mean trades))
+	;; 			   cluster))
+	;; 		  (apply #'concatenate 'list (reverse final-trades)))
+	;; 	  (mapcar #'mean (apply #'concatenate 'list (reverse final-deltas))))
 
-	  ;; (values (mapcar (lambda (cluster)
-	  ;; 		    (apply #'mapcar (lambda (&rest trades)
-	  ;; 				      (mean trades))
-	  ;; 			   cluster))
-	  ;; 		  (apply #'concatenate 'list (reverse final-trades)))
-	  ;; 	  (mapcar #'mean (apply #'concatenate 'list (reverse final-deltas))))
-
-	  ;; (format t "delta-clusters: ~a~%" delta-clusters)
-	  ;; (format t "trade-clusers: ~a~%" (hash-table-values trade-clusters))
-	  ;; (format t "r-final-deltas: ~a~%" (reverse final-deltas))
-	  ;; (format t "r-final-trades: ~a~%" (reverse final-trades))
-	  ;; (break "")
-	  
-	  (let* ((r-final-deltas (reverse final-deltas))
-		 (r-final-trades (reverse final-trades))
-		 ;; (idxs (mapcar #'median-elt-idx r-final-deltas))
-		 )
-	    (values (mapcar (lambda (cluster)
-			      (apply #'mapcar (lambda (&rest trades)
-						(mean trades)
-						;; (nth idx trades)
-						)
-				     cluster))
-			    ;; idxs
-			    (apply #'concatenate 'list r-final-trades))
-		    (mapcar #'mean (apply #'concatenate 'list r-final-deltas)))))
-	)))
+	;; (format t "delta-clusters: ~a~%" delta-clusters)
+	;; (format t "trade-clusers: ~a~%" (hash-table-values trade-clusters))
+	;; (format t "r-final-deltas: ~a~%" (reverse final-deltas))
+	;; (format t "r-final-trades: ~a~%" (reverse final-trades))
+	;; (break "")
+	
+	(let* ((r-final-deltas (reverse final-deltas))
+	       (r-final-trades (reverse final-trades))
+	       ;; (idxs (mapcar #'median-elt-idx r-final-deltas))
+	       )
+	  (values (mapcar (lambda (cluster)
+			    (apply #'mapcar (lambda (&rest trades)
+					      (mean trades)
+					      ;; (nth idx trades)
+					      )
+				   cluster))
+			  ;; idxs
+			  (apply #'concatenate 'list r-final-trades))
+		  (mapcar #'mean (apply #'concatenate 'list r-final-deltas)))))
+      )))
 ;; (cluster-trades-deltas *trades* *deltas* 10)
 
 ;; (dotimes (i (length *population*))
@@ -1334,8 +1336,8 @@ series `real`."
   (map 'vector (lambda (j) (if (equal i j) 1 0)) (range n)))
 
 (defun descent (community fun x &key (error 1.0d-5) 
-                        (rate 1.0d-2) 
-                        (max-steps 10000))
+				  (rate 1.0d-2) 
+				  (max-steps 10000))
   (let ((len (length x))
 	(best nil)
 	(best-error 100))
@@ -1468,16 +1470,16 @@ series `real`."
 						   (:accuracy . ,(accesses test :testing :performance-metrics :accuracy)))
 						))))
 			  result)
-	      
+			
 			)))
 		  (get-root-populations-ids))))
 
 (defun get-root-populations-ids ()
   (with-postgres-connection
       (retrieve-all (select (:id)
-		      (from :populations)
-		      (where (:= :parent-id ""))
-		      ))))
+			    (from :populations)
+			    (where (:= :parent-id ""))
+			    ))))
 
 ;; (defun get-best-descendant (id &optional (fitness-kw :mase))
 ;;   (let* ((desc (get-descendants id))
@@ -1489,18 +1491,18 @@ series `real`."
 (defun get-best-descendant (population-id)
   (with-postgres-connection
       (retrieve-one (select :p.*
-                      (from (:as :populations :p))
-                      (join (:as :populations-closure :c) :on (:= :p.id :c.child-id))
-                      (where (:= :c.parent-id population-id))
-                      (where (:> :c.depth 0))
-		      (order-by (:asc :mase))
-                      ))))
+			    (from (:as :populations :p))
+			    (join (:as :populations-closure :c) :on (:= :p.id :c.child-id))
+			    (where (:= :c.parent-id population-id))
+			    (where (:> :c.depth 0))
+			    (order-by (:asc :mase))
+			    ))))
 
 (defun get-best-descendant-id (id &optional (fitness-kw :mase))
   (let* ((desc (get-descendants id))
 	 (idx (last-elt (largest-number-indexes (mapcar (lambda (entry)
-							(access entry fitness-kw))
-						      desc)))))
+							  (access entry fitness-kw))
+							desc)))))
     (access (nth idx desc) :id)))
 
 ;; (defmacro param-singleton (sym value)
@@ -1725,11 +1727,11 @@ series `real`."
 		   (train-f1-score (agents-f1-score median-best))
 		   (val-f1-score (accesses report :validation :performance-metrics :f1-score))
 		   (test-f1-score (accesses report :testing :performance-metrics :f1-score))
-		     
+		   
 		   (train-accuracy (agents-accuracy median-best))
 		   (val-accuracy (accesses report :validation :performance-metrics :accuracy))
 		   (test-accuracy (accesses report :testing :performance-metrics :accuracy))
-		     
+		   
 		   (train-revenue (agents-revenue median-best))
 		   (val-revenue (accesses report :validation :performance-metrics :revenue))
 		   (test-revenue (accesses report :testing :performance-metrics :revenue)))
@@ -1776,7 +1778,7 @@ series `real`."
 			(format-accuracy train-accuracy)
 			(format-accuracy val-accuracy)
 			(format-accuracy test-accuracy)
-			  
+			
 			train-revenue
 			val-revenue
 			test-revenue))
@@ -1855,12 +1857,13 @@ instruments `INSTRUMENTS-KEYS` for `ITERATIONS`."
 				   )))
 	     (dolist (instrument instruments)
 	       (dolist (timeframe timeframes)
-		 (let ((*instrument* instrument)
-		       (*timeframe* timeframe))
-		   (when print-log? (format t "~%~%~a, ~a~%" instrument timeframe))
-		   (init instrument timeframe)
-		   (optimize-one instrument timeframe iterations :is-cold-start nil :print-log? print-log?)
-		   (test-market instrument timeframe))))))))
+		 (ignore-errors
+		   (let ((*instrument* instrument)
+			 (*timeframe* timeframe))
+		     (when print-log? (format t "~%~%~a, ~a~%" instrument timeframe))
+		     (init instrument timeframe)
+		     (optimize-one instrument timeframe iterations :is-cold-start nil :print-log? print-log?)
+		     (test-market instrument timeframe)))))))))
      (prune-populations)))
 
 (defun tweaking (&key (instrument :EUR_USD) (timeframe :D) (iterations 100) (experiments-count 10) (agents-fitness-fn #'agents-mase) (fitness-fn #'mase) (sort-fn #'<))
@@ -1871,14 +1874,14 @@ instruments `INSTRUMENTS-KEYS` for `ITERATIONS`."
     (dotimes (i experiments-count)
       (init instrument timeframe)
       (let ((run (optimize-one instrument timeframe iterations :is-cold-start t :agents-fitness-fn agents-fitness-fn :fitness-fn fitness-fn :sort-fn sort-fn)))
-	 (push (first run) nums)
-	 (push (second run) denoms)
-	 ;; (format t "~%~%#~a - ACCUMULATION: (~a ~a) = ~a"
-	 ;; 	 (1+ i)
-	 ;; 	 (reduce #'+ nums)
-	 ;; 	 (reduce #'+ denoms)
-	 ;; 	 (float (* 100 (if (/= (reduce #'+ denoms) 0) (/ (reduce #'+ nums) (reduce #'+ denoms)) 0))))
-	 ))
+	(push (first run) nums)
+	(push (second run) denoms)
+	;; (format t "~%~%#~a - ACCUMULATION: (~a ~a) = ~a"
+	;; 	 (1+ i)
+	;; 	 (reduce #'+ nums)
+	;; 	 (reduce #'+ denoms)
+	;; 	 (float (* 100 (if (/= (reduce #'+ denoms) 0) (/ (reduce #'+ nums) (reduce #'+ denoms)) 0))))
+	))
     ;; (format t "~%~%RESULTS: ~a~%" (list nums denoms))
     ))
 
@@ -2198,15 +2201,15 @@ evolutionary process."
       (format t "~%rmse: ~a~%" (rmse sim real)))
     (print "test:")
     (let* ((real (mapcar (lambda (rate)
-			  (access rate :close-bid))
-			(subseq *all-rates* (+ *end* omper:*data-count*) (ceiling (+ *end* (* 2 omper:*data-count*))))))
-	  (sim (mapcar #'+
-		       real
-		       (accesses (agents-test (extract-agents-from-pool
-					       community)
-					      (subseq *all-rates* *begin* (ceiling (+ *end* (* 2 omper:*data-count*))))
-					      )
-				 :simulation))))
+			   (access rate :close-bid))
+			 (subseq *all-rates* (+ *end* omper:*data-count*) (ceiling (+ *end* (* 2 omper:*data-count*))))))
+	   (sim (mapcar #'+
+			real
+			(accesses (agents-test (extract-agents-from-pool
+						community)
+					       (subseq *all-rates* *begin* (ceiling (+ *end* (* 2 omper:*data-count*))))
+					       )
+				  :simulation))))
       (map nil (lambda (s r)
 		 (format t "~%~10f, ~10f" s r))
 	   sim
@@ -2256,27 +2259,27 @@ is not ideal."
   (with-postgres-connection
       ;; Trying to retrieve results where both instrument and timeframe match.
       (alexandria:if-let ((both-match (retrieve-one (select :*
-						      (from :populations)
-						      (where (:= :instrument
-								 (format nil "~s" instrument)))
-						      (where (:= :timeframe
-								 (format nil "~s" timeframe)))
-						      (order-by (:desc :end) (:desc :accuracy))
-                                                      ))))
-	both-match
-	;; Couldn't find any. Now trying to retrieve results where instrument matches.
-	(alexandria:if-let ((inst-match (retrieve-one (select :*
-							(from :populations)
-							(where (:= :instrument
-								   (format nil "~s" instrument)))
-							(order-by (:desc :end) (:desc :accuracy))))))
-	  inst-match
-	  ;; Couldn't find any. Now trying to retrieve results where timeframe matches.
-	  (alexandria:when-let ((time-match (retrieve-one (select :*
 							    (from :populations)
+							    (where (:= :instrument
+								       (format nil "~s" instrument)))
 							    (where (:= :timeframe
 								       (format nil "~s" timeframe)))
-							    (order-by (:desc :end) (:desc :accuracy))))))
+							    (order-by (:desc :end) (:desc :accuracy))
+							    ))))
+	  both-match
+	;; Couldn't find any. Now trying to retrieve results where instrument matches.
+	(alexandria:if-let ((inst-match (retrieve-one (select :*
+							      (from :populations)
+							      (where (:= :instrument
+									 (format nil "~s" instrument)))
+							      (order-by (:desc :end) (:desc :accuracy))))))
+	    inst-match
+	  ;; Couldn't find any. Now trying to retrieve results where timeframe matches.
+	  (alexandria:when-let ((time-match (retrieve-one (select :*
+								  (from :populations)
+								  (where (:= :timeframe
+									     (format nil "~s" timeframe)))
+								  (order-by (:desc :end) (:desc :accuracy))))))
 	    time-match
 	    )))))
 
@@ -2326,14 +2329,14 @@ is not ideal."
 			    (accesses report :testing :performance-metrics :rmse))
 			 2))
 	   (test-recall (/ (+ (accesses report :validation :performance-metrics :recall)
-			    (accesses report :testing :performance-metrics :recall))
+			      (accesses report :testing :performance-metrics :recall))
 			   2))
 	   (test-precision (/ (+ (accesses report :validation :performance-metrics :precision)
 				 (accesses report :testing :performance-metrics :precision))
 			      2))
 	   (test-f1-score (/ (+ (accesses report :validation :performance-metrics :f1-score)
-				 (accesses report :testing :performance-metrics :f1-score))
-			      2))
+				(accesses report :testing :performance-metrics :f1-score))
+			     2))
 	   (test-accuracy (let ((val-corr (accesses report :validation :performance-metrics :accuracy))
 				(test-corr (accesses report :testing :performance-metrics :accuracy)))
 			    (vector (+ (aref val-corr 0) (aref test-corr 0))
@@ -2341,7 +2344,8 @@ is not ideal."
 	   (test-revenue (+ (accesses report :validation :performance-metrics :revenue)
 			    (accesses report :testing :performance-metrics :revenue)))
 	   (decision (format nil "~a" (accesses report :testing :forecast :decision)))
-	   (delta (accesses report :testing :forecast :delta)))
+	   (delta (accesses report :testing :forecast :delta))
+	   (entry-price (accesses report :testing :forecast :entry-price)))
       ;; Caching report into `CACHED-TESTS`.
       ;; We'll only cache the result if the decision is different to "HOLD"
       ;; or if there's no test at all for that market/timeframe.
@@ -2381,7 +2385,8 @@ is not ideal."
 	      (:accuracy . ,test-accuracy)
 	      (:revenue . ,test-revenue)
 	      (:decision . ,decision)
-	      (:delta . ,delta))
+	      (:delta . ,delta)
+	      (:entry-price . ,entry-price))
 	    cached-tests)
 
       ;; Removing old cached tests.
@@ -2396,26 +2401,27 @@ is not ideal."
 
       (with-postgres-connection
 	  (execute (insert-into :tests
-		     (set= :population-id pop-id
-			   :instrument str-instrument
-			   :timeframe str-timeframe
-			   :begin begin
-			   :end end
-			   :creation-time creation-time
-			   :mape test-mape
-			   :mase test-mase
-			   :pmape test-pmape
-			   :mae test-mae
-			   :mse test-mse
-			   :rmse test-rmse
-			   :recall test-recall
-			   :precision test-precision
-			   :f1-score test-f1-score
-			   :accuracy test-accuracy
-			   :revenue test-revenue
-			   :decision decision
-			   :delta delta
-			   ))))
+				(set= :population-id pop-id
+				      :instrument str-instrument
+				      :timeframe str-timeframe
+				      :begin begin
+				      :end end
+				      :creation-time creation-time
+				      :mape test-mape
+				      :mase test-mase
+				      :pmape test-pmape
+				      :mae test-mae
+				      :mse test-mse
+				      :rmse test-rmse
+				      :recall test-recall
+				      :precision test-precision
+				      :f1-score test-f1-score
+				      :accuracy test-accuracy
+				      :revenue test-revenue
+				      :decision decision
+				      :delta delta
+				      :entry-price entry-price
+				      ))))
       report))
 
   (defun query-db-tests (instrument)
@@ -2426,26 +2432,26 @@ is not ideal."
 	  ;; Latest "HOLD".
 	  (with-postgres-connection
 	      (let ((res (retrieve-one (select :*
-					 (from :tests)
-					 (where (:= :instrument str-instrument))
-					 (where (:= :timeframe  str-timeframe))
-					 (where (:= :decision "HOLD"))
-					 (where (:> :creation-time (- (local-time:timestamp-to-unix (local-time:now))
-								      (getSecondsToExpire str-timeframe))))
-					 (order-by (:desc :creation-time))
-					 )
+					       (from :tests)
+					       (where (:= :instrument str-instrument))
+					       (where (:= :timeframe  str-timeframe))
+					       (where (:= :decision "HOLD"))
+					       (where (:> :creation-time (- (local-time:timestamp-to-unix (local-time:now))
+									    (getSecondsToExpire str-timeframe))))
+					       (order-by (:desc :creation-time))
+					       )
 				       :as 'trivial-types:association-list)))
 		(when res
 		  (push res results)))
 	    (dolist (test (retrieve-all (select :*
-					  (from :tests)
-					  (where (:= :instrument str-instrument))
-					  (where (:= :timeframe  str-timeframe))
-					  (where (:!= :decision "HOLD"))
-					  (where (:> :creation-time (- (local-time:timestamp-to-unix (local-time:now))
-								       (getSecondsToExpire str-timeframe))))
-					  (order-by (:desc :creation-time))
-					  )
+						(from :tests)
+						(where (:= :instrument str-instrument))
+						(where (:= :timeframe  str-timeframe))
+						(where (:!= :decision "HOLD"))
+						(where (:> :creation-time (- (local-time:timestamp-to-unix (local-time:now))
+									     (getSecondsToExpire str-timeframe))))
+						(order-by (:desc :creation-time))
+						)
 					:as 'trivial-types:association-list))
 	      (setf results
 		    (remove-if (lambda (test)
@@ -2699,7 +2705,7 @@ history."
 					  ((res (search `(,close) (cl21:gethash heat :y)
 							:key (lambda (elt)
 							       (when (> close elt) t)))))
-					res
+					  res
 					(1- (length (cl21:gethash heat :y)))
 					)
 				      (floor (/ z-count 2))))
@@ -2713,7 +2719,7 @@ history."
 							z))
 						 (iota (1- z-count)))
 					 (list (if-let ((nth-z (nth index z)))
-						 nth-z 0.0)))))
+						   nth-z 0.0)))))
 
 		       ;; (append res (list close))
 		       res
@@ -2827,12 +2833,14 @@ from each sample."
          (*instrument* instrument)
          (*timeframe* timeframe)
          (*rates* rates)
+	 (val-rates (subseq *all-rates* begin (+ end omper:*data-count*)))
+	 (test-rates (subseq *all-rates* begin (+ end (* 2 omper:*data-count*))))
          (validation (market-report db-pop
 				    *instrument* *timeframe*
-				    (subseq *all-rates* begin (+ end omper:*data-count*))))
+				    val-rates))
 	 (test (market-report db-pop
 			      *instrument* *timeframe*
-			      (subseq *all-rates* begin (+ end (* 2 omper:*data-count*)))))
+			      test-rates))
 	 (result `((:train . ,(accesses test :training))
 		   (:validation . ,(accesses validation :testing))
 		   (:testing . ,(accesses test :testing)
@@ -2845,9 +2853,9 @@ from each sample."
                         *rates* *begin* *end* *testing-ratio*))
 	  (with-postgres-connection
 	      (retrieve-all (select (:*)
-			      (from :populations)
-			      (order-by (:desc :creation-time))
-			      (limit count))))))
+				    (from :populations)
+				    (order-by (:desc :creation-time))
+				    (limit count))))))
 ;; (get-reports 1)
 
 ;; (filter-reports *reports*)
@@ -2924,6 +2932,7 @@ from each sample."
                                (:revenue . ,revenue)))
       ;; (:simulation . ,sim)
       (:forecast (:delta . ,(last-elt sim))
+		 (:entry-price . ,(access (alexandria:last-elt *rates*) :close-bid))
 		 (:decision . ,(if (> (last-elt sim) 0)
 				   :BUY
 				   (if (= (last-elt sim) 0)
@@ -3159,7 +3168,7 @@ extracted from `*agents-pool*` using the indexes stored in `agents-indexes`."
   ;; 		    (iota *community-size*)
   ;; 		    )))
 
-    
+  
   ;; Replace random agent from random community.
   (when (> *mutation-chance* (random-float *rand-gen* 0 1.0))
     (let ((community-idx (position (agents-worst (agents-distribution *population*))
@@ -3209,11 +3218,11 @@ extracted from `*agents-pool*` using the indexes stored in `agents-indexes`."
                                   (cond ((= (first fibos) 0) (incf above-low))
                                         ((= (first fibos) 1) (incf above-med))
                                         ((= (first fibos) 2) (incf above-high)))
-			    
+				  
                                   (cond ((= (second fibos) 0) (incf level-low))
                                         ((= (second fibos) 1) (incf level-med))
                                         ((= (second fibos) 2) (incf level-high)))
-			    
+				  
                                   (cond ((= (third fibos) 0) (incf below-low))
                                         ((= (third fibos) 1) (incf below-med))
                                         ((= (third fibos) 2) (incf below-high)))
@@ -3263,7 +3272,7 @@ extracted from `*agents-pool*` using the indexes stored in `agents-indexes`."
         					  perception (/ (+ (first (access (gethash key interprets) :perception))
         							   perception)
         							2)))
-				 
+					  
         				  (if (gethash key dups)
         				      (setf (gethash key interprets)
         					    (list `(:num-agents ,(first (access (gethash key interprets) :num-agents)))
@@ -3363,11 +3372,11 @@ extracted from `*agents-pool*` using the indexes stored in `agents-indexes`."
                                   (cond ((= (first fibos) 0) (incf above-low))
                                         ((= (first fibos) 1) (incf above-med))
                                         ((= (first fibos) 2) (incf above-high)))
-			    
+				  
                                   (cond ((= (second fibos) 0) (incf level-low))
                                         ((= (second fibos) 1) (incf level-med))
                                         ((= (second fibos) 2) (incf level-high)))
-			    
+				  
                                   (cond ((= (third fibos) 0) (incf below-low))
                                         ((= (third fibos) 1) (incf below-med))
                                         ((= (third fibos) 2) (incf below-high)))
@@ -3417,7 +3426,7 @@ extracted from `*agents-pool*` using the indexes stored in `agents-indexes`."
         					  perception (/ (+ (first (access (gethash key interprets) :perception))
         							   perception)
         							2)))
-				 
+					  
         				  (if (gethash key dups)
         				      (setf (gethash key interprets)
         					    (list `(:num-agents ,(first (access (gethash key interprets) :num-agents)))
@@ -3574,13 +3583,13 @@ each point in the real prices."
   ;; (interpret-indeterminacy 0.3 99 30)
   (let ((beta (beta _pi mu1 mu2)))
     (cond ((= beta 0) "without hesitancy")
-	((< beta 0.25) "little hesitancy")
-	((< beta 0.5) "some hesitancy")
-	((< beta 1.5) "moderate hesitancy")
-	((< beta 3.0) "considerable hesitancy")
-	((< beta 5.0) "high hesitancy")
-	((<= beta 100.0) "very high hesitancy")
-	(t "unkown hesitancy"))))
+	  ((< beta 0.25) "little hesitancy")
+	  ((< beta 0.5) "some hesitancy")
+	  ((< beta 1.5) "moderate hesitancy")
+	  ((< beta 3.0) "considerable hesitancy")
+	  ((< beta 5.0) "high hesitancy")
+	  ((<= beta 100.0) "very high hesitancy")
+	  (t "unkown hesitancy"))))
 
 (defun interpret-transaction (mean)
   (cond ((= mean 0) "totally sure of a downtrend")
@@ -3602,8 +3611,8 @@ each point in the real prices."
 (defun get-accumulation (start vals)
   (let ((results `(,start)))
     (mapcar (lambda (val)
-	   (push (+ (first results) val) results))
-	 vals)
+	      (push (+ (first results) val) results))
+	    vals)
     (rest (reverse results))))
 
 ;; (get-deltas 10)
@@ -3612,45 +3621,45 @@ each point in the real prices."
 (defun agent-uncertainty (agents)
   "Used for only one agent."
   (avg (mapcar (lambda (rule)
-	      ;; (avg
-	      ;;  (mapcar (lambda (r)
-	      ;; 	      (second r))
-	      ;; 	    rule))
-	      (second (alexandria:last-elt rule))
-	      )
-	    (first (slot-value agents 'rules)))))
+		 ;; (avg
+		 ;;  (mapcar (lambda (r)
+		 ;; 	      (second r))
+		 ;; 	    rule))
+		 (second (alexandria:last-elt rule))
+		 )
+	       (first (slot-value agents 'rules)))))
 
 (defun insert-population (parent-id &optional label (fitness-fn #'mase) (sort-fn #'<))
-       (let* ((best (agents-best (agents-distribution *population* fitness-fn sort-fn) sort-fn))
-	      (id (uuid:make-v4-uuid)))
-              (with-postgres-connection
-    	          (execute (insert-into :populations
-		             (set= :id id
-			           :parent-id parent-id
-			           :label label
-			           :generations *generations*
-			           :fitness-fn (format nil "~s" *fitness-fn*)
-			           :population (compress-population *population*)
-			           :best-index (position best *population* :test #'equalp)
-			           :instrument (format nil "~s" *instrument*)
-			           :timeframe (format nil "~s" *timeframe*)
-			           :creation-time (local-time:timestamp-to-unix (local-time:now))
-			           :begin (read-from-string (access (first *rates*) :time))
-			           :end (read-from-string (access (alexandria:last-elt *rates*) :time))
-			           :rules-config (compress-object *rules-config*)
-			           :mape (float (agents-mape best))
-				   :mase (float (agents-mase best))
-			           :pmape (float (agents-pmape best))
-			           :rmse (float (agents-rmse best))
-				   :recall (float (agents-recall best))
-				   :precision (float (agents-precision best))
-				   :f1-score (float (agents-f1-score best))
-			           :mae (float (agents-mae best))
-			           :mse (float (agents-mse best))
-			           :accuracy (agents-accuracy best nil)
-			           :revenue (float (agents-revenue best))
-			           ))))
-              id))
+  (let* ((best (agents-best (agents-distribution *population* fitness-fn sort-fn) sort-fn))
+	 (id (uuid:make-v4-uuid)))
+    (with-postgres-connection
+	(execute (insert-into :populations
+			      (set= :id id
+				    :parent-id parent-id
+				    :label label
+				    :generations *generations*
+				    :fitness-fn (format nil "~s" *fitness-fn*)
+				    :population (compress-population *population*)
+				    :best-index (position best *population* :test #'equalp)
+				    :instrument (format nil "~s" *instrument*)
+				    :timeframe (format nil "~s" *timeframe*)
+				    :creation-time (local-time:timestamp-to-unix (local-time:now))
+				    :begin (read-from-string (access (first *rates*) :time))
+				    :end (read-from-string (access (alexandria:last-elt *rates*) :time))
+				    :rules-config (compress-object *rules-config*)
+				    :mape (float (agents-mape best))
+				    :mase (float (agents-mase best))
+				    :pmape (float (agents-pmape best))
+				    :rmse (float (agents-rmse best))
+				    :recall (float (agents-recall best))
+				    :precision (float (agents-precision best))
+				    :f1-score (float (agents-f1-score best))
+				    :mae (float (agents-mae best))
+				    :mse (float (agents-mse best))
+				    :accuracy (agents-accuracy best nil)
+				    :revenue (float (agents-revenue best))
+				    ))))
+    id))
 
 (defun prune-populations ()
   "Sets the last child of every root node as the new roots."
@@ -3662,27 +3671,27 @@ each point in the real prices."
         (with-postgres-connection
             ;; Setting last child to be orphan.
             (execute (update :populations
-                       (set= :parent-id "")
-                       (where (:= :id (access last-desc :id)))))
+			     (set= :parent-id "")
+			     (where (:= :id (access last-desc :id)))))
 	  ;; Removing descendants but last.
           (dolist (desc (butlast descendants))
             (let ((desc-id (access desc :id)))
               ;; Removing entity.
               (execute (delete-from :populations
-                         (where (:= :id desc-id)))
+				    (where (:= :id desc-id)))
                        )
               ;; Removing closures.
               (execute (delete-from :populations-closure
-                         (where (:or (:= :parent-id desc-id)
-                                     (:= :child-id desc-id))))
+				    (where (:or (:= :parent-id desc-id)
+						(:= :child-id desc-id))))
                        )))
           ;; Removing root.
           (execute (delete-from :populations
-                     (where (:= :id root-id))))
+				(where (:= :id root-id))))
           ;; Removing root closures.
           (execute (delete-from :populations-closure
-                     (where (:or (:= :parent-id root-id)
-                                 (:= :child-id root-id)))))
+				(where (:or (:= :parent-id root-id)
+					    (:= :child-id root-id)))))
           )))))
 ;; (prune-populations)
 
@@ -3720,8 +3729,8 @@ each point in the real prices."
   (assert (sigma/numeric:positive-integer? period))
   (assert (sigma/sequence:sequence? sequence))
   (loop for end from period to (length sequence) collect
-        (/ (sigma/numeric:sum sequence :start (- end period) :end end)
-           period)))
+       (/ (sigma/numeric:sum sequence :start (- end period) :end end)
+	  period)))
 
 (sigma/control:function-alias 'simple-moving-average 'sma)
 ;; (org.tfeb.hax.memoize:memoize-function 'simple-moving-average)
@@ -3734,15 +3743,15 @@ whenever WMA is discussed."
   (assert (sigma/numeric:positive-integer? period))
   (assert (sigma/sequence:sequence? sequence))
   (loop for end from period to (length sequence) collect
-        (/ (sigma/numeric:sum (mapcar #'*
-                        ;; These are the weights.  The oldest data point is
-                        ;; weighted at 1 and the newest at n for an n-period
-                        ;; arithmetically weighted moving average.
-                        (loop for i from 1 to period collect i)
-                        (subseq sequence (- end period) end)))
-           ;; The denominator is actually n+(n-1)+(n-2)+...+2+1, but this is a
-           ;; triangular number, which can be determined by this formula.
-           (* period (1+ period) 1/2))))
+       (/ (sigma/numeric:sum (mapcar #'*
+				     ;; These are the weights.  The oldest data point is
+				     ;; weighted at 1 and the newest at n for an n-period
+				     ;; arithmetically weighted moving average.
+				     (loop for i from 1 to period collect i)
+				     (subseq sequence (- end period) end)))
+	  ;; The denominator is actually n+(n-1)+(n-2)+...+2+1, but this is a
+	  ;; triangular number, which can be determined by this formula.
+	  (* period (1+ period) 1/2))))
 
 (sigma/control:function-alias 'arithmetically-weighted-moving-average 'awma)
 ;; (org.tfeb.hax.memoize:memoize-function 'arithmetically-weighted-moving-average)
@@ -3757,14 +3766,14 @@ whenever WMA is discussed."
   (assert (sigma/sequence:sequence? sequence))
   (let ((smoothing-factor (/ 2 (1+ period)))) ; This is alpha.
     (loop for end from period to (length sequence) collect
-          ;; This should actually be divided by 1+(1-a)+(1-a)**2+... as an
-          ;; infinite summation, but this approaches 1/a.
-          (* smoothing-factor
-             (sigma/numeric:sum (mapcar #'*
-                          ;; These are the weights.
-                          (loop for e from 0 to (length sequence) collect
-                                (expt (1- smoothing-factor) e))
-                          (subseq sequence (- end period) end)))))))
+       ;; This should actually be divided by 1+(1-a)+(1-a)**2+... as an
+       ;; infinite summation, but this approaches 1/a.
+	 (* smoothing-factor
+	    (sigma/numeric:sum (mapcar #'*
+				       ;; These are the weights.
+				       (loop for e from 0 to (length sequence) collect
+					    (expt (1- smoothing-factor) e))
+				       (subseq sequence (- end period) end)))))))
 
 (sigma/control:function-alias 'exponential-moving-average 'ema)
 ;; (org.tfeb.hax.memoize:memoize-function 'exponential-moving-average)
@@ -3788,16 +3797,16 @@ It is routinely used as a signal/trigger."
 (defun upward-changes (sequence)
   (mapcar #'(lambda (yesterday today)
               (if (< yesterday today) ; Are we upward?
-                (- today yesterday)
-                0))
+		  (- today yesterday)
+		  0))
           sequence
           (rest sequence)))
 
 (defun downward-changes (sequence)
   (mapcar #'(lambda (yesterday today)
               (if (> yesterday today) ; Are we downward?
-                (- yesterday today)
-                0))
+		  (- yesterday today)
+		  0))
           sequence
           (rest sequence)))
 
@@ -3853,8 +3862,8 @@ It is routinely used as a signal/trigger."
          (start (- (length sequence) (length signals))))
     (mapcar #'(lambda (today tomorrow signal)
                 (if signal
-                  (/ tomorrow today)
-                  1))
+		    (/ tomorrow today)
+		    1))
             (nthcdr start sequence)
             (nthcdr (1+ start) sequence)
             signals)))
@@ -3872,8 +3881,8 @@ It is routinely used as a signal/trigger."
          (start (- (length sequence) (length signals))))
     (mapcar #'(lambda (today tomorrow signal)
                 (if signal
-                  (/ tomorrow today)
-                  1))
+		    (/ tomorrow today)
+		    1))
             (nthcdr start sequence)
             (nthcdr (1+ start) sequence)
             signals)))
@@ -3894,7 +3903,7 @@ It is routinely used as a signal/trigger."
             long-sma)))
 
 (defun directional-sma-crossover-signal
-  (short-period long-period ratio sequence)
+    (short-period long-period ratio sequence)
   (assert (sigma/numeric:positive-integer? short-period))
   (assert (sigma/numeric:positive-integer? long-period))
   (assert (< short-period long-period))
@@ -3919,15 +3928,15 @@ It is routinely used as a signal/trigger."
          (start (- (length sequence) (length signals))))
     (mapcar #'(lambda (today tomorrow signal)
                 (if signal
-                  (/ tomorrow today)
-                  1))
+		    (/ tomorrow today)
+		    1))
             (nthcdr start sequence)
             (nthcdr (1+ start) sequence)
             signals)))
 
 (defun directional-sma-crossover-gains (short-period long-period ratio sequence)
   (let* ((signals (directional-sma-crossover-signal
-                    short-period long-period ratio sequence))
+		   short-period long-period ratio sequence))
          (start (- (length sequence) (length signals))))
     (mapcar #'(lambda (today tomorrow signal)
                 (case signal
@@ -3944,8 +3953,8 @@ It is routinely used as a signal/trigger."
          (start (- (length sequence) (length signals))))
     (mapcar #'(lambda (today tomorrow signal)
                 (if signal
-                  (/ tomorrow today)
-                  (/ today tomorrow)))
+		    (/ tomorrow today)
+		    (/ today tomorrow)))
             (nthcdr start sequence)
             (nthcdr (1+ start) sequence)
             signals)))
@@ -3954,12 +3963,12 @@ It is routinely used as a signal/trigger."
   (product (sma-crossover-gains short-period long-period ratio sequence)))
 
 (defun directional-sma-crossover-performance
-  (short-period long-period ratio sequence)
+    (short-period long-period ratio sequence)
   (product (directional-sma-crossover-gains
-             short-period long-period ratio sequence)))
+	    short-period long-period ratio sequence)))
 
 (defun sma-crossover-long/short-performance
-  (short-period long-period ratio sequence)
+    (short-period long-period ratio sequence)
   (product (sma-crossover-long/short-gains short-period long-period ratio
                                            sequence)))
 
@@ -3970,25 +3979,25 @@ It is routinely used as a signal/trigger."
         (optimal-performance nil)
         (b&h-performance (buy-and-hold-performance sequence)))
     (loop for ratio from 1.00 to 1.05 by 0.01 do
-          (loop for long-period from 2 to 200 do
-                (loop for short-period from 1 to (1- long-period) do
-                      (let ((performance (sma-crossover-performance short-period
-                                                                    long-period
-                                                                    ratio
-                                                                    sequence)))
-                        (when (or (null optimal-performance)
-                                (< optimal-performance performance))
-                          (format t "New optimal: (SMA-CROSSOVER ~A ~A ~A) => ~A ~A B&H => ~A.~%"
-                                  short-period long-period ratio
-                                  performance
-                                  (cond ((< performance b&h-performance) "<")
-                                        ((= performance b&h-performance) "=")
-                                        ((> performance b&h-performance) ">"))
-                                  b&h-performance)
-                          (setf optimal-short-period short-period
-                                optimal-long-period long-period
-                                optimal-ratio ratio
-                                optimal-performance performance))))))
+	 (loop for long-period from 2 to 200 do
+	      (loop for short-period from 1 to (1- long-period) do
+		   (let ((performance (sma-crossover-performance short-period
+								 long-period
+								 ratio
+								 sequence)))
+		     (when (or (null optimal-performance)
+			       (< optimal-performance performance))
+		       (format t "New optimal: (SMA-CROSSOVER ~A ~A ~A) => ~A ~A B&H => ~A.~%"
+			       short-period long-period ratio
+			       performance
+			       (cond ((< performance b&h-performance) "<")
+				     ((= performance b&h-performance) "=")
+				     ((> performance b&h-performance) ">"))
+			       b&h-performance)
+		       (setf optimal-short-period short-period
+			     optimal-long-period long-period
+			     optimal-ratio ratio
+			     optimal-performance performance))))))
     (list optimal-short-period optimal-long-period optimal-ratio
           optimal-performance)))
 
@@ -3999,24 +4008,24 @@ It is routinely used as a signal/trigger."
         (optimal-performance nil)
         (b&h-performance (buy-and-hold-performance sequence)))
     (loop for ratio from 1.00 to 1.05 by 0.01 do
-          (loop for long-period from 2 to 200 do
-                (loop for short-period from 1 to (1- long-period) do
-                      (let ((performance
-                              (sma-crossover-long/short-performance
-                                short-period long-period ratio sequence)))
-                        (when (or (null optimal-performance)
-                                (< optimal-performance performance))
-                          (format t "New optimal: (SMA-CROSSOVER-LONG/SHORT ~A ~A ~A) => ~A ~A B&H => ~A.~%"
-                                  short-period long-period ratio
-                                  performance
-                                  (cond ((< performance b&h-performance) "<")
-                                        ((= performance b&h-performance) "=")
-                                        ((> performance b&h-performance) ">"))
-                                  b&h-performance)
-                          (setf optimal-short-period short-period
-                                optimal-long-period long-period
-                                optimal-ratio ratio
-                                optimal-performance performance))))))
+	 (loop for long-period from 2 to 200 do
+	      (loop for short-period from 1 to (1- long-period) do
+		   (let ((performance
+			  (sma-crossover-long/short-performance
+			   short-period long-period ratio sequence)))
+		     (when (or (null optimal-performance)
+			       (< optimal-performance performance))
+		       (format t "New optimal: (SMA-CROSSOVER-LONG/SHORT ~A ~A ~A) => ~A ~A B&H => ~A.~%"
+			       short-period long-period ratio
+			       performance
+			       (cond ((< performance b&h-performance) "<")
+				     ((= performance b&h-performance) "=")
+				     ((> performance b&h-performance) ">"))
+			       b&h-performance)
+		       (setf optimal-short-period short-period
+			     optimal-long-period long-period
+			     optimal-ratio ratio
+			     optimal-performance performance))))))
     (list optimal-short-period optimal-long-period optimal-ratio
           optimal-performance)))
 
@@ -4027,24 +4036,24 @@ It is routinely used as a signal/trigger."
         (optimal-performance nil)
         (b&h-performance (buy-and-hold-performance sequence)))
     (loop for ratio from 1.00 to 1.05 by 0.01 do
-          (loop for long-period from 2 to 200 do
-                (loop for short-period from 1 to (1- long-period) do
-                      (let ((performance
-                              (directional-sma-crossover-performance
-                                short-period long-period ratio sequence)))
-                        (when (or (null optimal-performance)
-                                (< optimal-performance performance))
-                          (format t "New optimal: (DIRECTIONAL-SMA-CROSSOVER ~A ~A ~A) => ~A ~A B&H => ~A.~%"
-                                  short-period long-period ratio
-                                  performance
-                                  (cond ((< performance b&h-performance) "<")
-                                        ((= performance b&h-performance) "=")
-                                        ((> performance b&h-performance) ">"))
-                                  b&h-performance)
-                          (setf optimal-short-period short-period
-                                optimal-long-period long-period
-                                optimal-ratio ratio
-                                optimal-performance performance))))))
+	 (loop for long-period from 2 to 200 do
+	      (loop for short-period from 1 to (1- long-period) do
+		   (let ((performance
+			  (directional-sma-crossover-performance
+			   short-period long-period ratio sequence)))
+		     (when (or (null optimal-performance)
+			       (< optimal-performance performance))
+		       (format t "New optimal: (DIRECTIONAL-SMA-CROSSOVER ~A ~A ~A) => ~A ~A B&H => ~A.~%"
+			       short-period long-period ratio
+			       performance
+			       (cond ((< performance b&h-performance) "<")
+				     ((= performance b&h-performance) "=")
+				     ((> performance b&h-performance) ">"))
+			       b&h-performance)
+		       (setf optimal-short-period short-period
+			     optimal-long-period long-period
+			     optimal-ratio ratio
+			     optimal-performance performance))))))
     (list optimal-short-period optimal-long-period optimal-ratio
           optimal-performance)))
 

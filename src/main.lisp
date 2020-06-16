@@ -2932,7 +2932,7 @@ from each sample."
                                (:revenue . ,revenue)))
       ;; (:simulation . ,sim)
       (:forecast (:delta . ,(last-elt sim))
-		 (:entry-price . ,(access (alexandria:last-elt *rates*) :close-bid))
+		 (:entry-price . ,(access (alexandria:last-elt rates) :close-bid))
 		 (:decision . ,(if (> (last-elt sim) 0)
 				   :BUY
 				   (if (= (last-elt sim) 0)

@@ -2451,6 +2451,7 @@ is not ideal."
 						(where (:> :creation-time (- (local-time:timestamp-to-unix (local-time:now))
 									     (getSecondsToExpire str-timeframe))))
 						(order-by (:desc :creation-time))
+						(limit 2)
 						)
 					:as 'trivial-types:association-list))
 	      (setf results

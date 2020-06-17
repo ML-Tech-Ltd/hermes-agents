@@ -682,13 +682,12 @@ series `real`."
 			     )))
 		  inputs)))
     (mapcar (lambda (j inp)
-    	      (let ((activation-weight (mean
-    					(mapcar (lambda (act thresh)
-    						  (if (>= act thresh)
-    						      act
-    						      (- act)))
-    						(nth j activations)
-    						activation-threshold))))
+    	      (let ((activation-weight (mean (mapcar (lambda (act thresh)
+						       (if (>= act thresh)
+							   1
+							   (/ act 2)))
+						     (nth j activations)
+						     activation-threshold))))
     		(* activation-weight
     		   (mean (mapcar (lambda (i)
     				   (let ((ifs (nth i agent-ifss)))
@@ -1558,14 +1557,19 @@ series `real`."
 ;; 	      :key #'butlast)
 
 (defun format-accuracy (accuracy)
-  (format nil "~a/~a (~$%)"
-	  (aref accuracy 0)
-	  (aref accuracy 1)
+  (format nil "~$%"
+	  ;; (aref accuracy 0)
+	  ;; (aref accuracy 1)
 	  (if (= (aref accuracy 1) 0)
 	      0.0
 	      (* 100
 		 (/ (aref accuracy 0)
 		    (aref accuracy 1))))))
+
+(defun format-accuracy-no-percentage (accuracy)
+  (format nil "~a/~a"
+	  (aref accuracy 0)
+	  (aref accuracy 1)))
 
 
 ;; (ql:quickload :cl-mathstats)
@@ -1654,7 +1658,7 @@ series `real`."
       (let ((candidate (let* ((option (random-float *rand-gen* 0 1))
 			      (cand (cond
 				      ;; Remove an agent.
-				      ((and (< option 0.5) (> (length (first *population*)) *community-size*))
+				      ((and (< option 0.1) (> (length (first *population*)) *community-size*))
 				       (remove-nth (random-int *rand-gen* 0 (1- (length (first *population*)))) (first *population*)))
 				      ;; Replace agent from solution using random agent.
 				      ;; ((and (< option 0.66) (> (length (first *population*)) *community-size*))
@@ -1888,7 +1892,7 @@ instruments `INSTRUMENTS-KEYS` for `ITERATIONS`."
 ;; (dolist (instrument '(:EUR_GBP :EUR_JPY :EUR_USD :GBP_USD :USD_CHF :USD_CAD :USD_CNH :USD_HKD))
 ;;   (tweaking :instrument instrument :timeframe :H1 :iterations 300 :experiments-count 60))
 
-;; (tweaking :instrument :AUD_USD :timeframe :D :iterations 100 :experiments-count 9 :agents-fitness-fn #'agents-mase :fitness-fn #'mase :sort-fn #'<)
+;; (tweaking :instrument :EUR_USD :timeframe :D :iterations 100 :experiments-count 30 :agents-fitness-fn #'agents-mase :fitness-fn #'mase :sort-fn #'<)
 ;; (tweaking :instrument :EUR_USD :timeframe :H1 :iterations 300 :experiments-count 30)
 ;; *population*
 ;; *generations*
@@ -3065,21 +3069,31 @@ extracted from `*agents-pool*` using the indexes stored in `agents-indexes`."
   (let ((sim (apply #'mapcar (lambda (&rest trades)
 			       ;; (apply #'+ trades)
 			       
-			       ;; (let* ( ;; (threshold (if (< (length (first *population*)) 1)
-			       ;; 	      ;; 		     (length (first *population*))
-			       ;; 	      ;; 		     1))
-			       ;; 	      (no-zeros (remove-if #'zerop trades))
+			       (let* ((no-zeros (remove-if #'zerop trades))
+			       	      (pos (remove-if #'minusp no-zeros))
+			       	      (neg (remove-if #'plusp no-zeros))
+			       	      (lpos (length pos))
+			       	      (lneg (length neg)))
+			       	 (cond
+			       	   ((> lpos lneg) (mean pos))
+			       	   ((> lneg lpos) (mean neg))
+			       	   (t (mean no-zeros))))
+
+			       ;; The biggest directional movement wins.
+			       ;; (let* ((no-zeros (remove-if #'zerop trades))
 			       ;; 	      (pos (remove-if #'minusp no-zeros))
 			       ;; 	      (neg (remove-if #'plusp no-zeros))
-			       ;; 	      ;; (lzer (length no-zeros))
 			       ;; 	      (lpos (length pos))
 			       ;; 	      (lneg (length neg)))
-			       ;; 	 (cond ;; ((< lzer threshold) 0)
-			       ;; 	   ((> lpos lneg) (mean pos))
-			       ;; 	   ((> lneg lpos) (mean neg))
-			       ;; 	   (t ;;(mean no-zeros)
-			       ;; 	    0
-			       ;; 	    )))
+			       ;; 	 (if (= lpos 0)
+			       ;; 	     (mean neg)
+			       ;; 	     (if (= lneg 0)
+			       ;; 		 (mean pos)
+			       ;; 		 (let ((mean-pos (mean pos))
+			       ;; 		       (mean-neg (mean neg)))
+			       ;; 		   (if (> (abs mean-pos) (abs mean-neg))
+			       ;; 		       mean-pos
+			       ;; 		       mean-neg)))))
 
 			       ;; (let* ((no-zeros (remove-if #'zerop trades)))
 			       ;; 	 (if (and (> (length no-zeros) 1)
@@ -3089,10 +3103,10 @@ extracted from `*agents-pool*` using the indexes stored in `agents-indexes`."
 			       ;; 	     0))
 
 
-			       (let* ((no-zeros (remove-if #'zerop trades)))
-			       	 (if (= (length no-zeros) 0)
-			       	     0
-			       	     (mean no-zeros)))
+			       ;; (let* ((no-zeros (remove-if #'zerop trades)))
+			       ;; 	 (if (= (length no-zeros) 0)
+			       ;; 	     0
+			       ;; 	     (mean no-zeros)))
 			       
 			       ;; (mean trades)
 			       ;; (if (/= (length (remove-if #'zerop trades)) 1)

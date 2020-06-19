@@ -1873,8 +1873,8 @@ instruments `INSTRUMENTS-KEYS` for `ITERATIONS`."
 			 (*timeframe* timeframe))
 		     (when print-log? (format t "~%~%~a, ~a~%" instrument timeframe))
 		     (init instrument timeframe)
-		     (optimize-one instrument timeframe iterations :is-cold-start nil :print-log? print-log?)
-		     (test-market instrument timeframe)))))))))
+		     (test-market instrument timeframe)
+		     (optimize-one instrument timeframe iterations :is-cold-start nil :print-log? print-log?)))))))))
      (prune-populations)))
 
 (defun tweaking (&key (instrument :EUR_USD) (timeframe :D) (iterations 100) (experiments-count 10) (agents-fitness-fn #'agents-mase) (fitness-fn #'mase) (sort-fn #'<))
@@ -2303,6 +2303,7 @@ is not ideal."
 
 (let ((cached-tests '()))
   (setf cached-tests '())
+  
   (defun test-market (instrument timeframe)
     (let* ((*instrument* instrument)
 	   (*timeframe* timeframe)
@@ -2525,10 +2526,6 @@ tests performed that are stored on database."
 ;; (test-market :FR40_EUR :H1)
 ;; (test-market :SPX500_USD :D)
 
-(defun test-all-markets (timeframe instruments)
-  (dolist (instrument instruments)
-    (format t "~%Testing ~a ~%" instrument)
-    (test-market instrument timeframe)))
 ;; (test-all-markets :H1 ominp:*instruments*)
 
 ;; (time (loop repeat 10000 do (query-test-timeframes :EUR_USD)))

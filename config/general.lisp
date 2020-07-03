@@ -28,7 +28,16 @@
 (defparameter *begin* (floor (- *min-dataset-size* (+ omper:*data-count* (* omper:*data-count* 2 *testing-ratio*) *num-inputs* *delta-gap* omper:*partition-size*))))
 (defparameter *end* (1- (floor (- *min-dataset-size* (+ (* omper:*data-count* 2 *testing-ratio*))))))
 
-(defparameter *all-rates* (get-rates-count *instrument* *timeframe* *min-dataset-size*))
+;; (get-rates-count *instrument* :D *min-dataset-size* :provider *provider* :type *markets-type*)
+;; (get-rates-count *instrument* :H1 *min-dataset-size* :provider *provider* :type *markets-type*)
+;; (local-time:unix-to-timestamp (/ 1592366400000000 1000000))
+;; (local-time:unix-to-timestamp (/ 1592380800000000 1000000))
+;; (ominp::oanda-rates-count :USD_CHF :D *min-dataset-size*)
+;; (ominp::oanda-rates-count *instrument* :H1 *min-dataset-size*)
+
+;; (loop for x in (ominp::oanda-rates-count :EUR_GBP :D *min-dataset-size*) collect (print (access:access x :close-bid)))
+
+(defparameter *all-rates* (get-rates-count *instrument* *timeframe* *min-dataset-size* :provider *provider* :type *markets-type*))
 ;; (defparameter *all-rates* (get-random-rates-count *instrument* *timeframe* *min-dataset-size* :provider *provider* :type *markets-type*))
 (defparameter *rates* (subseq *all-rates* *begin* *end*)
   "The rates used to generate the agents' perceptions.")

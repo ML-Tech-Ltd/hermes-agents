@@ -435,23 +435,41 @@ series `real`."
   (let ((real (subseq real *delta-gap*)))
     (sqrt (mse sim real))))
 
+
+;; (defparameter *coco* nil)
+(defun error-distribution ()
+  (let* ( ;; (sorted (sort (alexandria:copy-sequence 'list *coco*) #'<))
+	 (num-segments 20)
+	 (mn (apply #'min *coco*))
+	 (mx (apply #'max *coco*))
+	 (step (/ (- mx mn) num-segments))
+	 )
+    (loop for x in (alexandria:iota num-segments :start mn :step step)
+       collect (let ((elts (remove-if (lambda (elt) (or (< elt x) (> elt (+ x step)))) *coco*)))
+		 (when elts (format t "~a, ~a~%" (mean elts) (length elts)))
+		 ;; (when elts (list (mean elts) (length elts)))
+		 ))
+    (mean *coco*)))
+;; (error-distribution)
+
 (defun revenue (sim real)
   "Average revenue per trade."
   (let ((real (subseq real *delta-gap*)))
     (let* ((trades-count 0)
+	   (trades (remove nil
+			   (mapcar (lambda (s r)
+				     (when (/= s 0)
+				       (incf trades-count)
+				       (if (> (* s r) 0)
+					   (abs r)
+					 (- (abs r)))))
+				   sim real)))
 	   (trades-sum (apply #'+
-			      (remove nil
-				      (mapcar (lambda (s r)
-						(when (/= s 0)
-						  (incf trades-count)
-						  (if (> (* s r) 0)
-						      (abs r)
-						      (- (abs r)))
-						  ))
-					      sim real)))))
+			      trades)))
+      ;; (setf *coco* trades)
       (if (> trades-count 0)
 	  (/ trades-sum trades-count)
-	  0))))
+	0))))
 
 (defun accuracy (sim real &optional (mape-constraint nil))
   "How many trades were correct."
@@ -1854,6 +1872,15 @@ series `real`."
 ;; (test-all-markets :D *popular-instruments*)
 ;; (test-market :USD_JPY :H1)
 
+(defun check-if-market-initialized (instrument timeframe)
+  (when (with-postgres-connection
+	    (retrieve-one (select (:id)
+			    (from :populations)
+			    (where (:and (:= :timeframe (format nil "~s" timeframe))
+					 (:= :instrument (format nil "~s" instrument))))
+			    )))
+    t))
+
 (defun loop-optimize-test (iterations &key (instruments-keys '(:all)) (timeframes-keys '(:all)) (print-log? t))
   "Infinitely optimize and test markets represented by the bag of
 instruments `INSTRUMENTS-KEYS` for `ITERATIONS`."
@@ -1872,13 +1899,29 @@ instruments `INSTRUMENTS-KEYS` for `ITERATIONS`."
 				   )))
 	     (dolist (instrument instruments)
 	       (dolist (timeframe timeframes)
-		 (ignore-errors
-		   (let ((*instrument* instrument)
-			 (*timeframe* timeframe))
-		     (when print-log? (format t "~%~%~a, ~a~%" instrument timeframe))
-		     (init instrument timeframe)
-		     (test-market instrument timeframe)
-		     (optimize-one instrument timeframe iterations :is-cold-start nil :print-log? print-log?)))))))))
+		 (let ((*instrument* instrument)
+		       (*timeframe* timeframe))
+		   (let ((day-of-week (local-time:timestamp-day-of-week (local-time:now)))
+			 (hour (local-time:timestamp-hour (local-time:now))))
+		     (unless (or
+			      ;; Friday
+			      (and (= day-of-week 5)
+				   (>= hour 14))
+			      ;; Saturday
+			      (= day-of-week 6)
+			      ;; Sunday
+			      (and (= day-of-week 7)
+				   (< hour 14)))
+		       (when print-log? (format t "~%~%~a, ~a~%" instrument timeframe))
+		       (init instrument timeframe)
+		       (if (check-if-market-initialized instrument timeframe)
+			   (progn
+			     (test-market instrument timeframe)
+			     (optimize-one instrument timeframe iterations :is-cold-start nil :print-log? print-log?))
+			   (progn
+			     (optimize-one instrument timeframe iterations :is-cold-start nil :print-log? print-log?)
+			     (test-market instrument timeframe)))))
+		   )))))))
      (prune-populations)))
 
 (defun tweaking (&key (instrument :EUR_USD) (timeframe :D) (iterations 100) (experiments-count 10) (agents-fitness-fn #'agents-mase) (fitness-fn #'mase) (sort-fn #'<))
@@ -1903,7 +1946,7 @@ instruments `INSTRUMENTS-KEYS` for `ITERATIONS`."
 ;; (dolist (instrument '(:EUR_GBP :EUR_JPY :EUR_USD :GBP_USD :USD_CHF :USD_CAD :USD_CNH :USD_HKD))
 ;;   (tweaking :instrument instrument :timeframe :H1 :iterations 300 :experiments-count 60))
 
-;; (tweaking :instrument :EUR_USD :timeframe :D :iterations 100 :experiments-count 30 :agents-fitness-fn #'agents-mase :fitness-fn #'mase :sort-fn #'<)
+;; (tweaking :instrument :EUR_USD :timeframe :D :iterations 100 :experiments-count 1 :agents-fitness-fn #'agents-mase :fitness-fn #'mase :sort-fn #'<)
 ;; (tweaking :instrument :EUR_USD :timeframe :H1 :iterations 300 :experiments-count 30)
 ;; *population*
 ;; *generations*

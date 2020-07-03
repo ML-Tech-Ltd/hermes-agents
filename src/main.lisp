@@ -1919,7 +1919,9 @@ instruments `INSTRUMENTS-KEYS` for `ITERATIONS`."
 			     (test-market instrument timeframe)
 			     (optimize-one instrument timeframe iterations :is-cold-start nil :print-log? print-log?))
 			   (progn
-			     (optimize-one instrument timeframe iterations :is-cold-start nil :print-log? print-log?)
+			     (unless (and (eq timeframe :D)
+					  (> hour 1))
+			       (optimize-one instrument timeframe iterations :is-cold-start nil :print-log? print-log?))
 			     (test-market instrument timeframe)))))
 		   )))))))
      (prune-populations)))

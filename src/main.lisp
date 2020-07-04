@@ -1885,46 +1885,51 @@ series `real`."
   "Infinitely optimize and test markets represented by the bag of
 instruments `INSTRUMENTS-KEYS` for `ITERATIONS`."
   (loop
-     (dolist (instruments-key instruments-keys)
-       (let ((instruments (cond ((eq instruments-key :all) ominp:*instruments*)
-				((eq instruments-key :forex) ominp:*forex*)
-				((eq instruments-key :indices) ominp:*indices*)
-				((eq instruments-key :commodities) ominp:*commodities*)
-				((eq instruments-key :bonds) ominp:*bonds*)
-				((eq instruments-key :metals) ominp:*metals*))))
-	 (dolist (timeframes-key timeframes-keys)
-	   (let ((timeframes (cond ((eq timeframes-key :all) ominp:*timeframes*)
-				   ((eq timeframes-key :shortterm) ominp:*shortterm*)
-				   ((eq timeframes-key :longterm) ominp:*longterm*)
-				   )))
-	     (dolist (instrument instruments)
-	       (dolist (timeframe timeframes)
-		 (let ((*instrument* instrument)
-		       (*timeframe* timeframe))
-		   (let ((day-of-week (local-time:timestamp-day-of-week (local-time:now)))
-			 (hour (local-time:timestamp-hour (local-time:now))))
-		     (unless (or
-			      ;; Friday
-			      (and (= day-of-week 5)
-				   (>= hour 14))
-			      ;; Saturday
-			      (= day-of-week 6)
-			      ;; Sunday
-			      (and (= day-of-week 7)
-				   (< hour 14)))
+     (let ((day-of-week (local-time:timestamp-day-of-week (local-time:now) :timezone local-time:+utc-zone+))
+	   (hour (local-time:timestamp-hour (local-time:now) :timezone local-time:+utc-zone+)))
+       (unless (or
+	       	;; Friday
+	       	(and (= day-of-week 5)
+		     (>= hour 21)
+		     )
+	       	;; Saturday
+	       	(= day-of-week 6)
+	       	;; Sunday
+	       	(and (= day-of-week 7)
+		     (< hour 22)))
+	 nil
+	 (dolist (instruments-key instruments-keys)
+	   (let ((instruments (cond ((eq instruments-key :all) ominp:*instruments*)
+				    ((eq instruments-key :forex) ominp:*forex*)
+				    ((eq instruments-key :indices) ominp:*indices*)
+				    ((eq instruments-key :commodities) ominp:*commodities*)
+				    ((eq instruments-key :bonds) ominp:*bonds*)
+				    ((eq instruments-key :metals) ominp:*metals*))))
+	     (dolist (timeframes-key timeframes-keys)
+	       (let ((timeframes (cond ((eq timeframes-key :all) ominp:*timeframes*)
+				       ((eq timeframes-key :shortterm) ominp:*shortterm*)
+				       ((eq timeframes-key :longterm) ominp:*longterm*)
+				       )))
+		 (dolist (instrument instruments)
+		   (dolist (timeframe timeframes)
+		     (let ((*instrument* instrument)
+			   (*timeframe* timeframe))
 		       (when print-log? (format t "~%~%~a, ~a~%" instrument timeframe))
 		       (init instrument timeframe)
 		       (if (check-if-market-initialized instrument timeframe)
 			   (progn
 			     (test-market instrument timeframe)
-			     (optimize-one instrument timeframe iterations :is-cold-start nil :print-log? print-log?))
+			     (unless (and (eq timeframe :D)
+					  (> hour 1))
+			       (print "entering")
+			       (optimize-one instrument timeframe iterations :is-cold-start nil :print-log? print-log?)))
 			   (progn
 			     (unless (and (eq timeframe :D)
 					  (> hour 1))
 			       (optimize-one instrument timeframe iterations :is-cold-start nil :print-log? print-log?))
 			     (test-market instrument timeframe)))))
-		   )))))))
-     (prune-populations)))
+		   )))))
+	 (prune-populations)))))
 
 (defun tweaking (&key (instrument :EUR_USD) (timeframe :D) (iterations 100) (experiments-count 10) (agents-fitness-fn #'agents-mase) (fitness-fn #'mase) (sort-fn #'<))
   (let ((*instrument* instrument)

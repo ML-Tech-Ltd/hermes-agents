@@ -1895,7 +1895,7 @@ instruments `INSTRUMENTS-KEYS` for `ITERATIONS`."
 	       	;; Saturday
 	       	(= day-of-week 6)
 	       	;; Sunday
-	       	(and (= day-of-week 7)
+	       	(and (= day-of-week 0)
 		     (< hour 22)))
 	 nil
 	 (dolist (instruments-key instruments-keys)
@@ -1921,7 +1921,6 @@ instruments `INSTRUMENTS-KEYS` for `ITERATIONS`."
 			     (test-market instrument timeframe)
 			     (unless (and (eq timeframe :D)
 					  (> hour 1))
-			       (print "entering")
 			       (optimize-one instrument timeframe iterations :is-cold-start nil :print-log? print-log?)))
 			   (progn
 			     (unless (and (eq timeframe :D)

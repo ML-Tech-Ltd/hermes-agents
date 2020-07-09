@@ -27,6 +27,7 @@
 	:overmind-agents.km
 	)
   (:export :query-test-instruments
+	   :query-test-instruments-all
 	   :query-test-timeframes
 	   :loop-optimize-test)
   (:nicknames :omage))
@@ -348,16 +349,16 @@ agents parameters according to it."
 
 (defun pmape (sim real &optional (zero-metric-constraint nil))
   "Penalized MAPE. If a simulation has a different direction than that of the real price, it gets penalized with a weight."
-  (let ((real (subseq real *delta-gap*))
-	(trades (remove nil
-			(mapcar (lambda (s r)
-				  (when (/= s 0)
-				    (if (>= (* r s) 0)
-					(abs (/ (- r s) (1+ (abs r))))
-					(* 3
-					   (abs (/ (- r s) (1+ (abs r))))))))
-				sim
-				real))))
+  (let* ((real (subseq real *delta-gap*))
+	 (trades (remove nil
+			 (mapcar (lambda (s r)
+				   (when (/= s 0)
+				     (if (>= (* r s) 0)
+					 (abs (/ (- r s) (1+ (abs r))))
+					 (* 3
+					    (abs (/ (- r s) (1+ (abs r))))))))
+				 sim
+				 real))))
     (if trades
 	(/ (reduce #'+ trades)
 	   (length real))
@@ -387,14 +388,17 @@ agents parameters according to it."
 (defun mape (sim real &optional (zero-metric-constraint nil))
   "Mean absolute percentage error between a simulated time series `sim` and a real time series `real`.
 This version scales the simulation."
-  (let ((real (subseq real *delta-gap*))
-	(trades (remove nil
-			(mapcar (lambda (s r)
-				  (if (/= s 0)
-				      (/ (abs (- r s)) (1+ (abs r)))))
-				sim
-				real
-				))))
+  (let* ((real (subseq real *delta-gap*))
+	 (trades (remove nil
+			 (mapcar (lambda (s r)
+				   (if (and (/= s 0) (/= r 0))
+				       ;; (/ (abs (- r s)) (1+ (abs r)))
+				       ;; (/ (abs (- r s)) (abs r))
+				       (abs (/ (- r s) r))
+				       ))
+				 sim
+				 real
+				 ))))
     (if trades
 	(/ (reduce #'+ trades)
 	   (length trades))
@@ -402,7 +406,7 @@ This version scales the simulation."
 
 (defun mse (sim real)
   "Mean squared error between a simulated time series `sim` and a real time series `real`."
-  (let ((real (subseq real *delta-gap*))
+  (let* ((real (subseq real *delta-gap*))
 	(trades (mapcar (lambda (elt) (expt elt 2))
 			(remove nil
 				(mapcar (lambda (s r)
@@ -417,13 +421,13 @@ This version scales the simulation."
 (defun mae (sim real)
   "Mean absolute error between a simulated time series `sim` and a real time
 series `real`."
-  (let ((real (subseq real *delta-gap*))
-	(trades (remove nil
-			(mapcar (lambda (s r)
-				  (if (/= s 0)
-				      (abs (- s r))))
-				sim
-				real))))
+  (let* ((real (subseq real *delta-gap*))
+	 (trades (remove nil
+			 (mapcar (lambda (s r)
+				   (if (/= s 0)
+				       (abs (- s r))))
+				 sim
+				 real))))
     (if trades
 	(/ (reduce #'+ trades)
 	   (length real))
@@ -432,7 +436,7 @@ series `real`."
 (defun rmse (sim real)
   "Root mean square error between a simulated time series `sim` and a real time
 series `real`."
-  (let ((real (subseq real *delta-gap*)))
+  (let* ((real (subseq real *delta-gap*)))
     (sqrt (mse sim real))))
 
 
@@ -454,7 +458,7 @@ series `real`."
 
 (defun revenue (sim real)
   "Average revenue per trade."
-  (let ((real (subseq real *delta-gap*)))
+  (let* ((real (subseq real *delta-gap*)))
     (let* ((trades-count 0)
 	   (trades (remove nil
 			   (mapcar (lambda (s r)
@@ -462,14 +466,14 @@ series `real`."
 				       (incf trades-count)
 				       (if (> (* s r) 0)
 					   (abs r)
-					 (- (abs r)))))
+					   (- (abs r)))))
 				   sim real)))
 	   (trades-sum (apply #'+
 			      trades)))
       ;; (setf *coco* trades)
       (if (> trades-count 0)
 	  (/ trades-sum trades-count)
-	0))))
+	  0))))
 
 (defun accuracy (sim real &optional (mape-constraint nil))
   "How many trades were correct."
@@ -524,8 +528,8 @@ series `real`."
 	0)))
 
 (defun f1-score (sim real)
-  (let ((rec (recall sim real))
-	(prec (precision sim real)))
+  (let* ((rec (recall sim real))
+	 (prec (precision sim real)))
     (if (or (/= rec 0) (/= prec 0))
 	(/ (* 2 rec prec)
 	   (+ rec prec))
@@ -701,11 +705,11 @@ series `real`."
 		  inputs)))
     (mapcar (lambda (j inp)
     	      (let ((activation-weight (mean (mapcar (lambda (act thresh)
-						       (if (>= act thresh)
-							   1
-							   (/ act 2)))
-						     (nth j activations)
-						     activation-threshold))))
+    						       (if (>= act thresh)
+    							   1
+    							   (/ act 2)))
+    						     (nth j activations)
+    						     activation-threshold))))
     		(* activation-weight
     		   (mean (mapcar (lambda (i)
     				   (let ((ifs (nth i agent-ifss)))
@@ -2352,10 +2356,17 @@ is not ideal."
 
 (defun getSecondsToExpire (timeframe)
   (cond ((string= timeframe "H1") (* 60 60))
-	((string= timeframe "D") (* 24 60 60))))
+	((string= timeframe "D") (* 60 60 24))))
 
-(let ((cached-tests '()))
+(defun getSecondsToExpireAll (timeframe)
+  (cond ((string= timeframe "H1") (* 60 60 24 30)) ;; last month
+	((string= timeframe "D") (* 60 60 24 30 12)) ;; last year
+	))
+
+(let ((cached-tests '())
+      (cached-tests-all '()))
   (setf cached-tests '())
+  (setf cached-tests-all '())
   
   (defun test-market (instrument timeframe)
     (let* ((*instrument* instrument)
@@ -2432,7 +2443,7 @@ is not ideal."
 		       cached-tests))
       
       ;; Storing the test.
-      (push `((:population-id . ,pop-id)
+      (let ((test `((:population-id . ,pop-id)
 	      (:instrument . ,str-instrument)
 	      (:timeframe . ,str-timeframe)
 	      (:begin . ,begin)
@@ -2451,8 +2462,10 @@ is not ideal."
 	      (:revenue . ,test-revenue)
 	      (:decision . ,decision)
 	      (:delta . ,delta)
-	      (:entry-price . ,entry-price))
-	    cached-tests)
+		    (:entry-price . ,entry-price))))
+	(push test cached-tests)
+	(push test cached-tests-all))
+      
 
       ;; Removing old cached tests.
       (setf cached-tests
@@ -2463,30 +2476,38 @@ is not ideal."
 				 seconds)
 			      (local-time:timestamp-to-unix (local-time:now)))))
 		       cached-tests))
+      (setf cached-tests-all
+	    (remove-if (lambda (test)
+			 (let ((seconds (getSecondsToExpireAll (access test :timeframe))))
+			   ;; If creation time + `seconds` already happened, then it's an old prediction.
+			   (< (+ (access test :creation-time)
+				 seconds)
+			      (local-time:timestamp-to-unix (local-time:now)))))
+		       cached-tests-all))
 
       (with-postgres-connection
 	  (execute (insert-into :tests
-				(set= :population-id pop-id
-				      :instrument str-instrument
-				      :timeframe str-timeframe
-				      :begin begin
-				      :end end
-				      :creation-time creation-time
-				      :mape test-mape
-				      :mase test-mase
-				      :pmape test-pmape
-				      :mae test-mae
-				      :mse test-mse
-				      :rmse test-rmse
-				      :recall test-recall
-				      :precision test-precision
-				      :f1-score test-f1-score
-				      :accuracy test-accuracy
-				      :revenue test-revenue
-				      :decision decision
-				      :delta delta
-				      :entry-price entry-price
-				      ))))
+		     (set= :population-id pop-id
+			   :instrument str-instrument
+			   :timeframe str-timeframe
+			   :begin begin
+			   :end end
+			   :creation-time creation-time
+			   :mape test-mape
+			   :mase test-mase
+			   :pmape test-pmape
+			   :mae test-mae
+			   :mse test-mse
+			   :rmse test-rmse
+			   :recall test-recall
+			   :precision test-precision
+			   :f1-score test-f1-score
+			   :accuracy test-accuracy
+			   :revenue test-revenue
+			   :decision decision
+			   :delta delta
+			   :entry-price entry-price
+			   ))))
       report))
 
   (defun query-db-tests (instrument)
@@ -2497,27 +2518,27 @@ is not ideal."
 	  ;; Latest "HOLD".
 	  (with-postgres-connection
 	      (let ((res (retrieve-one (select :*
-					       (from :tests)
-					       (where (:= :instrument str-instrument))
-					       (where (:= :timeframe  str-timeframe))
-					       (where (:= :decision "HOLD"))
-					       (where (:> :creation-time (- (local-time:timestamp-to-unix (local-time:now))
-									    (getSecondsToExpire str-timeframe))))
-					       (order-by (:desc :creation-time))
-					       )
+					 (from :tests)
+					 (where (:= :instrument str-instrument))
+					 (where (:= :timeframe  str-timeframe))
+					 (where (:= :decision "HOLD"))
+					 (where (:> :creation-time (- (local-time:timestamp-to-unix (local-time:now))
+								      (getSecondsToExpire str-timeframe))))
+					 (order-by (:desc :creation-time))
+					 )
 				       :as 'trivial-types:association-list)))
 		(when res
 		  (push res results)))
 	    (dolist (test (retrieve-all (select :*
-						(from :tests)
-						(where (:= :instrument str-instrument))
-						(where (:= :timeframe  str-timeframe))
-						(where (:!= :decision "HOLD"))
-						(where (:> :creation-time (- (local-time:timestamp-to-unix (local-time:now))
-									     (getSecondsToExpire str-timeframe))))
-						(order-by (:desc :creation-time))
-						(limit 2)
-						)
+					  (from :tests)
+					  (where (:= :instrument str-instrument))
+					  (where (:= :timeframe  str-timeframe))
+					  (where (:!= :decision "HOLD"))
+					  (where (:> :creation-time (- (local-time:timestamp-to-unix (local-time:now))
+								       (getSecondsToExpire str-timeframe))))
+					  (order-by (:desc :creation-time))
+					  (limit 2)
+					  )
 					:as 'trivial-types:association-list))
 	      (setf results
 		    (remove-if (lambda (test)
@@ -2531,11 +2552,43 @@ is not ideal."
       (nreverse (remove nil results))))
   ;; (query-db-tests :USD_JPY)
 
+  (defun query-db-tests-all (instrument)
+    (let (results)
+      (dolist (timeframe ominp:*timeframes*)
+	(let ((str-instrument (format nil "~a" instrument))
+	      (str-timeframe (format nil "~a" timeframe)))
+	  ;; Latest "HOLD".
+	  (with-postgres-connection
+	      (dolist (test (retrieve-all (select :*
+					    (from :tests)
+					    (where (:= :instrument str-instrument))
+					    (where (:= :timeframe  str-timeframe))
+					    (where (:> :creation-time (- (local-time:timestamp-to-unix (local-time:now))
+									 (getSecondsToExpireAll str-timeframe))))
+					    (order-by (:desc :creation-time)))
+					  :as 'trivial-types:association-list))
+		(setf results
+		      (remove-if (lambda (test)
+				   (and (string= (access test :decision) "HOLD")
+					(string= (access test :timeframe) str-timeframe)
+					(string= (access test :instrument) str-instrument)))
+				 results))
+		(when test
+		  (push test results)))
+	    )))
+      (nreverse (remove nil results))))
+
   (defun query-test-instruments (timeframe)
     (remove-if-not (lambda (test)
 		     (string= (access test :timeframe)
 			      timeframe))
 		   cached-tests))
+  
+  (defun query-test-instruments-all (timeframe)
+    (remove-if-not (lambda (test)
+		     (string= (access test :timeframe)
+			      timeframe))
+		   cached-tests-all))
 
   (defun query-test-timeframes (instrument)
     (remove-if-not (lambda (test)
@@ -2552,20 +2605,18 @@ tests performed that are stored on database."
 		 (map nil (lambda (entry)
 			    ;; Timeframe entries will be strings, not keywords.
 			    (push entry cached-tests)
-			    ;; (map nil (lambda (test)
-			    ;; 	       (push test cached-tests))
-			    ;; 	 entry)
-			    ;; (setf (gethash (read-from-string (format nil ":~a" (access entry :timeframe))) entries) entry)
 			    )
-		      (query-db-tests instrument))
-		 
-		 ;; (let ((entries (make-hash-table)))
-		 ;;   (map nil (lambda (entry)
-		 ;; 	      ;; Timeframe entries will be strings, not keywords.
-		 ;; 	      (setf (gethash (read-from-string (format nil ":~a" (access entry :timeframe))) entries) entry))
-		 ;; 	(query-db-tests instrument))
-		 ;;   (setf (gethash instrument cached-tests) entries))
-		 )
+		      (query-db-tests instrument)))
+	   ominp:*instruments*))
+
+    ;; cached-tests-all
+    (when (= (length cached-tests-all) 0)
+      (map nil (lambda (instrument)
+		 (map nil (lambda (entry)
+			    ;; Timeframe entries will be strings, not keywords.
+			    (push entry cached-tests-all)
+			    )
+		      (query-db-tests-all instrument)))
 	   ominp:*instruments*))
     cached-tests)
   ;; Run check.

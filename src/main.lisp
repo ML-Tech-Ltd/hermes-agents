@@ -1624,14 +1624,16 @@ series `real`."
 
 (defun drop-old-tests (amount unit timeframe)
   (with-postgres-connection (execute (delete-from :tests
-  				       (where (:and (:< :creation-time
-  							(local-time:timestamp-to-unix
-  							 (local-time:timestamp- (local-time:now)
-  										amount unit)))
-						    ;; (:= :timeframe
-  				       		    ;; 	(format nil "~s" timeframe))
-						    ))))))
-;; (drop-old-tests 15 :minute :D)
+				       (where (:and (:< :creation-time
+  				       			(local-time:timestamp-to-unix
+  				       			 (local-time:timestamp- (local-time:now)
+  				       						amount unit)))
+				       		    (:= :timeframe
+  				       		    	(format nil "~a" timeframe))
+				       		    ))
+				       ))))
+;; (drop-old-tests 9 :day :D)
+;; (drop-old-tests 1 :minute :H1)
 
 (defun get-n-best (n candidate)
   "Used in `DRAW-OPTIMIZATION`."

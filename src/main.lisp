@@ -392,9 +392,7 @@ This version scales the simulation."
 	 (trades (remove nil
 			 (mapcar (lambda (s r)
 				   (if (and (/= s 0) (/= r 0))
-				       ;; (/ (abs (- r s)) (1+ (abs r)))
-				       ;; (/ (abs (- r s)) (abs r))
-				       (abs (/ (- r s) r))
+				       (/ (abs (- r s)) (1+ (abs r)))
 				       ))
 				 sim
 				 real

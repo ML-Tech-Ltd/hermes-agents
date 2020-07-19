@@ -82,23 +82,23 @@
 ;; 				    (cl-csv:read-csv #P"~/skycoin.csv" :separator #\Comma)))
 ;;     "All the rates. Subsets are used during training, validation and testing stages."))
 
-(defun print-price-range
-    (progn
-      (format t "Date, Open, High, Low, Close~%")
-      (loop
-	 for x from 1
-	 for y in (get-rates-range :EUR_JPY :H1
-				   (local-time:timestamp-to-unix (local-time:parse-timestring "2020-07-14T00:00:00.000000Z"))
-				   (local-time:timestamp-to-unix (local-time:parse-timestring "2020-07-18T23:00:00.000000Z"))
-				   :provider :oanda
-				   :type :fx)
-	 do (format t "~a, ~a, ~a, ~a, ~a~%"
-		    ;; (local-time:timestamp-hour (local-time:unix-to-timestamp (/ (read-from-string (access y :time)) 1000000)))
-		    x
-		    (mean (list (access y :open-ask) (access y :open-bid)))
-		    (mean (list (access y :high-ask) (access y :high-bid)))
-		    (mean (list (access y :low-ask) (access y :low-bid)))
-		    (mean (list (access y :close-ask) (access y :close-bid)))))))
+;; (defun print-price-range ()
+;;     (progn
+;;       (format t "Date, Open, High, Low, Close~%")
+;;       (loop
+;; 	 for x from 1
+;; 	 for y in (get-rates-range :EUR_JPY :H1
+;; 				   (local-time:timestamp-to-unix (local-time:parse-timestring "2020-07-14T00:00:00.000000Z"))
+;; 				   (local-time:timestamp-to-unix (local-time:parse-timestring "2020-07-18T23:00:00.000000Z"))
+;; 				   :provider :oanda
+;; 				   :type :fx)
+;; 	 do (format t "~a, ~a, ~a, ~a, ~a~%"
+;; 		    ;; (local-time:timestamp-hour (local-time:unix-to-timestamp (/ (read-from-string (access y :time)) 1000000)))
+;; 		    x
+;; 		    (mean (list (access y :open-ask) (access y :open-bid)))
+;; 		    (mean (list (access y :high-ask) (access y :high-bid)))
+;; 		    (mean (list (access y :low-ask) (access y :low-bid)))
+;; 		    (mean (list (access y :close-ask) (access y :close-bid)))))))
 
 (defun mean-test-error (&optional (timeframe :H1))
   (let ((numerator 0)

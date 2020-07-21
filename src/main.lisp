@@ -1706,142 +1706,143 @@ series `real`."
       (format t "~%GENERATIONS, #AGENTS, MAPE(train), MAPE(val), MAPE(test), MASE(train), MASE(val), MASE(test), PMAPE(train), PMAPE(val), PMAPE(test), MAE(train), MAE(val), MAE(test), MSE(train), MSE(val), MSE(test), RMSE(train), RMSE(val), RMSE(test), RECALL(train), RECALL(val), RECALL(test), PRECISION(train), PRECISION(val), PRECISION(test), F1-SCORE(train), F1-SCORE(val), F1-SCORE(test), ACCURACY(train), ACCURACY(val), ACCURACY(test), REVENUE(train), REVENUE(val), REVENUE(test)"))
     (dotimes (i iterations)
       (incf *generations*)
-      (let ((candidate (let* ((option (random-float *rand-gen* 0 1))
-			      (cand (cond
-				      ;; Remove an agent.
-				      ((and (< option 0.1) (> (length (first *population*)) *community-size*))
-				       (remove-nth (random-int *rand-gen* 0 (1- (length (first *population*)))) (first *population*)))
-				      ;; Replace agent from solution using random agent.
-				      ;; ((and (< option 0.66) (> (length (first *population*)) *community-size*))
-				      ;;  (append
-				      ;;   (remove-nth (random-int *rand-gen* 0 (1- (length (first *population*)))) (first *population*))
-				      ;;   (list (random-int *rand-gen* 0 (1- (length *agents-pool*))))
-				      ;;   ))
-				      ;; Create new agent and push to pool.
-				      ((< option 1.00)
-				       (setf *agents-pool* (append *agents-pool* (gen-agents 1)))
-				       (append
-					(first *population*)
-					(list (1- (length *agents-pool*)))))
-				      ;; Append random agent from pool.
-				      ;; ((<= option 1.0)
-				      ;;  (append
-				      ;;   (first *population*)
-				      ;;   (list (random-int *rand-gen* 0 (1- (length *agents-pool*))))
-				      ;;   ))
-				      )))
-			 ;; (get-n-best *only-best* cand)
-			 cand
-			 )))
-	(let ((cand-error (funcall agents-fitness-fn (get-median-best candidate)))
-	      (best-error (funcall agents-fitness-fn (get-median-best (first *population*)))))
-	  (when (funcall sort-fn cand-error best-error)
+      (ignore-errors
+	(let ((candidate (let* ((option (random-float *rand-gen* 0 1))
+				(cand (cond
+					;; Remove an agent.
+					((and (< option 0.1) (> (length (first *population*)) *community-size*))
+					 (remove-nth (random-int *rand-gen* 0 (1- (length (first *population*)))) (first *population*)))
+					;; Replace agent from solution using random agent.
+					;; ((and (< option 0.66) (> (length (first *population*)) *community-size*))
+					;;  (append
+					;;   (remove-nth (random-int *rand-gen* 0 (1- (length (first *population*)))) (first *population*))
+					;;   (list (random-int *rand-gen* 0 (1- (length *agents-pool*))))
+					;;   ))
+					;; Create new agent and push to pool.
+					((< option 1.00)
+					 (setf *agents-pool* (append *agents-pool* (gen-agents 1)))
+					 (append
+					  (first *population*)
+					  (list (1- (length *agents-pool*)))))
+					;; Append random agent from pool.
+					;; ((<= option 1.0)
+					;;  (append
+					;;   (first *population*)
+					;;   (list (random-int *rand-gen* 0 (1- (length *agents-pool*))))
+					;;   ))
+					)))
+			   ;; (get-n-best *only-best* cand)
+			   cand
+			   )))
+	  (let ((cand-error (funcall agents-fitness-fn (get-median-best candidate)))
+		(best-error (funcall agents-fitness-fn (get-median-best (first *population*)))))
+	    (when (funcall sort-fn cand-error best-error)
 	    
-	    (setf (first *population*) candidate))
+	      (setf (first *population*) candidate))
 
-	  (when (or (> i (- iterations 2))
-		    (and print-log?
-			 (funcall sort-fn cand-error best-error)))
-	    (setf parent-id (insert-best-agents parent-id label fitness-fn sort-fn))
+	    (when (or (> i (- iterations 2))
+		      (and print-log?
+			   (funcall sort-fn cand-error best-error)))
+	      (setf parent-id (insert-best-agents parent-id label fitness-fn sort-fn))
 
-	    (let* ((report (first (get-reports 1 *testing-ratio*)))
-		   (median-best (get-median-best candidate))
+	      (let* ((report (first (get-reports 1 *testing-ratio*)))
+		     (median-best (get-median-best candidate))
 
-		   (train-mape (agents-mape median-best))
-		   (val-mape (accesses report :validation :performance-metrics :mape))
-		   (test-mape (accesses report :testing :performance-metrics :mape))
+		     (train-mape (agents-mape median-best))
+		     (val-mape (accesses report :validation :performance-metrics :mape))
+		     (test-mape (accesses report :testing :performance-metrics :mape))
 
-		   (train-mase (agents-mase median-best))
-		   (val-mase (accesses report :validation :performance-metrics :mase))
-		   (test-mase (accesses report :testing :performance-metrics :mase))
+		     (train-mase (agents-mase median-best))
+		     (val-mase (accesses report :validation :performance-metrics :mase))
+		     (test-mase (accesses report :testing :performance-metrics :mase))
 
-		   (train-pmape (agents-pmape median-best))
-		   (val-pmape (accesses report :validation :performance-metrics :pmape))
-		   (test-pmape (accesses report :testing :performance-metrics :pmape))
+		     (train-pmape (agents-pmape median-best))
+		     (val-pmape (accesses report :validation :performance-metrics :pmape))
+		     (test-pmape (accesses report :testing :performance-metrics :pmape))
 
-		   (train-mae (agents-mae median-best))
-		   (val-mae (accesses report :validation :performance-metrics :mae))
-		   (test-mae (accesses report :testing :performance-metrics :mae))
+		     (train-mae (agents-mae median-best))
+		     (val-mae (accesses report :validation :performance-metrics :mae))
+		     (test-mae (accesses report :testing :performance-metrics :mae))
 
-		   (train-mse (agents-mse median-best))
-		   (val-mse (accesses report :validation :performance-metrics :mse))
-		   (test-mse (accesses report :testing :performance-metrics :mse))
+		     (train-mse (agents-mse median-best))
+		     (val-mse (accesses report :validation :performance-metrics :mse))
+		     (test-mse (accesses report :testing :performance-metrics :mse))
 
-		   (train-rmse (agents-rmse median-best))
-		   (val-rmse (accesses report :validation :performance-metrics :rmse))
-		   (test-rmse (accesses report :testing :performance-metrics :rmse))
+		     (train-rmse (agents-rmse median-best))
+		     (val-rmse (accesses report :validation :performance-metrics :rmse))
+		     (test-rmse (accesses report :testing :performance-metrics :rmse))
 
-		   (train-recall (agents-recall median-best))
-		   (val-recall (accesses report :validation :performance-metrics :recall))
-		   (test-recall (accesses report :testing :performance-metrics :recall))
+		     (train-recall (agents-recall median-best))
+		     (val-recall (accesses report :validation :performance-metrics :recall))
+		     (test-recall (accesses report :testing :performance-metrics :recall))
 
-		   (train-precision (agents-precision median-best))
-		   (val-precision (accesses report :validation :performance-metrics :precision))
-		   (test-precision (accesses report :testing :performance-metrics :precision))
+		     (train-precision (agents-precision median-best))
+		     (val-precision (accesses report :validation :performance-metrics :precision))
+		     (test-precision (accesses report :testing :performance-metrics :precision))
 
-		   (train-f1-score (agents-f1-score median-best))
-		   (val-f1-score (accesses report :validation :performance-metrics :f1-score))
-		   (test-f1-score (accesses report :testing :performance-metrics :f1-score))
+		     (train-f1-score (agents-f1-score median-best))
+		     (val-f1-score (accesses report :validation :performance-metrics :f1-score))
+		     (test-f1-score (accesses report :testing :performance-metrics :f1-score))
 		   
-		   (train-accuracy (agents-accuracy median-best))
-		   (val-accuracy (accesses report :validation :performance-metrics :accuracy))
-		   (test-accuracy (accesses report :testing :performance-metrics :accuracy))
+		     (train-accuracy (agents-accuracy median-best))
+		     (val-accuracy (accesses report :validation :performance-metrics :accuracy))
+		     (test-accuracy (accesses report :testing :performance-metrics :accuracy))
 		   
-		   (train-revenue (agents-revenue median-best))
-		   (val-revenue (accesses report :validation :performance-metrics :revenue))
-		   (test-revenue (accesses report :testing :performance-metrics :revenue)))
-	      (when print-log?
-		(format t "~%~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a"
-		        *generations*
-			(length (first *population*))
-			train-mape
-			val-mape
-			test-mape
+		     (train-revenue (agents-revenue median-best))
+		     (val-revenue (accesses report :validation :performance-metrics :revenue))
+		     (test-revenue (accesses report :testing :performance-metrics :revenue)))
+		(when print-log?
+		  (format t "~%~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a"
+			  *generations*
+			  (length (first *population*))
+			  train-mape
+			  val-mape
+			  test-mape
 
-			train-mase
-			val-mase
-			test-mase
+			  train-mase
+			  val-mase
+			  test-mase
 
-			train-pmape
-			val-pmape
-			test-pmape
+			  train-pmape
+			  val-pmape
+			  test-pmape
 
-			train-mae
-			val-mae
-			test-mae
+			  train-mae
+			  val-mae
+			  test-mae
 
-			train-mse
-			val-mse
-			test-mse
+			  train-mse
+			  val-mse
+			  test-mse
 
-			train-rmse
-			val-rmse
-			test-rmse
+			  train-rmse
+			  val-rmse
+			  test-rmse
 
-			train-recall
-			val-recall
-			test-recall
+			  train-recall
+			  val-recall
+			  test-recall
 
-			train-precision
-			val-precision
-			test-precision
+			  train-precision
+			  val-precision
+			  test-precision
 
-			train-f1-score
-			val-f1-score
-			test-f1-score
+			  train-f1-score
+			  val-f1-score
+			  test-f1-score
 
-			(format-accuracy train-accuracy)
-			(format-accuracy val-accuracy)
-			(format-accuracy test-accuracy)
+			  (format-accuracy train-accuracy)
+			  (format-accuracy val-accuracy)
+			  (format-accuracy test-accuracy)
 			
-			train-revenue
-			val-revenue
-			test-revenue))
-	      (setf val+test (list
-			      (+ (aref val-accuracy 0) (aref test-accuracy 0))
-			      (+ (aref val-accuracy 1) (aref test-accuracy 1))))
-	      ))
-	  )))
+			  train-revenue
+			  val-revenue
+			  test-revenue))
+		(setf val+test (list
+				(+ (aref val-accuracy 0) (aref test-accuracy 0))
+				(+ (aref val-accuracy 1) (aref test-accuracy 1))))
+		))
+	    ))))
     val+test))
 
 (defun get-starting-population (is-cold-start instrument timeframe)
@@ -1936,8 +1937,8 @@ instruments `INSTRUMENTS-KEYS` for `ITERATIONS`."
 				     ((eq timeframes-key :longterm) ominp:*longterm*)
 				     (t timeframes-keys)
 				     )))
-	       (dolist (instrument instruments)
-		 (dolist (timeframe timeframes)
+	       (dolist (instrument (alexandria:shuffle instruments))
+		 (dolist (timeframe (alexandria:shuffle timeframes))
 		   (let ((*instrument* instrument)
 			 (*timeframe* timeframe)
 			 (hour (local-time:timestamp-hour (local-time:now) :timezone local-time:+utc-zone+)))
@@ -3214,20 +3215,20 @@ extracted from `*agents-pool*` using the indexes stored in `agents-indexes`."
 			       ;; 	   (t (mean no-zeros))))
 
 			       ;; The biggest directional movement wins.
-			       ;; (let* ((no-zeros (remove-if #'zerop trades))
-			       ;; 	      (pos (remove-if #'minusp no-zeros))
-			       ;; 	      (neg (remove-if #'plusp no-zeros))
-			       ;; 	      (lpos (length pos))
-			       ;; 	      (lneg (length neg)))
-			       ;; 	 (if (= lpos 0)
-			       ;; 	     (mean neg)
-			       ;; 	     (if (= lneg 0)
-			       ;; 		 (mean pos)
-			       ;; 		 (let ((mean-pos (mean pos))
-			       ;; 		       (mean-neg (mean neg)))
-			       ;; 		   (if (> (abs mean-pos) (abs mean-neg))
-			       ;; 		       mean-pos
-			       ;; 		       mean-neg)))))
+			       (let* ((no-zeros (remove-if #'zerop trades))
+			       	      (pos (remove-if #'minusp no-zeros))
+			       	      (neg (remove-if #'plusp no-zeros))
+			       	      (lpos (length pos))
+			       	      (lneg (length neg)))
+			       	 (if (= lpos 0)
+			       	     (mean neg)
+			       	     (if (= lneg 0)
+			       		 (mean pos)
+			       		 (let ((mean-pos (mean pos))
+			       		       (mean-neg (mean neg)))
+			       		   (if (> (abs mean-pos) (abs mean-neg))
+			       		       mean-pos
+			       		       mean-neg)))))
 
 			       ;; (let* ((no-zeros (remove-if #'zerop trades)))
 			       ;; 	 (if (and (> (length no-zeros) 1)
@@ -3237,10 +3238,10 @@ extracted from `*agents-pool*` using the indexes stored in `agents-indexes`."
 			       ;; 	     0))
 
 
-			       (let* ((no-zeros (remove-if #'zerop trades)))
-			       	 (if (= (length no-zeros) 0)
-			       	     0
-			       	     (mean no-zeros)))
+			       ;; (let* ((no-zeros (remove-if #'zerop trades)))
+			       ;; 	 (if (= (length no-zeros) 0)
+			       ;; 	     0
+			       ;; 	     (mean no-zeros)))
 			       
 			       ;; (mean trades)
 			       ;; (if (/= (length (remove-if #'zerop trades)) 1)

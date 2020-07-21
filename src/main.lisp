@@ -3203,15 +3203,15 @@ extracted from `*agents-pool*` using the indexes stored in `agents-indexes`."
   (let ((sim (apply #'mapcar (lambda (&rest trades)
 			       ;; (apply #'+ trades)
 			       
-			       (let* ((no-zeros (remove-if #'zerop trades))
-			       	      (pos (remove-if #'minusp no-zeros))
-			       	      (neg (remove-if #'plusp no-zeros))
-			       	      (lpos (length pos))
-			       	      (lneg (length neg)))
-			       	 (cond
-			       	   ((> lpos lneg) (mean pos))
-			       	   ((> lneg lpos) (mean neg))
-			       	   (t (mean no-zeros))))
+			       ;; (let* ((no-zeros (remove-if #'zerop trades))
+			       ;; 	      (pos (remove-if #'minusp no-zeros))
+			       ;; 	      (neg (remove-if #'plusp no-zeros))
+			       ;; 	      (lpos (length pos))
+			       ;; 	      (lneg (length neg)))
+			       ;; 	 (cond
+			       ;; 	   ((> lpos lneg) (mean pos))
+			       ;; 	   ((> lneg lpos) (mean neg))
+			       ;; 	   (t (mean no-zeros))))
 
 			       ;; The biggest directional movement wins.
 			       ;; (let* ((no-zeros (remove-if #'zerop trades))
@@ -3237,10 +3237,10 @@ extracted from `*agents-pool*` using the indexes stored in `agents-indexes`."
 			       ;; 	     0))
 
 
-			       ;; (let* ((no-zeros (remove-if #'zerop trades)))
-			       ;; 	 (if (= (length no-zeros) 0)
-			       ;; 	     0
-			       ;; 	     (mean no-zeros)))
+			       (let* ((no-zeros (remove-if #'zerop trades)))
+			       	 (if (= (length no-zeros) 0)
+			       	     0
+			       	     (mean no-zeros)))
 			       
 			       ;; (mean trades)
 			       ;; (if (/= (length (remove-if #'zerop trades)) 1)

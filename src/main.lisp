@@ -726,7 +726,7 @@ series `real`."
     							   (/ act 2)))
     						     (nth j activations)
     						     activation-threshold))))
-    		(* activation-weight
+    		(* 1
     		   (mean (mapcar (lambda (i)
     				   (let ((ifs (nth i agent-ifss)))
     				     (if-coa

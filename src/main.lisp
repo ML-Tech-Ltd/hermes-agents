@@ -2395,7 +2395,7 @@ is not ideal."
   (defun test-market (instrument timeframe)
     (let* ((*instrument* instrument)
 	   (*timeframe* timeframe)
-	   (*cached-agents* (make-hash-table))
+	   (*cached-agents* (make-hash-table  :synchronized t))
 	   (db-pop (get-most-relevant-population instrument timeframe))
 	   (pop (decompress-object (access db-pop :population)))
 	   (*rates* (subseq *all-rates* *begin* *end*))

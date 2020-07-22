@@ -719,70 +719,71 @@ series `real`."
 			     (iota *num-rules*)
 			     )))
 		  inputs)))
+
     (mapcar (lambda (j inp)
-    	      (let ((activation-weight (mean (mapcar (lambda (act thresh)
-    						       (if (>= act thresh)
-    							   1
-    							   (/ act 2)))
-    						     (nth j activations)
-    						     activation-threshold))))
-    		(* 1
-    		   (mean (mapcar (lambda (i)
-    				   (let ((ifs (nth i agent-ifss)))
-    				     (if-coa
-    				      (reduce #'ifunion
-    					      (mapcar (lambda (j)
-    							(rule
-    							 (nth j inp)
-    							 (nth (* j 2) ifs)
-    							 (nth (1+ (* j 2)) ifs)))
-    						      (iota (floor (/ (length ifs) 2)))
-    						      )))))
-    				 (iota (length rules))
-    				 )))))
+    	      (if ;; (>= (nth j reductions) activation-threshold)
+    	       ;; t
+    	       (every (lambda (elt) (not (null elt)))
+    	       	      (mapcar (lambda (act thresh)
+    	       			(>= act
+    	       			    thresh
+    	       			    ))
+    	       		      (nth j activations)
+    	       		      activation-threshold
+    	       		      ))
+    	       ;; This one doesn't use *num-rules* == 1.
+    	       ;; (if-coa
+    	       ;; 	(reduce #'ifunion
+    	       ;; 		(mapcar (lambda (i)
+    	       ;; 			  (let ((ifs (nth i agent-ifss)))
+    	       ;; 			    (reduce #'ifunion
+    	       ;; 				    (mapcar (lambda (j)
+    	       ;; 					      (rule
+    	       ;; 					       (nth j inp)
+    	       ;; 					       (nth (* j 2) ifs)
+    	       ;; 					       (nth (1+ (* j 2)) ifs)))
+    	       ;; 					    (iota (floor (/ (length ifs) 2)))
+    	       ;; 					    ))))
+    	       ;; 			(iota (length rules))
+    	       ;; 			)))
+    	       (mean (mapcar (lambda (i)
+    			       (let ((ifs (nth i agent-ifss)))
+    				 (if-coa
+    				  (reduce #'ifunion
+    					  (mapcar (lambda (j)
+    						    (rule
+    						     (nth j inp)
+    						     (nth (* j 2) ifs)
+    						     (nth (1+ (* j 2)) ifs)))
+    						  (iota (floor (/ (length ifs) 2)))
+    						  )))))
+    			     (iota (length rules))
+    			     ))
+    	       0))
     	    (iota (length inputs))
     	    inputs)
     
     ;; (mapcar (lambda (j inp)
-    ;; 	      (if ;; (>= (nth j reductions) activation-threshold)
-    ;; 	       t
-    ;; 	       ;; (every (lambda (elt) (not (null elt)))
-    ;; 	       ;; 	      (mapcar (lambda (act thresh)
-    ;; 	       ;; 			(>= act
-    ;; 	       ;; 			    thresh
-    ;; 	       ;; 			    ))
-    ;; 	       ;; 		      (nth j activations)
-    ;; 	       ;; 		      activation-threshold
-    ;; 	       ;; 		      ))
-    ;; 	       ;; This one doesn't use *num-rules* == 1.
-    ;; 	       ;; (if-coa
-    ;; 	       ;; 	(reduce #'ifunion
-    ;; 	       ;; 		(mapcar (lambda (i)
-    ;; 	       ;; 			  (let ((ifs (nth i agent-ifss)))
-    ;; 	       ;; 			    (reduce #'ifunion
-    ;; 	       ;; 				    (mapcar (lambda (j)
-    ;; 	       ;; 					      (rule
-    ;; 	       ;; 					       (nth j inp)
-    ;; 	       ;; 					       (nth (* j 2) ifs)
-    ;; 	       ;; 					       (nth (1+ (* j 2)) ifs)))
-    ;; 	       ;; 					    (iota (floor (/ (length ifs) 2)))
-    ;; 	       ;; 					    ))))
-    ;; 	       ;; 			(iota (length rules))
-    ;; 	       ;; 			)))
-    ;; 	       (mean (mapcar (lambda (i)
-    ;; 			       (let ((ifs (nth i agent-ifss)))
-    ;; 				 (if-coa
-    ;; 				  (reduce #'ifunion
-    ;; 					  (mapcar (lambda (j)
-    ;; 						    (rule
-    ;; 						     (nth j inp)
-    ;; 						     (nth (* j 2) ifs)
-    ;; 						     (nth (1+ (* j 2)) ifs)))
-    ;; 						  (iota (floor (/ (length ifs) 2)))
-    ;; 						  )))))
-    ;; 			     (iota (length rules))
-    ;; 			     ))
-    ;; 	       0))
+    ;; 	      (let ((activation-weight (mean (mapcar (lambda (act thresh)
+    ;; 						       (if (>= act thresh)
+    ;; 							   (* act 2)
+    ;; 							   (/ act 2)))
+    ;; 						     (nth j activations)
+    ;; 						     activation-threshold))))
+    ;; 		(* activation-weight
+    ;; 		   (mean (mapcar (lambda (i)
+    ;; 				   (let ((ifs (nth i agent-ifss)))
+    ;; 				     (if-coa
+    ;; 				      (reduce #'ifunion
+    ;; 					      (mapcar (lambda (j)
+    ;; 							(rule
+    ;; 							 (nth j inp)
+    ;; 							 (nth (* j 2) ifs)
+    ;; 							 (nth (1+ (* j 2)) ifs)))
+    ;; 						      (iota (floor (/ (length ifs) 2)))
+    ;; 						      )))))
+    ;; 				 (iota (length rules))
+    ;; 				 )))))
     ;; 	    (iota (length inputs))
     ;; 	    inputs)
     ))
@@ -1703,7 +1704,7 @@ series `real`."
       ;; 		*generations*
       ;; 		(float (funcall agents-fitness-fn (first *population*)))
       ;; 		(format-accuracy accuracy)))
-      (format t "~%GENERATIONS, #AGENTS, MAPE(train), MAPE(val), MAPE(test), MASE(train), MASE(val), MASE(test), PMAPE(train), PMAPE(val), PMAPE(test), MAE(train), MAE(val), MAE(test), MSE(train), MSE(val), MSE(test), RMSE(train), RMSE(val), RMSE(test), RECALL(train), RECALL(val), RECALL(test), PRECISION(train), PRECISION(val), PRECISION(test), F1-SCORE(train), F1-SCORE(val), F1-SCORE(test), ACCURACY(train), ACCURACY(val), ACCURACY(test), REVENUE(train), REVENUE(val), REVENUE(test)"))
+      (format t "~%GENERATIONS, #AGENTS, MAPE(train), MAPE(val), MAPE(test), MASE(train), MASE(val), MASE(test), PMAPE(train), PMAPE(val), PMAPE(test), MAE(train), MAE(val), MAE(test), MSE(train), MSE(val), MSE(test), RMSE(train), RMSE(val), RMSE(test), RECALL(train), RECALL(val), RECALL(test), PRECISION(train), PRECISION(val), PRECISION(test), F1-SCORE(train), F1-SCORE(val), F1-SCORE(test), ACCURACY(train), ACCURACY(val), ACCURACY(test), CORRECTS(train), CORRECTS(val), CORRECTS(test), #TRADES(train), #TRADES(val), #TRADES(test), REVENUE(train), REVENUE(val), REVENUE(test)"))
     (dotimes (i iterations)
       (incf *generations*)
       (ignore-errors
@@ -1792,7 +1793,7 @@ series `real`."
 		     (val-revenue (accesses report :validation :performance-metrics :revenue))
 		     (test-revenue (accesses report :testing :performance-metrics :revenue)))
 		(when print-log?
-		  (format t "~%~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a"
+		  (format t "~%~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a, ~a"
 			  *generations*
 			  (length (first *population*))
 			  train-mape
@@ -1834,6 +1835,14 @@ series `real`."
 			  (format-accuracy train-accuracy)
 			  (format-accuracy val-accuracy)
 			  (format-accuracy test-accuracy)
+
+			  (aref train-accuracy 0)
+			  (aref val-accuracy 0)
+			  (aref test-accuracy 0)
+
+			  (aref train-accuracy 1)
+			  (aref val-accuracy 1)
+			  (aref test-accuracy 1)
 			
 			  train-revenue
 			  val-revenue
@@ -1969,19 +1978,19 @@ instruments `INSTRUMENTS-KEYS` for `ITERATIONS`."
       (let ((run (optimize-one instrument timeframe iterations :is-cold-start t :agents-fitness-fn agents-fitness-fn :fitness-fn fitness-fn :sort-fn sort-fn)))
 	(push (first run) nums)
 	(push (second run) denoms)
-	;; (format t "~%~%#~a - ACCUMULATION: (~a ~a) = ~a"
-	;; 	 (1+ i)
-	;; 	 (reduce #'+ nums)
-	;; 	 (reduce #'+ denoms)
-	;; 	 (float (* 100 (if (/= (reduce #'+ denoms) 0) (/ (reduce #'+ nums) (reduce #'+ denoms)) 0))))
+	(format t "~%~%#~a - ACCUMULATION: (~a ~a) = ~a"
+		 (1+ i)
+		 (reduce #'+ nums)
+		 (reduce #'+ denoms)
+		 (float (* 100 (if (/= (reduce #'+ denoms) 0) (/ (reduce #'+ nums) (reduce #'+ denoms)) 0))))
 	))
-    ;; (format t "~%~%RESULTS: ~a~%" (list nums denoms))
+    (format t "~%~%RESULTS: ~a~%" (list nums denoms))
     ))
 
 ;; (dolist (instrument '(:EUR_GBP :EUR_JPY :EUR_USD :GBP_USD :USD_CHF :USD_CAD :USD_CNH :USD_HKD))
 ;;   (tweaking :instrument instrument :timeframe :H1 :iterations 300 :experiments-count 60))
 
-;; (tweaking :instrument :EUR_USD :timeframe :D :iterations 100 :experiments-count 1 :agents-fitness-fn #'agents-mase :fitness-fn #'mase :sort-fn #'<)
+;; (tweaking :instrument :EUR_USD :timeframe :H1 :iterations 300 :experiments-count 30 :agents-fitness-fn #'agents-mase :fitness-fn #'mase :sort-fn #'<)
 ;; (tweaking :instrument :EUR_USD :timeframe :H1 :iterations 300 :experiments-count 30)
 ;; *population*
 ;; *generations*
@@ -3256,6 +3265,65 @@ extracted from `*agents-pool*` using the indexes stored in `agents-indexes`."
 		    )))
     sim
     ))
+
+(defun agents-simulation (agents)
+  "Returns a simulation of multiple agents trading a dataset."
+  (let ()
+    (loop for input in (funcall *perception-fn* nil)
+       collect (let ((winner-idx 0)
+		     (winner-act 0))
+		 ;; Searching for the agent that is activated the most.
+		 (loop
+		    for i below (length agents)
+		    for agent in agents
+		    do (let ((sig (reduce #'+ (append (flatten (rules agent)) input))))
+			 (let* ((activations (activations agent))
+				(act (if (gethash sig *cached-agents*)
+					 (gethash sig *cached-agents*)
+					 (let ((sim (reduce #'+
+							    (flatten
+							     (mapcar (lambda (j)
+								       (mapcar (lambda (i)
+										 (if-membership (nth i input)
+												(agents-ifs (nth i (nth j activations))))
+										 )
+									       (iota *num-inputs*)))
+								     (iota *num-rules*)
+								     )))))
+					   (setf (gethash sig *cached-agents*) sim)
+					   sim))))
+			   (when (> act winner-act)
+			     (setf winner-act act)
+			     (setf winner-idx i)))))
+
+		 ;; Evaluating agent with current input.
+		 (let* ((agent (nth winner-idx agents))
+			(rules (rules agent))
+			
+			(sig (1+ (reduce #'+ (append (flatten (rules agent)) input)))))
+		   (if (gethash sig *cached-agents*)
+		       (gethash sig *cached-agents*)
+		       (let* ((agent-ifss (mapcar (lambda (params)
+						    (mapcar (lambda (par)
+							      (agents-ifs par))
+							    params))
+						  rules))
+			      (sim (mean (mapcar (lambda (i)
+						   (let ((ifs (nth i agent-ifss)))
+						     (if-coa
+						      (reduce #'ifunion
+							      (mapcar (lambda (j)
+									(rule
+									 (nth j input)
+									 (nth (* j 2) ifs)
+									 (nth (1+ (* j 2)) ifs)))
+								      (iota (floor (/ (length ifs) 2)))
+								      )))))
+						 (iota (length rules))
+						 ))))
+			 (setf (gethash sig *cached-agents*) sim)
+			 sim)))
+		 ))))
 
 (defun agent-simulation (agent)
   "Returns a simulation of a single agent trading a dataset."

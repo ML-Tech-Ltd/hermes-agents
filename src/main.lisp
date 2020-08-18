@@ -795,7 +795,12 @@
 	     (when agents
 	       (let ((fitnesses (evaluate-agents agents training-dataset))
 		     (prediction (get-prediction agents training-dataset)))
-		 (when (/= (access prediction :tp) 0)
+		 (when (and (/= (access prediction :tp) 0)
+			    (/= (access prediction :sl) 0)
+			    (/= (access fitnesses :trades-won) 0)
+			    (/= (+ (access fitnesses :trades-won)
+				   (access fitnesses :trades-lost))
+				0))
 		   (store-test instrument timeframe fitnesses prediction rates))))
 	     (let* ((creation-dataset (get-input-dataset rates creation-dataset-size))
 		    (trained-agents (optimization agents

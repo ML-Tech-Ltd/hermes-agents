@@ -4,13 +4,13 @@
   :license ""
   :depends-on (:lparallel
 	       :random-state
-               :datafly
-	       :dbi
+               ;; :datafly
+	       ;; :dbi
                :cl-mathstats
                ;; :magicl
 	       :cl-csv
                :computable-reals
-               :sxql
+               ;; :sxql
 	       :cl21
 	       :uuid
 	       :marshal
@@ -22,6 +22,9 @@
 	       :dexador
 	       :alexandria
 	       :sigma
+	       :plotly-cl
+	       :postmodern
+	       :cl-cpus
 
 	       :overmind-intuition
 	       :overmind-input
@@ -29,8 +32,9 @@
 	       )
   :components ((:module "src"
 			:components
-			((:file "main" :depends-on ("config" "db" "km"))
+			((:file "main" :depends-on ("config" "db" "km" "utilities"))
 			 (:file "km")
+			 (:file "utilities")
 			 (:file "config")
 			 (:file "db")))
 	       (:module "datasets"

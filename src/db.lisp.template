@@ -1,13 +1,18 @@
 (defpackage overmind-agents.db
   (:use :cl)
   (:export with-sqlite-connection
-	   with-postgres-connection))
+	   with-postgres-connection
+	   *db-name*
+	   *db-user*
+	   *db-pass*
+	   *db-hostname*))
 (in-package overmind-agents.db)
 
 ;; For mysql or postgres.
 (defparameter *db-name* "")
 (defparameter *db-user* "")
 (defparameter *db-pass* "")
+(defparameter *db-hostname* "localhost")
 
 ;; For sqlite3.
 (defparameter *db-path* "")

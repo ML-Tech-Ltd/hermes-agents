@@ -1,7 +1,7 @@
 ;; (ql:quickload :overmind-agents)
 ;; (ql:quickload :mlforecasting)
 ;; (mlforecasting:start :port 2001)
-;; (loop-optimize-test 20 :instruments-keys '(:forex) :timeframes-keys '(:all) :print-log? t)
+;; (loop-optimize-test 10)
 ;; (loop-optimize-test 50 :instruments-keys '(:forex) :timeframes-keys '(:all))
 ;; (loop-optimize-test 50 :instruments-keys '(:all) :timeframes-keys '(:longterm))
 ;; (loop-optimize-test 50 :instruments-keys '(:metals) :timeframes-keys '(:longterm))
@@ -677,6 +677,35 @@
       (decompress-object (caar agents)))))
 ;; (null (get-agents :EUR_USD :H1))
 
+(defun remove-bad-agents ()
+  (loop for timeframe in ominp:*timeframes*
+     do (loop for instrument in ominp:*instruments*
+	   do (let* ((agents (get-agents instrument timeframe))
+		     (filtered-agents (loop for agent in agents
+					 when (let* ((fitnesses (access agent :fitnesses))
+						     (tps (access fitnesses :tps))
+						     (sls (access fitnesses :sls))
+						     (trades-won (access fitnesses :trades-won))
+						     (trades-lost (access fitnesses :trades-lost)))
+						(when (and tps sls)
+						  (let ((mean-tp (abs (mean tps)))
+							(mean-sl (abs (mean sls))))
+						    (and tps sls
+							 (> mean-tp 0)
+							 (> mean-sl 0)
+							 (> trades-won 0)
+							 (>= (/ mean-sl mean-tp) 1/5)
+							 (<= (/ mean-sl mean-tp) 2/3)
+							 (> (/ trades-won (+ trades-won trades-lost)) 0.2)))))
+					 collect agent
+					   )))
+		(when agents
+		  (store-agents filtered-agents instrument timeframe))
+		))))
+
+;; (remove-bad-agents)
+;; (length (get-agents :AUD_USD :H1))
+
 (defun store-agents (agents instrument timeframe)
   (let ((exists? (get-agents instrument timeframe)))
     (if exists?
@@ -808,7 +837,8 @@
 						  training-dataset
 						  iterations
 						  report-fn)))
-	       (store-agents trained-agents instrument timeframe))))))))
+	       (store-agents trained-agents instrument timeframe))))))
+     (remove-bad-agents)))
 
 ;; (get-last-tests '(:AUD_USD) '(:H1) 3)
 ;; (get-last-tests '(:EUR_JPY) '(:H1) 3)

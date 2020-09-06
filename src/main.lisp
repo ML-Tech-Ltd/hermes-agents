@@ -774,13 +774,13 @@
     (or
      ;; Friday
      (and (= day-of-week 5)
-	  (>= hour 21)
+	  (>= hour 20)
 	  )
      ;; Saturday
      (= day-of-week 6)
      ;; Sunday
      (and (= day-of-week 0)
-	  (< hour 20)))))
+	  (< hour 21)))))
 
 (defun get-tests (instrument timeframe &optional (limit 10))
   (with-connection (list *db-name* *db-user* *db-pass* *db-hostname*)

@@ -1,7 +1,7 @@
 ;; (ql:quickload :overmind-agents)
 ;; (ql:quickload :mlforecasting)
 ;; (mlforecasting:start :port 2001)
-;; (loop-optimize-test 10)
+;; (loop-optimize-test 5 :max-agents-per-pool 10)
 ;; (loop-optimize-test 50 :instruments-keys '(:forex) :timeframes-keys '(:all))
 ;; (loop-optimize-test 50 :instruments-keys '(:all) :timeframes-keys '(:longterm))
 ;; (loop-optimize-test 50 :instruments-keys '(:metals) :timeframes-keys '(:longterm))
@@ -31,7 +31,11 @@
   (:nicknames :omage))
 (in-package :overmind-agents)
 
-(setf lparallel:*kernel* (lparallel:make-kernel (1- (cl-cpus:get-number-of-processors))))
+(setf lparallel:*kernel* (lparallel:make-kernel
+			  (let ((ideal-cores-count (1- (cl-cpus:get-number-of-processors))))
+			    (if (/= ideal-cores-count 0)
+				ideal-cores-count
+				1))))
 
 (defun init-database ()
   "Creates all the necessary tables for Overmind Agents."
@@ -535,6 +539,9 @@
     agent))
 
 (defun update-agents-fitnesses (agents rates)
+  ;; (pmap nil (lambda (agent)
+  ;; 	      (update-agent-fitnesses agent rates))
+  ;; 	agents)
   (loop for agent in agents
      do (update-agent-fitnesses agent rates))
   agents)
@@ -675,7 +682,7 @@
 									      (:= 'timeframe (format nil "~a" timeframe))))))))
     (when agents
       (decompress-object (caar agents)))))
-;; (null (get-agents :EUR_USD :H1))
+;; (length (get-agents :EUR_USD :H1))
 
 (defun remove-bad-agents (&optional (max-agents-per-pool 600))
   (loop for timeframe in ominp:*timeframes*
@@ -735,7 +742,7 @@
 		      rr
 		      rr2))))))
 
-;; (remove-bad-agents)
+;; (describe-agent-fitnesses :EUR_USD)
 ;; (length (get-agents :AUD_USD :H1))
 
 (defun store-agents (agents instrument timeframe)
@@ -871,7 +878,10 @@
 						  training-dataset
 						  iterations
 						  report-fn)))
-	       (store-agents trained-agents instrument timeframe))))))
+	       (store-agents trained-agents instrument timeframe)
+	       (when (> (length trained-agents) max-agents-per-pool)
+		 (update-agents-fitnesses trained-agents rates)))
+	     ))))
      (remove-bad-agents max-agents-per-pool)))
 
 (defun sorted-indexes (list &optional (sort-fn #'<))

@@ -677,31 +677,63 @@
       (decompress-object (caar agents)))))
 ;; (null (get-agents :EUR_USD :H1))
 
-(defun remove-bad-agents ()
+(defun remove-bad-agents (&optional (max-agents-per-pool 600))
   (loop for timeframe in ominp:*timeframes*
      do (loop for instrument in ominp:*instruments*
 	   do (let* ((agents (get-agents instrument timeframe))
-		     (filtered-agents (loop for agent in agents
-					 when (let* ((fitnesses (access agent :fitnesses))
-						     (tps (access fitnesses :tps))
-						     (sls (access fitnesses :sls))
-						     (trades-won (access fitnesses :trades-won))
-						     (trades-lost (access fitnesses :trades-lost)))
-						(when (and tps sls)
-						  (let ((mean-tp (abs (mean tps)))
-							(mean-sl (abs (mean sls))))
-						    (and tps sls
-							 (> mean-tp 0)
-							 (> mean-sl 0)
-							 (> trades-won 0)
-							 (>= (/ mean-sl mean-tp) 1/5)
-							 (<= (/ mean-sl mean-tp) 2/3)
-							 (> (/ trades-won (+ trades-won trades-lost)) 0.2)))))
-					 collect agent
-					   )))
-		(when agents
-		  (store-agents filtered-agents instrument timeframe))
-		))))
+		     (observations (loop for agent in agents
+				      collect (let* ((fitnesses (access agent :fitnesses))
+						     (avg-revenue (access fitnesses :avg-revenue))
+						     (stdev-revenue (access fitnesses :stdev-revenue)))
+						(list avg-revenue stdev-revenue)))))
+		;; (when agents
+		;;   (store-agents filtered-agents instrument timeframe))
+		(when (> (length agents) max-agents-per-pool)
+		  (let* ((clusters (km observations max-agents-per-pool))
+			 (centroids (mapcar #'centroid clusters))
+			 (representative-agents
+			  (loop
+			     for centroid in centroids
+			     for cluster in clusters
+			     collect (nth (position (nth (position 0 (sorted-indexes (loop
+											for c in cluster
+											collect (norm (vsub c centroid)))))
+							 cluster)
+						    observations :test #'equal)
+					  agents))))
+		    (store-agents representative-agents instrument timeframe)))))))
+
+;; (remove-bad-agents 600)
+;; (loop for market in ominp:*forex*
+;;    do (print (length (get-agents market :H1))))
+
+(defun describe-agent-fitnesses (market)
+  (loop for agent in (get-agents market :H1)
+     do (let* ((fit (access agent :fitnesses))
+	       (tps (access fit :tps))
+	       (sls (access fit :sls)))
+	  (when (and tps sls)
+	    (let* ((avg-revenue (access fit :avg-revenue))
+		   (avg-tp (access fit :avg-tp))
+		   (avg-sl (access fit :avg-sl))
+		   (trades-won (access fit :trades-won))
+		   (trades-lost (access fit :trades-lost))
+		   (rr `(:rr . ,(format nil "~2$ / ~2$"
+					(* 10000 (abs (mean sls)))
+					(* 10000 (abs (mean tps))))))
+		   (rr2 `(:rr2 . ,(format nil "~a / ~2$"
+					  (/ (* 10000 (abs (mean sls)))
+					     (* 10000 (abs (mean sls))))
+					  (/ (* 10000 (abs (mean tps)))
+					     (* 10000 (abs (mean sls))))))))
+	      (format t "AVG-REVENUE: ~t ~a~%AVG-TP: ~t ~a~%AVG-SL: ~t ~a~%TRADES-WON: ~t ~a~%TRADES-LOST: ~t ~a~%RR: ~t ~a~%RR2: ~t ~a~%~%"
+		      avg-revenue
+		      avg-tp
+		      avg-sl
+		      trades-won
+		      trades-lost
+		      rr
+		      rr2))))))
 
 ;; (remove-bad-agents)
 ;; (length (get-agents :AUD_USD :H1))
@@ -811,7 +843,7 @@
 	     'entry-price (access (last-elt rates) :close-bid)
 	     ))))
 
-(defun loop-optimize-test (iterations &key (creation-dataset-size 200) (training-dataset-size 200) (num-rules 3) (report-fn nil))
+(defun loop-optimize-test (iterations &key (creation-dataset-size 200) (training-dataset-size 200) (num-rules 3) (report-fn nil) (max-agents-per-pool 600))
   (loop (unless (is-market-close))
      (dolist (instrument ominp:*forex*)
        (dolist (timeframe ominp:*shortterm*)
@@ -840,7 +872,7 @@
 						  iterations
 						  report-fn)))
 	       (store-agents trained-agents instrument timeframe))))))
-     (remove-bad-agents)))
+     (remove-bad-agents max-agents-per-pool)))
 
 (defun sorted-indexes (list &optional (sort-fn #'<))
   (loop
@@ -879,38 +911,38 @@
 
 
 
-(defun generate-plot (plot-code width height)
-  (let ((style (cl-css:css `((html :height 100%)
-                             (body :height 100%
-                                   :display flex
-                                   :justify-content center
-                                   :align-items center)
-                             ("#plot" :width ,#?"${width}px"
-                                      :height ,#?"${height}px")))))
-    (who:with-html-output-to-string (_)
-      (:html
-       (:head
-        (:script :src "https://cdn.plot.ly/plotly-latest.min.js")
-        (:style (who:str style)))
-       (:body
-        (:div :id "plot")
-        (:script (who:str plot-code)))))))
+;; (defun generate-plot (plot-code width height)
+;;   (let ((style (cl-css:css `((html :height 100%)
+;;                              (body :height 100%
+;;                                    :display flex
+;;                                    :justify-content center
+;;                                    :align-items center)
+;;                              ("#plot" :width ,#?"${width}px"
+;;                                       :height ,#?"${height}px")))))
+;;     (who:with-html-output-to-string (_)
+;;       (:html
+;;        (:head
+;;         (:script :src "https://cdn.plot.ly/plotly-latest.min.js")
+;;         (:style (who:str style)))
+;;        (:body
+;;         (:div :id "plot")
+;;         (:script (who:str plot-code)))))))
 
-(defun open-plot (plot-code width height)
-  "Write output to the file and open browser"
-  (uiop/stream:with-temporary-file (:pathname pn :stream stream :direction :output :keep t :type "html")
-    (write-string (generate-plot plot-code width height) stream)
-    (sb-ext:run-program (or (uiop:getenv "BROWSER") "xdg-open") (list (namestring pn)) :wait nil :search t)))
+;; (defun open-plot (plot-code width height)
+;;   "Write output to the file and open browser"
+;;   (uiop/stream:with-temporary-file (:pathname pn :stream stream :direction :output :keep t :type "html")
+;;     (write-string (generate-plot plot-code width height) stream)
+;;     (sb-ext:run-program (or (uiop:getenv "BROWSER") "xdg-open") (list (namestring pn)) :wait nil :search t)))
 
-(defun pl-plot (traces &key layout (width 1000) (height 700))
-  "Plot the data (list of traces)"
-  (let* ((json-traces (format nil "[~{~a~^,~}]" (mapcar #'json:encode-json-alist-to-string traces)))
-         (json-layout (json:encode-json-alist-to-string layout))
-         (plot-code (ps:ps
-                      (let ((div ((ps:@ document get-element-by-id) "plot")))
-                        (*plotly.plot div ((ps:@ *json* parse) (ps:lisp json-traces))
-                                      ((ps:@ *json* parse) (ps:lisp json-layout)))))))
-    (open-plot plot-code width height)))
+;; (defun pl-plot (traces &key layout (width 1000) (height 700))
+;;   "Plot the data (list of traces)"
+;;   (let* ((json-traces (format nil "[~{~a~^,~}]" (mapcar #'json:encode-json-alist-to-string traces)))
+;;          (json-layout (json:encode-json-alist-to-string layout))
+;;          (plot-code (ps:ps
+;;                       (let ((div ((ps:@ document get-element-by-id) "plot")))
+;;                         (*plotly.plot div ((ps:@ *json* parse) (ps:lisp json-traces))
+;;                                       ((ps:@ *json* parse) (ps:lisp json-layout)))))))
+;;     (open-plot plot-code width height)))
 
 
 (defun describe-agent (agent)
@@ -924,7 +956,8 @@
     ))
 (defun describe-agents (agents)
   )
-(describe-agent (gen-agent 4 *rates*))
+
+;; (describe-agent (gen-agent 4 *rates*))
 
 ;; (pentropy (iota 600) 3 10)
 ;; (loop for i from (- (length *rates*) 100) downto 0

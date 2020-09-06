@@ -878,9 +878,9 @@
 						  training-dataset
 						  iterations
 						  report-fn)))
-	       (store-agents trained-agents instrument timeframe)
-	       (when (> (length trained-agents) max-agents-per-pool)
-		 (update-agents-fitnesses trained-agents rates)))
+	       (if (> (length trained-agents) max-agents-per-pool)
+		   (store-agents (update-agents-fitnesses trained-agents rates) instrument timeframe)
+		   (store-agents trained-agents instrument timeframe)))
 	     ))))
      (remove-bad-agents max-agents-per-pool)))
 
@@ -1004,16 +1004,16 @@
 
 ;; (get-prediction (gen-agents 3 3 *rates*) *rates*)
 
-;; (defparameter *rates* (get-rates-count :EUR_USD :H1 600 :provider :oanda :type :fx))
+;; (defparameter *rates* (get-rates-count :USD_CAD :H1 600 :provider :oanda :type :fx))
 ;; (defparameter *creation-dataset* (get-input-dataset *rates* 200))
 ;; (defparameter *training-dataset* (get-input-dataset (get-output-dataset *rates* 200) 200))
-;; (defparameter *testing-dataset* (get-output-dataset *rates* 200))
+;; (defparameter *testing-dataset* (get-output-dataset *rates* 400))
 ;; (defparameter *results* nil)
 ;; (defparameter *agents* nil)
-;; (defparameter *agents* (optimization nil
+;; (defparameter *agents* (optimization *agents*
 ;; 				     (lambda () (gen-agent 3 *creation-dataset*))
 ;; 				     *training-dataset*
-;; 				     100
+;; 				     1000
 ;; 				     (lambda (agents rates)
 ;; 				       (format t "Training:~%")
 ;; 				       (report agents rates)
@@ -1023,7 +1023,6 @@
 
 ;; ((first (-> (access (first *agents*) :rules) :rules)))
 ;; (first (-> (access (gen-agent 2 *creation-dataset*) :rules) :rules))
-
 
 ;; (let* ((idx 0)
 ;;        (training-results (reverse (loop
@@ -1043,8 +1042,6 @@
 ;;   		    (plotly-line (iota (length testing-results)) testing-results "blue")
 ;;   		    )
 ;;   )
-
-
 
 ;; (loop repeat 1 collect (let* ((idx (random-int *rand-gen* 0 (length *rates*)))
 ;; 			       (input-dataset (get-input-dataset *rates* idx))

@@ -1,6 +1,7 @@
 ;; (ql:quickload :overmind-agents)
 ;; (ql:quickload :mlforecasting)
 ;; (mlforecasting:start :port 2001)
+;; (loop-optimize-test 5 :max-agents-per-pool 600)
 ;; (loop-optimize-test 5 :max-agents-per-pool 10)
 ;; (loop-optimize-test 50 :instruments-keys '(:forex) :timeframes-keys '(:all))
 ;; (loop-optimize-test 50 :instruments-keys '(:all) :timeframes-keys '(:longterm))
@@ -572,14 +573,12 @@
 		 (avg-revenue (access fitnesses :avg-revenue))
 		 (trades-won (access fitnesses :trades-won))
 		 (trades-lost (access fitnesses :trades-lost))
-		 (total-revenue (access fitnesses :total-revenue))
 		 (stdev-revenue (access fitnesses :stdev-revenue)))
-	    ;; (format t "~a, ~a, ~a~%" avg-revenue trades-won trades-lost)
+	    ;; Fitnesses currently being used.
 	    (when (and (> avg-revenue avg-revenue-0)
 		       (< stdev-revenue stdev-revenue-0)
-		       ;; (> trades-won trades-won-0)
-		       ;; (< trades-lost trades-lost-0)
-		       ;; (> total-revenue trades-won-0)
+		       (> trades-won trades-won-0)
+		       (< trades-lost trades-lost-0)
 		       )
 	      (setf is-dominated? t)
 	      (return))))
@@ -689,10 +688,13 @@
      do (loop for instrument in ominp:*instruments*
 	   do (let* ((agents (get-agents instrument timeframe))
 		     (observations (loop for agent in agents
+					;; Fitnesses currently being used.
 				      collect (let* ((fitnesses (access agent :fitnesses))
 						     (avg-revenue (access fitnesses :avg-revenue))
-						     (stdev-revenue (access fitnesses :stdev-revenue)))
-						(list avg-revenue stdev-revenue)))))
+						     (stdev-revenue (access fitnesses :stdev-revenue))
+						     (trades-won (access fitnesses :trades-won))
+						     (trades-lost (access fitnesses :trades-lost)))
+						(list avg-revenue stdev-revenue trades-won trades-lost)))))
 		;; (when agents
 		;;   (store-agents filtered-agents instrument timeframe))
 		(when (> (length agents) max-agents-per-pool)
@@ -1004,7 +1006,40 @@
 
 ;; (get-prediction (gen-agents 3 3 *rates*) *rates*)
 
-;; (defparameter *rates* (get-rates-count :USD_CAD :H1 600 :provider :oanda :type :fx))
+;; (loop for step from 100 below (length *rates*) by 50
+;;    collect (let ((lookahead 10)
+;; 		 (rates (last *rates* step)))
+;; 	     (let* ((directions (loop for i from lookahead below (length rates)
+;; 				   collect (let* ((dataset (last (get-input-dataset rates i) lookahead))
+;; 						  (last-rate (access (last-elt dataset) :close-bid))
+;; 						  (first-rate (access (first dataset) :close-bid))
+;; 						  (direction (- last-rate first-rate)))
+;; 					     direction)))
+;; 		    (pos (remove-if-not #'plusp directions))
+;; 		    (neg (remove-if-not #'minusp directions))
+;; 		    (pos-mean (if pos (mean pos) 0))
+;; 		    (neg-mean (if neg (mean neg) 0))
+;; 		    (uptrend (remove-if-not (lambda (elt) (> elt pos-mean)) pos))
+;; 		    (downtrend (remove-if-not (lambda (elt) (< elt neg-mean)) neg))
+;; 		    (stagnated (remove-if-not (lambda (elt) (and
+;; 							     (< elt pos-mean)
+;; 							     (> elt neg-mean)))
+;; 					      neg)))
+;; 	       (let ((lrates (length rates)))
+;; 		 (float (mean (list (abs (- (/ (length uptrend) lrates) 1/3))
+;; 				    (abs (- (/ (length downtrend) lrates) 1/3))
+;; 				    (abs (- (/ (length stagnated) lrates) 1/3))))))
+
+;; 	       ;; (standard-deviation (list (length uptrend)
+;; 	       ;; 				 (length downtrend)
+;; 	       ;; 				 (length stagnated)))
+	       
+;; 	       ;; `((:uptrend . ,(length uptrend))
+;; 	       ;; 	 (:downtrend . ,(length downtrend))
+;; 	       ;; 	 (:stagnated . ,(length stagnated)))
+;; 	       )))
+
+;; (defparameter *rates* (get-rates-count :USD_CHF :H1 1000 :provider :oanda :type :fx))
 ;; (defparameter *creation-dataset* (get-input-dataset *rates* 200))
 ;; (defparameter *training-dataset* (get-input-dataset (get-output-dataset *rates* 200) 200))
 ;; (defparameter *testing-dataset* (get-output-dataset *rates* 400))
@@ -1020,9 +1055,6 @@
 ;; 				       (format t "Testing:~%")
 ;; 				       (report agents *testing-dataset*)
 ;; 				       (format t "~%-------------~%"))))
-
-;; ((first (-> (access (first *agents*) :rules) :rules)))
-;; (first (-> (access (gen-agent 2 *creation-dataset*) :rules) :rules))
 
 ;; (let* ((idx 0)
 ;;        (training-results (reverse (loop

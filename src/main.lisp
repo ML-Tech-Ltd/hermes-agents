@@ -1,8 +1,7 @@
 ;; (ql:quickload :overmind-agents)
 ;; (ql:quickload :mlforecasting)
 ;; (mlforecasting:start :port 2001)
-;; (loop-optimize-test 5 :max-agents-per-pool 600)
-;; (loop-optimize-test 5 :max-agents-per-pool 10)
+;; (loop-optimize-test 5)
 ;; (loop-optimize-test 50 :instruments-keys '(:forex) :timeframes-keys '(:all))
 ;; (loop-optimize-test 50 :instruments-keys '(:all) :timeframes-keys '(:longterm))
 ;; (loop-optimize-test 50 :instruments-keys '(:metals) :timeframes-keys '(:longterm))
@@ -27,7 +26,7 @@
 	:overmind-agents.km
 	:overmind-agents.utilities
 	)
-  (:export :get-last-tests
+  (:export :get-trades
 	   :loop-optimize-test)
   (:nicknames :omage))
 (in-package :overmind-agents)
@@ -35,41 +34,209 @@
 (setf lparallel:*kernel* (lparallel:make-kernel
 			  (let ((ideal-cores-count (1- (cl-cpus:get-number-of-processors))))
 			    (if (/= ideal-cores-count 0)
-				ideal-cores-count
-				1))))
+				ideal-cores-count 1))))
+
+(defmacro conn (&rest body)
+  `(with-connection (list ,*db-name* ,*db-user* ,*db-pass* ,*db-hostname*)
+     ,@body))
+;; (conn (get-dao 'pattern :instrument "EUR_USD" :timeframe "H1" :type "BULLISH"))
+
+(defun drop-database ()
+  (conn
+    (drop-table 'agents)
+    (drop-table 'agents-patterns)
+    (drop-table 'patterns)
+    (drop-table 'patterns-trades)
+    (drop-table 'trades)))
+;; (drop-database)
+
+;; (ql:update-all-dists)
+
+(defun init-patterns ()
+  (unless (get-patterns :AUD_USD :H1 '(:BULLISH))
+    (insert-pattern :AUD_USD :H1 :BULLISH))
+  (unless (get-patterns :AUD_USD :H1 '(:BEARISH))
+    (insert-pattern :AUD_USD :H1 :BEARISH))
+  (unless (get-patterns :AUD_USD :H1 '(:STAGNATED))
+    (insert-pattern :AUD_USD :H1 :STAGNATED))
+  
+  (unless (get-patterns :EUR_GBP :H1 '(:BULLISH))
+    (insert-pattern :EUR_GBP :H1 :BULLISH))
+  (unless (get-patterns :EUR_GBP :H1 '(:BEARISH))
+    (insert-pattern :EUR_GBP :H1 :BEARISH))
+  (unless (get-patterns :EUR_GBP :H1 '(:STAGNATED))
+    (insert-pattern :EUR_GBP :H1 :STAGNATED))
+
+  (unless (get-patterns :EUR_JPY :H1 '(:BULLISH))
+    (insert-pattern :EUR_JPY :H1 :BULLISH))
+  (unless (get-patterns :EUR_JPY :H1 '(:BEARISH))
+    (insert-pattern :EUR_JPY :H1 :BEARISH))
+  (unless (get-patterns :EUR_JPY :H1 '(:STAGNATED))
+    (insert-pattern :EUR_JPY :H1 :STAGNATED))
+  
+  (unless (get-patterns :EUR_USD :H1 '(:BULLISH))
+    (insert-pattern :EUR_USD :H1 :BULLISH))
+  (unless (get-patterns :EUR_USD :H1 '(:BEARISH))
+    (insert-pattern :EUR_USD :H1 :BEARISH))
+  (unless (get-patterns :EUR_USD :H1 '(:STAGNATED))
+    (insert-pattern :EUR_USD :H1 :STAGNATED))
+
+  (unless (get-patterns :GBP_USD :H1 '(:BULLISH))
+    (insert-pattern :GBP_USD :H1 :BULLISH))
+  (unless (get-patterns :GBP_USD :H1 '(:BEARISH))
+    (insert-pattern :GBP_USD :H1 :BEARISH))
+  (unless (get-patterns :GBP_USD :H1 '(:STAGNATED))
+    (insert-pattern :GBP_USD :H1 :STAGNATED))
+
+  (unless (get-patterns :USD_CAD :H1 '(:BULLISH))
+    (insert-pattern :USD_CAD :H1 :BULLISH))
+  (unless (get-patterns :USD_CAD :H1 '(:BEARISH))
+    (insert-pattern :USD_CAD :H1 :BEARISH))
+  (unless (get-patterns :USD_CAD :H1 '(:STAGNATED))
+    (insert-pattern :USD_CAD :H1 :STAGNATED))
+
+  (unless (get-patterns :USD_CHF :H1 '(:BULLISH))
+    (insert-pattern :USD_CHF :H1 :BULLISH))
+  (unless (get-patterns :USD_CHF :H1 '(:BEARISH))
+    (insert-pattern :USD_CHF :H1 :BEARISH))
+  (unless (get-patterns :USD_CHF :H1 '(:STAGNATED))
+    (insert-pattern :USD_CHF :H1 :STAGNATED))
+
+  (unless (get-patterns :USD_CNH :H1 '(:BULLISH))
+    (insert-pattern :USD_CNH :H1 :BULLISH))
+  (unless (get-patterns :USD_CNH :H1 '(:BEARISH))
+    (insert-pattern :USD_CNH :H1 :BEARISH))
+  (unless (get-patterns :USD_CNH :H1 '(:STAGNATED))
+    (insert-pattern :USD_CNH :H1 :STAGNATED))
+
+  (unless (get-patterns :USD_JPY :H1 '(:BULLISH))
+    (insert-pattern :USD_JPY :H1 :BULLISH))
+  (unless (get-patterns :USD_JPY :H1 '(:BEARISH))
+    (insert-pattern :USD_JPY :H1 :BEARISH))
+  (unless (get-patterns :USD_JPY :H1 '(:STAGNATED))
+    (insert-pattern :USD_JPY :H1 :STAGNATED)))
+;; (init-patterns)
 
 (defun init-database ()
   "Creates all the necessary tables for Overmind Agents."
-  (with-connection (list *db-name* *db-user* *db-pass* *db-hostname*)
-    (query (:create-table 'populations
-	       ((id :type string
-		    :primary-key t)
-		(population :type bytea)
-		(instrument :type string)
-		(timeframe :type string))))
-    (query (:create-table 'tests
-	       ((id :type string
-		    :primary-key t)
-		(instrument :type string)
-		(timeframe :type string)
-		(creation-time :type integer)
-		(fitnesses :type bytea)
-		(decision :type string)
-		(tp :type double-float)
-		(sl :type double-float)
-		(entry-price :type double-float)
-		)))))
+  (conn
+    (unless (table-exists-p 'agents)
+      (query (:create-table 'agents
+			    ((id :type string)
+			     (perception-fns :type string)
+			     (lookahead-count :type integer)
+			     (lookbehind-count :type integer)
+			     (ifis :type string)
+			     (begin-time :type (or db-null int8))
+			     (end-time :type (or db-null int8))
+			     (dataset-size :type (or db-null integer))
+			     (avg-revenue :type (or db-null double-float))
+			     (stdev-revenue :type (or db-null double-float))
+			     (total-revenue :type (or db-null double-float))
+			     (avg-max-pos :type (or db-null double-float))
+			     (stdev-max-pos :type (or db-null double-float))
+			     (avg-max-neg :type (or db-null double-float))
+			     (stdev-max-neg :type (or db-null double-float))
+			     (avg-tp :type (or db-null double-float))
+			     (stdev-tp :type (or db-null double-float))
+			     (avg-sl :type (or db-null double-float))
+			     (stdev-sl :type (or db-null double-float))
+			     (max-tp :type (or db-null double-float))
+			     (min-tp :type (or db-null double-float))
+			     (max-sl :type (or db-null double-float))
+			     (min-sl :type (or db-null double-float))
+			     (trades-won :type (or db-null integer))
+			     (trades-lost :type (or db-null integer))
+			     (revenues :type (or db-null float[]))
+			     (entry-times :type (or db-null int8[]))
+			     (exit-times :type (or db-null int8[]))
+			     (entry-prices :type (or db-null float[]))
+			     (exit-prices :type (or db-null float[]))
+			     (tps :type (or db-null float[]))
+			     (sls :type (or db-null float[])))
+			    (:primary-key id))))
+    (unless (table-exists-p 'agents-patterns)
+      (query (:create-table 'agents-patterns
+			    ((agent-id :type string)
+			     (pattern-id :type string))
+			    (:primary-key agent-id pattern-id))))
+    (unless (table-exists-p 'patterns)
+      (query (:create-table 'patterns
+			    ((id :type string)
+			     (type :type string)
+			     (instrument :type string)
+			     (timeframe :type string))
+			    (:primary-key id)
+			    (:unique type instrument timeframe))))
+    (unless (table-exists-p 'patterns-trades)
+      (query (:create-table 'patterns-trades
+			    ((pattern-id :type string)
+			     (trade-id :type string))
+			    (:primary-key pattern-id trade-id))))
+    (unless (table-exists-p 'trades)
+      (query (:create-table 'trades
+			    ((id :type string)
+			     (creation-time :type integer)
+			     (decision :type string)
+			     (tp :type double-float)
+			     (sl :type double-float)
+			     (entry-price :type double-float)
+			     (train-begin-time :type int8)
+			     (train-end-time :type int8)
+			     (test-begin-time :type int8)
+			     (test-end-time :type int8)
+			     (train-dataset-size :type integer)
+			     (test-dataset-size :type integer)
+			     (train-avg-revenue :type double-float)
+			     (test-avg-revenue :type double-float)
+			     (train-stdev-revenue :type double-float)
+			     (test-stdev-revenue :type double-float)
+			     (train-total-revenue :type double-float)
+			     (test-total-revenue :type double-float)
+			     (train-avg-max-pos :type double-float)
+			     (test-avg-max-pos :type double-float)
+			     (train-stdev-max-pos :type double-float)
+			     (test-stdev-max-pos :type double-float)
+			     (train-avg-max-neg :type double-float)
+			     (test-avg-max-neg :type double-float)
+			     (train-stdev-max-neg :type double-float)
+			     (test-stdev-max-neg :type double-float)
+			     (train-avg-tp :type double-float)
+			     (test-avg-tp :type double-float)
+			     (train-stdev-tp :type double-float)
+			     (test-stdev-tp :type double-float)
+			     (train-avg-sl :type double-float)
+			     (test-avg-sl :type double-float)
+			     (train-stdev-sl :type double-float)
+			     (test-stdev-sl :type double-float)
+			     (train-max-tp :type double-float)
+			     (test-max-tp :type double-float)
+			     (train-min-tp :type double-float)
+			     (test-min-tp :type double-float)
+			     (train-max-sl :type double-float)
+			     (test-max-sl :type double-float)
+			     (train-min-sl :type double-float)
+			     (test-min-sl :type double-float)
+			     (train-trades-won :type integer)
+			     (test-trades-won :type integer)
+			     (train-trades-lost :type integer)
+			     (test-trades-lost :type integer)
+			     (train-revenues :type float[])
+			     (test-revenues :type float[])
+			     (train-entry-times :type int8[])
+			     (test-entry-times :type int8[])
+			     (train-exit-times :type int8[])
+			     (test-exit-times :type int8[])
+			     (train-entry-prices :type float[])
+			     (test-entry-prices :type float[])
+			     (train-exit-prices :type float[])
+			     (test-exit-prices :type float[])
+			     (train-tps :type float[])
+			     (test-tps :type float[])
+			     (train-sls :type float[])
+			     (test-sls :type float[]))
+			    (:primary-key id))))))
 ;; (init-database)
-
-;; (lparallel:pmapcar (lambda (i)
-;; 		     (sleep (random-float *rand-gen* 0 2))
-;; 		     (postmodern:with-connection '("amherag" "amherag" "asafrade" "localhost")
-;; 		       (postmodern:query (:insert-into '|users|
-;; 					   :set 'email (format nil "~a" (random-int *rand-gen* 0 10000000000))
-;; 					   'password "Something"
-;; 					   'membership "Something"
-;; 					   'validated 0))))
-;; 		   (iota 100))
 
 (defun ->delta-close (rates &key (offset 0))
   (let* ((lrates (length rates))
@@ -77,6 +244,10 @@
 	 (penultimate-candle (nth (- lrates (1+ offset) 1) rates)))
     (- (access last-candle :close-bid)
        (access penultimate-candle :close-bid))))
+
+(defun ->sma-close (rates &key (offset 0) (n 10))
+  (mean (loop for i below n
+	   collect (->delta-close rates :offset (+ i offset)))))
 
 (defun ->high-height (rates &key (offset 0))
   (let* ((lrates (length rates))
@@ -111,17 +282,188 @@
     (:lookahead-count . 10)
     (:lookbehind-count . 4)))
 
+(defparameter *beliefs*
+  `((:perception-fns . (((:fn . ->high-height) (:offset . 2))
+			((:fn . ->low-height) (:offset . 2))
+			((:fn . ->candle-height) (:offset . 2))
+			((:fn . ->high-height) (:offset . 1))
+			((:fn . ->low-height) (:offset . 1))
+			((:fn . ->candle-height) (:offset . 1))
+			((:fn . ->high-height) (:offset . 0))
+			((:fn . ->low-height) (:offset . 0))
+			((:fn . ->candle-height) (:offset . 0))))
+    (:lookahead-count . 10)
+    (:lookbehind-count . 10)))
+
+(defparameter *beliefs*
+  `((:perception-fns . (((:fn . ->sma-close) (:offset . 9))
+			((:fn . ->sma-close) (:offset . 8))
+			((:fn . ->sma-close) (:offset . 7))
+			((:fn . ->sma-close) (:offset . 6))
+			((:fn . ->sma-close) (:offset . 5))
+			((:fn . ->sma-close) (:offset . 4))
+			((:fn . ->sma-close) (:offset . 3))
+			((:fn . ->sma-close) (:offset . 2))
+			((:fn . ->sma-close) (:offset . 1))
+			((:fn . ->sma-close) (:offset . 0))))
+    (:lookahead-count . 10)
+    (:lookbehind-count . 20)))
+
+(defparameter *beliefs*
+  `((:perception-fns . (((:fn . ->sma-close) (:offset . 3) (:n . 50))
+			((:fn . ->sma-close) (:offset . 2) (:n . 50))
+			((:fn . ->sma-close) (:offset . 1) (:n . 50))
+			((:fn . ->sma-close) (:offset . 0) (:n . 50))
+			))
+    (:lookahead-count . 10)
+    (:lookbehind-count . 54)))
+
 (defun gen-perception-fn (perception-fns)
   (lambda (rates)
     (loop for fn in perception-fns
-       collect (funcall (access fn :fn) rates :offset (access fn :offset)))))
+       collect (apply #'funcall (access fn :fn) rates (flatten (rest fn))))))
+
+;; (let ((fn '((:fn . ->sma-close) (:offset . 0) (:n . 20))))
+;;   (apply #'funcall (access fn :fn) *rates* (flatten (rest fn))))
 
 ;; (funcall (gen-perception-fn (access *beliefs* :perception-fns)) *rates*)
 
 (defclass agent ()
-  ((beliefs :initarg :beliefs :initform *beliefs* :accessor beliefs)
-   (rules :initarg :rules :initform nil :accessor rules)
-   (fitnesses :initarg :fitnesses :initform nil :accessor fitnesses)))
+  ((id :col-type string :initform (format nil "~a" (uuid:make-v4-uuid)) :initarg :id)
+   (perception-fns :col-type string :initarg :perception-fn)
+   (lookahead-count :col-type integer :initarg :lookahead-count)
+   (lookbehind-count :col-type integer :initarg :lookbehind-count)
+   (ifis :col-type string :initarg :ifis)
+   (begin-time :col-type (or db-null int8) :initarg :train-begin-time :initform :null)
+   (end-time :col-type (or db-null int8) :initarg :train-end-time :initform :null)
+   (dataset-size :col-type (or db-null integer) :initarg :test-dataset-size :initform :null)
+   (avg-revenue :col-type (or db-null double-float) :initarg :test-avg-revenue :initform :null)
+   (stdev-revenue :col-type (or db-null double-float) :initarg :test-stdev-revenue :initform :null)
+   (total-revenue :col-type (or db-null double-float) :initarg :test-total-revenue :initform :null)
+   (avg-max-pos :col-type (or db-null double-float) :initarg :test-avg-max-pos :initform :null)
+   (stdev-max-pos :col-type (or db-null double-float) :initarg :test-stdev-max-pos :initform :null)
+   (avg-max-neg :col-type (or db-null double-float) :initarg :test-avg-max-neg :initform :null)
+   (stdev-max-neg :col-type (or db-null double-float) :initarg :test-stdev-max-neg :initform :null)
+   (avg-tp :col-type (or db-null double-float) :initarg :test-avg-tp :initform :null)
+   (stdev-tp :col-type (or db-null double-float) :initarg :test-stdev-tp :initform :null)
+   (avg-sl :col-type (or db-null double-float) :initarg :test-avg-sl :initform :null)
+   (stdev-sl :col-type (or db-null double-float) :initarg :test-stdev-sl :initform :null)
+   (max-tp :col-type (or db-null double-float) :initarg :test-max-tp :initform :null)
+   (min-tp :col-type (or db-null double-float) :initarg :test-min-tp :initform :null)
+   (max-sl :col-type (or db-null double-float) :initarg :test-max-sl :initform :null)
+   (min-sl :col-type (or db-null double-float) :initarg :test-min-sl :initform :null)
+   (trades-won :col-type (or db-null integer) :initarg :test-trades-won :initform :null)
+   (trades-lost :col-type (or db-null integer) :initarg :test-trades-lost :initform :null)
+   (revenues :col-type (or db-null float[]) :initarg :test-revenues :initform :null)
+   (entry-times :col-type (or db-null int8[]) :initarg :test-entry-times :initform :null)
+   (exit-times :col-type (or db-null int8[]) :initarg :test-exit-times :initform :null)
+   (entry-prices :col-type (or db-null float[]) :initarg :test-entry-prices :initform :null)
+   (exit-prices :col-type (or db-null float[]) :initarg :test-exit-prices :initform :null)
+   (tps :col-type (or db-null float[]) :initarg :test-tps :initform :null)
+   (sls :col-type (or db-null float[]) :initarg :test-sls :initform :null))
+  (:metaclass dao-class)
+  (:table-name agents)
+  (:keys id))
+
+(defclass agent-pattern ()
+  ((agent-id :col-type string :initarg :agent-id)
+   (pattern-id :col-type string :initarg :pattern-id))
+  (:metaclass dao-class)
+  (:table-name agents-patterns)
+  (:keys agent-id pattern-id))
+
+(defclass pattern ()
+  ((id :col-type string :initform (format nil "~a" (uuid:make-v4-uuid)) :initarg :id)
+   (type :col-type string :initarg :type)
+   (instrument :col-type string :initarg :instrument)
+   (timeframe :col-type string :initarg :timeframe))
+  (:metaclass dao-class)
+  (:table-name patterns)
+  (:keys id))
+
+(defclass pattern-trade ()
+  ((pattern-id :col-type string :initarg :pattern-id)
+   (trade-id :col-type string :initarg :trade-id))
+  (:metaclass dao-class)
+  (:table-name patterns-trades)
+  (:keys pattern-id trade-id))
+
+(defclass trade ()
+  ((id :col-type string :initform (format nil "~a" (uuid:make-v4-uuid)) :initarg :id)
+   (creation-time :col-type integer :initarg :creation-time)
+   (decision :col-type string :initarg :decision)
+   (tp :col-type double-float :initarg :tp)
+   (sl :col-type double-float :initarg :sl)
+   (entry-price :col-type double-float :initarg :entry-price)
+   (train-begin-time :col-type integer :initarg :train-begin-time)
+   (train-end-time :col-type integer :initarg :train-end-time)
+   (test-begin-time :col-type integer :initarg :test-begin-time)
+   (test-end-time :col-type integer :initarg :test-end-time)
+   (train-dataset-size :col-type integer :initarg :train-dataset-size)
+   (test-dataset-size :col-type integer :initarg :test-dataset-size)
+   (train-avg-revenue :col-type double-float :initarg :train-avg-revenue)
+   (test-avg-revenue :col-type double-float :initarg :test-avg-revenue)
+   (train-stdev-revenue :col-type double-float :initarg :train-stdev-revenue)
+   (test-stdev-revenue :col-type double-float :initarg :test-stdev-revenue)
+   (train-total-revenue :col-type double-float :initarg :train-total-revenue)
+   (test-total-revenue :col-type double-float :initarg :test-total-revenue)
+   (train-avg-max-pos :col-type double-float :initarg :train-avg-max-pos)
+   (test-avg-max-pos :col-type double-float :initarg :test-avg-max-pos)
+   (train-stdev-max-pos :col-type double-float :initarg :train-stdev-max-pos)
+   (test-stdev-max-pos :col-type double-float :initarg :test-stdev-max-pos)
+   (train-avg-max-neg :col-type double-float :initarg :train-avg-max-neg)
+   (test-avg-max-neg :col-type double-float :initarg :test-avg-max-neg)
+   (train-stdev-max-neg :col-type double-float :initarg :train-stdev-max-neg)
+   (test-stdev-max-neg :col-type double-float :initarg :test-stdev-max-neg)
+   (train-avg-tp :col-type double-float :initarg :train-avg-tp)
+   (test-avg-tp :col-type double-float :initarg :test-avg-tp)
+   (train-stdev-tp :col-type double-float :initarg :train-stdev-tp)
+   (test-stdev-tp :col-type double-float :initarg :test-stdev-tp)
+   (train-avg-sl :col-type double-float :initarg :train-avg-sl)
+   (test-avg-sl :col-type double-float :initarg :test-avg-sl)
+   (train-stdev-sl :col-type double-float :initarg :train-stdev-sl)
+   (test-stdev-sl :col-type double-float :initarg :test-stdev-sl)
+   (train-max-tp :col-type double-float :initarg :train-max-tp)
+   (test-max-tp :col-type double-float :initarg :test-max-tp)
+   (train-min-tp :col-type double-float :initarg :train-min-tp)
+   (test-min-tp :col-type double-float :initarg :test-min-tp)
+   (train-max-sl :col-type double-float :initarg :train-max-sl)
+   (test-max-sl :col-type double-float :initarg :test-max-sl)
+   (train-min-sl :col-type double-float :initarg :train-min-sl)
+   (test-min-sl :col-type double-float :initarg :test-min-sl)
+   (train-trades-won :col-type double-float :initarg :train-trades-won)
+   (test-trades-won :col-type double-float :initarg :test-trades-won)
+   (train-trades-lost :col-type double-float :initarg :train-trades-lost)
+   (test-trades-lost :col-type double-float :initarg :test-trades-lost)
+   (train-revenues :col-type float[] :initarg :train-revenues)
+   (test-revenues :col-type float[] :initarg :test-revenues)
+   (train-entry-times :col-type float[] :initarg :train-entry-times)
+   (test-entry-times :col-type float[] :initarg :test-entry-times)
+   (train-exit-times :col-type float[] :initarg :train-exit-times)
+   (test-exit-times :col-type float[] :initarg :test-exit-times)
+   (train-entry-prices :col-type float[] :initarg :train-entry-prices)
+   (test-entry-prices :col-type float[] :initarg :test-entry-prices)
+   (train-exit-prices :col-type float[] :initarg :train-exit-prices)
+   (test-exit-prices :col-type float[] :initarg :test-exit-prices)
+   (train-tps :col-type float[] :initarg :train-tps)
+   (test-tps :col-type float[] :initarg :test-tps)
+   (train-sls :col-type float[] :initarg :train-sls)
+   (test-sls :col-type float[] :initarg :test-sls))
+  (:metaclass dao-class)
+  (:table-name trades)
+  (:keys id))
+
+;; (conn
+;;   (let ((agent (make-instance 'agent)))
+;;     (setf (access agent :beliefs) (format nil "~s" (ms:marshal *beliefs*)))
+;;     (setf (access agent :rules) (format nil "~s" (ms:marshal (gen-ifis agent 4 *rates*))))
+;;     (print (access agent :id))
+;;     (insert-dao agent)
+;;     ))
+;; (conn
+;;   (access (get-dao 'agent "A8E60D60-1E90-4191-B225-E151C72FD455") :beliefs))
+;; (access (make-instance 'agent) :rules)
+;; (funcall (gen-perception-fn (access (ms:unmarshal (ms:marshal *beliefs*)) :perception-fns)) *rates*)
 
 (defmethod ms:class-persistent-slots ((self agent))
   '(beliefs rules fitnesses))
@@ -186,9 +528,9 @@
 
 (defun gen-ifis (agent num-rules rates)
   "Analytical version."
-  (let* ((perception-fn (gen-perception-fn (accesses agent :beliefs :perception-fns)))
-	 (lookahead-count (accesses agent :beliefs :lookahead-count))
-	 (lookbehind-count (accesses agent :beliefs :lookbehind-count))
+  (let* ((perception-fn (gen-perception-fn (ms:unmarshal (read-from-string (access agent :perception-fns)))))
+	 (lookahead-count (access agent :lookahead-count))
+	 (lookbehind-count (access agent :lookbehind-count))
 	 (idxs (get-same-direction-outputs-idxs rates num-rules lookahead-count lookbehind-count))
 	 (chosen-inputs (loop for idx in idxs collect (funcall perception-fn (get-input-dataset rates idx))))
 	 (chosen-outputs (loop for idx in idxs collect (get-tp-sl (get-output-dataset rates idx) lookahead-count)))
@@ -334,18 +676,21 @@
 ;; 	 )
 ;; (if-coa (fire-rule -0.0001 (first (first (-> (gen-ifis (make-instance 'agent) 3 *rates*) :rules)))))
 
-(defun gen-agent (num-rules rates)
+(defun gen-agent (num-rules rates perception-fns lookahead-count lookbehind-count)
   (let ((agent (make-instance 'agent)))
-    (setf (rules agent) (gen-ifis agent num-rules rates))
+    (setf (access agent :perception-fns) (format nil "~s" (ms:marshal perception-fns)))
+    (setf (access agent :lookahead-count) lookahead-count)
+    (setf (access agent :lookbehind-count) lookbehind-count)
+    (setf (access agent :ifis) (format nil "~s" (ms:marshal (gen-ifis agent num-rules rates))))
     agent))
+;; (gen-agent 3 *rates* (access *beliefs* :perception-fns) 10 55)
 
-(defun gen-agents (num-agents num-rules rates)
-  (loop repeat num-agents collect (gen-agent num-rules rates)))
-
-;; (gen-agent 4 *rates*)
+(defun gen-agents (num-agents num-rules rates perception-fns lookahead-count lookbehind-count)
+  (loop repeat num-agents collect (gen-agent num-rules rates perception-fns lookahead-count lookbehind-count)))
+;; (gen-agents 2 3 *rates* (access *beliefs* :perception-fns) 10 55)
 
 (defun evaluate-ifis (agent inputs)
-  (let ((rule-groups (-> (rules agent) :rules))
+  (let ((rule-groups (-> (ms:unmarshal (read-from-string (access agent :ifis))) :rules))
 	(tp-outputs)
 	(sl-outputs))
     ;; Handling two outputs.
@@ -368,6 +713,7 @@
 		(push (alpha-cut y consequent) sl-outputs))))
     `((:tp . ,(if-coa (reduce #'ifunion tp-outputs)))
       (:sl . ,(if-coa (reduce #'ifunion sl-outputs))))))
+;; (evaluate-ifis (gen-agent 3 *rates* (access *beliefs* :perception-fns) 10 55) '(0 0 0))
 
 ;; (loop repeat 10 collect (-> (access (evaluate-ifis (gen-agent 4 *rates*) '(0 0 0)) :tp) :cx))
 
@@ -435,6 +781,51 @@
 
 ;; (evaluate-trade 0.0010 -0.0010 *rates*)
 
+(defun get-agents-count (instrument timeframe types)
+  (length (get-agent-ids-from-patterns instrument timeframe types)))
+
+(defun describe-agents ()
+  (loop for instrument in ominp:*forex*
+     do (loop for types in '((:bullish) (:bearish) (:stagnated))
+	   do (print `(,instrument ,types ,(get-agents-count instrument :H1 types))))))
+;; (describe-agents)
+
+(defun get-trades (&optional limit)
+  (if limit
+      (conn (query (:select '* :from
+			    (:as (:select 'trades.* 'patterns.*
+					  (:as (:over (:row-number)
+						      (:partition-by 'patterns.instrument 'patterns.timeframe
+								     :order-by (:desc 'trades.creation-time)))
+					       :idx)
+					  :from 'trades
+					  :inner-join 'patterns-trades
+					  :on (:= 'trades.id 'patterns-trades.trade-id)
+					  :inner-join 'patterns
+					  :on (:= 'patterns-trades.pattern-id 'patterns.id))
+				 'results)
+			    :where (:<= 'idx '$1))
+		   limit
+		   :alists))
+      (conn (query (:order-by (:select 'trades.* 'patterns.* :from 'trades :inner-join 'patterns-trades :on (:= 'trades.id 'patterns-trades.trade-id) :inner-join 'patterns :on (:= 'patterns-trades.pattern-id 'patterns.id)) (:desc 'trades.creation-time)) :alists))))
+;; (get-trades 1)
+
+(defun describe-trades (&optional limit)
+  (loop for trade in (get-trades limit)
+     do (format t "market: ~a, train-avg-revenue: ~5$, train-trades-won: ~a, train-trades-lost: ~a,    test-avg-revenue: ~5$, test-trades-won: ~a, test-trades-lost: ~a~%"
+		(access trade :instrument)
+		(access trade :train-avg-revenue)
+		(access trade :train-trades-won)
+		(access trade :train-trades-lost)
+		(access trade :test-avg-revenue)
+		(access trade :test-trades-won)
+		(access trade :test-trades-lost))))
+;; (describe-agents)
+;; (describe-trades 1000)
+
+;; (conn (query (:select 'agent-id :from 'agents-patterns)))
+;; TODO: when removing an agent in update-pareto-frontier, also remove agent-pattern
+
 (defun pick-most-relevant-agent (agents rates)
   (let ((biggest-activation 0)
 	(winner 0))
@@ -456,12 +847,45 @@
 		   (setf winner idx))))
     (nth winner agents)))
 
-(defun evaluate-agents (agents rates)
-  (let* ((lookbehind-count (get-max-lookbehind agents))
+(defun get-activation (rules inputs)
+  ;; Collecting TP rules only (same antecedents as SL).
+  (mean (flatten
+	 (loop for i below (length rules) by 2
+	    collect (loop
+		       for input in inputs
+		       for rule in (nth i rules)
+		       collect (if-membership input (-> rule :antecedent)))))))
+
+(defun get-most-activated-agents (instrument timeframe types rates &key (count 1) (limit 10))
+  (let (activations)
+    (loop for offset from 0 below (get-agents-count instrument timeframe types) by limit
+       do (let ((agents (get-agents instrument timeframe types :limit limit :offset offset)))
+	    (loop for agent in agents
+	       do (let* ((perception-fn (gen-perception-fn (ms:unmarshal (read-from-string (access agent :perception-fns)))))
+			 (ifis (ms:unmarshal (read-from-string (access agent :ifis))))
+			 (inputs (funcall perception-fn rates))
+			 (activation (get-activation (-> ifis :rules) inputs))
+			 (activation-agent `(,activation . ,(access agent :id))))
+		    (if (< (length activations) count)
+			(progn
+			  (push activation-agent activations)
+			  (setf activations (sort activations #'> :key #'first)))
+		        (when (> activation (first (last-elt activations)))
+			  (setf (last-elt activations) activation-agent)
+			  (setf activations (sort activations #'> :key #'first))))))))
+    (let ((agent-ids (loop for act in activations collect (cdr act))))
+      (conn (query (:select '* :from 'agents :where (:in 'id (:set agent-ids)))
+		   (:dao agent))))))
+;; (time (get-most-activated-agents :EUR_USD :H1 '(:BULLISH) *rates* :count 1 :limit 5))
+
+;; (evaluate-agents :EUR_USD :H1 '(:BULLISH) *rates*)
+
+(defun -evaluate-agents (&key instrument timeframe types rates agent idx)
+  "Used for EVALUATE-AGENT and EVALUATE-AGENTS."
+  (let* ((idx (if idx idx (get-max-lookbehind instrument timeframe types)))
 	 (revenues)
 	 (max-poses)
 	 (max-negses)
-	 (idx lookbehind-count)
 	 (trades-won 0)
 	 (trades-lost 0)
 	 (entry-prices)
@@ -473,8 +897,8 @@
     (loop while (< idx (length rates))
        do (let* ((input-dataset (get-input-dataset rates idx))
 		 (output-dataset (get-output-dataset rates idx))
-		 (agent (pick-most-relevant-agent agents input-dataset))
-		 (perception-fn (gen-perception-fn (access (beliefs agent) :perception-fns)))
+		 (agent (if agent agent (first (get-most-activated-agents instrument timeframe types input-dataset))))
+		 (perception-fn (gen-perception-fn (ms:unmarshal (read-from-string (access agent :perception-fns)))))
 		 (response (evaluate-ifis agent (funcall perception-fn input-dataset)))
 		 (tp (-> (access response :tp) :cx))
 		 (sl (-> (access response :sl) :cx))
@@ -490,31 +914,34 @@
 		  (incf trades-lost))
 	      (push tp tps)
 	      (push sl sls)
-	      (push (access (nth idx rates) :time) entry-times)
-	      (push exit-time exit-times)
+	      (push (read-from-string (access (nth idx rates) :time)) entry-times)
+	      (push (read-from-string exit-time) exit-times)
 	      (push (access (nth idx rates) :close-bid) entry-prices)
 	      (push (access (nth finish-idx output-dataset) :close-bid) exit-prices)
 	      (push max-pos max-poses)
 	      (push max-neg max-negses)
 	      (push revenue revenues))
 	    (incf idx finish-idx)))
-    `((:avg-revenue . ,(if (> (length revenues) 0) (mean revenues) 0))
+    `((:begin-time . ,(read-from-string (access (first rates) :time)))
+      (:end-time . ,(read-from-string (access (last-elt rates) :time)))
+      (:dataset-size . ,(length rates))
+      (:avg-revenue . ,(if (> (length revenues) 0) (mean revenues) 0))
       (:stdev-revenue . ,(if (> (length revenues) 0) (standard-deviation revenues) 0))
       (:total-revenue . ,(if (> (length revenues) 0) (reduce #'+ revenues) 0))
       (:avg-max-pos . ,(if (> (length max-poses) 0) (mean max-poses) 0))
       (:stdev-max-pos . ,(if (> (length max-poses) 0) (standard-deviation max-poses) 0))
       (:avg-max-neg . ,(if (> (length max-negses) 0) (mean max-negses) 0))
       (:stdev-max-neg . ,(if (> (length max-negses) 0) (standard-deviation max-negses) 0))
-      (:max-max-pos . ,(if (> (length max-poses) 0) (apply #'max max-poses) 0))
-      (:max-max-neg . ,(if (> (length max-negses) 0) (apply #'max max-negses) 0))
+      ;; (:max-max-pos . ,(if (> (length max-poses) 0) (apply #'max max-poses) 0))
+      ;; (:max-max-neg . ,(if (> (length max-negses) 0) (apply #'max max-negses) 0))
       (:avg-tp . ,(if (> (length tps) 0) (mean tps) 0))
       (:stdev-tp . ,(if (> (length tps) 0) (standard-deviation tps) 0))
+      (:avg-sl . ,(if (> (length sls) 0) (mean sls) 0))
+      (:stdev-sl . ,(if (> (length sls) 0) (standard-deviation sls) 0))
       (:max-tp . ,(if (> (length max-negses) 0) (if (> (first tps) 0) (apply #'max tps) (apply #'min tps)) 0))
       (:min-tp . ,(if (> (length max-negses) 0) (if (> (first tps) 0) (apply #'min tps) (apply #'max tps)) 0))
       (:max-sl . ,(if (> (length max-negses) 0) (if (> (first sls) 0) (apply #'max sls) (apply #'min sls)) 0))
-      (:min-tp . ,(if (> (length max-negses) 0) (if (> (first sls) 0) (apply #'min sls) (apply #'max sls)) 0))
-      (:avg-sl . ,(if (> (length sls) 0) (mean sls) 0))
-      (:stdev-sl . ,(if (> (length sls) 0) (standard-deviation sls) 0))
+      (:min-sl . ,(if (> (length max-negses) 0) (if (> (first sls) 0) (apply #'min sls) (apply #'max sls)) 0))
       (:trades-won . ,trades-won)
       (:trades-lost . ,trades-lost)
       (:revenues . ,(reverse revenues))
@@ -525,72 +952,84 @@
       (:tps . ,(reverse tps))
       (:sls . ,(reverse sls)))))
 
-(defun get-prediction (agents rates)
-  (let* ((agent (pick-most-relevant-agent agents rates))
-	 (perception-fn (gen-perception-fn (access (beliefs agent) :perception-fns)))
+(defun evaluate-agent (agent rates)
+  (let ((fitnesses (-evaluate-agents :agent agent :rates rates :idx (access agent :lookbehind-count))))
+    (loop for fitness in fitnesses
+       do (setf (access agent (car fitness))
+		(if (listp (cdr fitness)) (apply #'vector (cdr fitness)) (cdr fitness))))
+    agent))
+;; (evaluate-agent (gen-agent 3 *rates* (access *beliefs* :perception-fns) 10 55) (subseq *rates* 0 200))
+
+(defun evaluate-agents (instrument timeframe types rates)
+  (-evaluate-agents :instrument instrument :timeframe timeframe :types types :rates rates))
+;; (time (evaluate-agents :EUR_USD :H1 '(:BULLISH) (subseq *rates* 0 200)))
+
+(defun get-prediction (instrument timeframe types rates)
+  (let* ((agent (first (get-most-activated-agents instrument timeframe types rates)))
+	 (perception-fn (gen-perception-fn (ms:unmarshal (read-from-string (access agent :perception-fns)))))
 	 (response (evaluate-ifis agent (funcall perception-fn rates)))
 	 (tp (-> (access response :tp) :cx))
 	 (sl (-> (access response :sl) :cx)))
     `((:tp . ,tp)
       (:sl . ,sl))))
+;; (get-prediction :EUR_USD :H1 '(:BULLISH) (subseq *rates* 0 100))
 
 (defun update-agent-fitnesses (agent rates)
-  (let ((fitnesses (evaluate-agents (list agent) rates)))
-    (setf (fitnesses agent) fitnesses)
-    agent))
+  (conn (update-dao (evaluate-agent agent rates))))
 
 (defun update-agents-fitnesses (agents rates)
-  ;; (pmap nil (lambda (agent)
-  ;; 	      (update-agent-fitnesses agent rates))
-  ;; 	agents)
   (loop for agent in agents
      do (update-agent-fitnesses agent rates))
   agents)
 
+;; (let ((agents (get-agents :EUR_USD :H1 '(:BULLISH) :limit -1)))
+;;   (print (access (first agents) :test-avg-revenue))
+;;   (update-agents-fitnesses agents (subseq *rates* 0 300))
+;;   (print (access (first agents) :test-avg-revenue))
+;;   nil
+;;   )
+
 ;; (evaluate-agents (gen-agents 1 4 *input-dataset*) *output-dataset*)
 
-;; (agent-dominated? (update-agent-fitnesses (gen-agent 4 *rates*) *output-dataset*) *agents*)
+(defun get-max-lookbehind (instrument timeframe types)
+  (let ((agent-ids (get-agent-ids-from-patterns instrument timeframe types)))
+    (caar (conn (query (:select (:max 'lookbehind-count) :from 'agents :where (:in 'id (:set agent-ids))))))))
+;; (get-max-lookbehind :EUR_USD :H1 '(:BULLISH))
+;; (get-agent-ids-from-patterns :EUR_USD :H1 '(:BULLISH))
 
-(defun get-max-lookbehind (agents)
-  (let ((mx 0))
-    (loop for agent in agents
-       do (let ((count (accesses agent :beliefs :lookbehind-count)))
-	    (when (> count mx)
-	      (setf mx count))))
-    mx))
+(defun merge-keywords (kw1 kw2)
+  (read-from-string (format nil ":~a-~a" kw1 kw2)))
+;; (merge-keywords :hello :moto)
 
-(defun agent-dominated? (agent agents)
-  (let* ((fitnesses (access agent :fitnesses))
-	 (avg-revenue-0 (access fitnesses :avg-revenue))
-	 (trades-won-0 (access fitnesses :trades-won))
-	 (trades-lost-0 (access fitnesses :trades-lost))
-	 (total-revenue-0 (access fitnesses :total-revenue))
-	 (stdev-revenue-0 (access fitnesses :stdev-revenue))
+(defun update-pareto-frontier (agent agents instrument timeframe types)
+  (let* ((avg-revenue-0 (access agent :avg-revenue))
+	 (trades-won-0 (access agent :trades-won))
+	 (trades-lost-0 (access agent :trades-lost))
+	 ;; (stdev-revenue-0 (access agent :stdev-revenue))
 	 (is-dominated? nil))
     ;; (format t "~a, ~a, ~a~%~%" avg-revenue-0 trades-won-0 trades-lost-0)
     (loop for agent in agents
-       do (let* ((fitnesses (access agent :fitnesses))
-		 (avg-revenue (access fitnesses :avg-revenue))
-		 (trades-won (access fitnesses :trades-won))
-		 (trades-lost (access fitnesses :trades-lost))
-		 (stdev-revenue (access fitnesses :stdev-revenue)))
+       do (let* ((avg-revenue (access agent :avg-revenue))
+		 (trades-won (access agent :trades-won))
+		 (trades-lost (access agent :trades-lost))
+		 ;; (stdev-revenue (access agent :stdev-revenue))
+		 )
 	    ;; Fitnesses currently being used.
-	    (when (and (> avg-revenue avg-revenue-0)
-		       (< stdev-revenue stdev-revenue-0)
-		       (> trades-won trades-won-0)
-		       (< trades-lost trades-lost-0)
-		       )
-	      (setf is-dominated? t)
-	      (return))))
-    is-dominated?))
-
-(defun ensure-pareto-frontier (agents)
-  "Checks that `agents` does not contain any agent that is dominated by any other agent."
-  (loop for agent in agents
-     when (not (agent-dominated? agent agents))
-     collect agent))
-
-;; (ensure-pareto-frontier (update-agents-fitnesses (gen-agents 4 4 *input-dataset*) *output-dataset*))
+	    (if (and (> avg-revenue avg-revenue-0)
+		     ;; (< stdev-revenue stdev-revenue-0)
+		     (> trades-won trades-won-0)
+		     (< trades-lost trades-lost-0))
+		;; Candidate agent was dominated.
+		(progn (setf is-dominated? t)
+		       (return))
+		(when (and (< avg-revenue avg-revenue-0)
+			   ;; (> stdev-revenue stdev-revenue-0)
+			   (< trades-won trades-won-0)
+			   (> trades-lost trades-lost-0))
+		  ;; Candidate agent dominated another agent. Remove it.
+		  (delete-agent agent instrument timeframe types)))))
+    (unless is-dominated?
+      (insert-agent agent instrument timeframe types))))
 
 (defun plotly-candlestick (rates)
   (let ((x (loop for rate in rates collect (/ (read-from-string (access rate :time)) 1000000)))
@@ -640,25 +1079,17 @@
 	    (access r :trades-won)
 	    (access r :trades-lost))))
 
-;; (format t "~5$" 10)
-
-(defun optimization (agents gen-agent-fn rates iterations &optional report-fn)
-  "`agents` is assumed to be a Pareto frontier. `finally-fn`"
+(defun optimization (instrument timeframe types gen-agent-fn rates iterations &key report-fn)
   ;; Checking if we need to initialize the agents collection.
-  (let ((agents (if agents agents (list (update-agent-fitnesses (funcall gen-agent-fn) rates)))))
+  (let ((agents (if-let ((agents (get-agents instrument timeframe types :limit -1)))
+		  (update-agents-fitnesses agents rates)
+		  (let ((agent (evaluate-agent (funcall gen-agent-fn) rates)))
+		    (list (insert-agent agent instrument timeframe types))))))
     (loop repeat iterations
-       do (let ((agent (update-agent-fitnesses (funcall gen-agent-fn) rates)))
-	    (unless (agent-dominated? agent agents)
-	      ;; Checking if old agents are dominated by this new agent.
-	      ;; (setf agents (list agent))
-	      (setf agents (append (list agent)
-	      			   (loop for a in agents
-	      			      when (not (agent-dominated? a (list agent)))
-	      			      collect a)))
-	      ;; (when report-fn
-	      ;; 	(funcall report-fn agents rates))
-	      )))
-    agents))
+       do (let ((agent (evaluate-agent (funcall gen-agent-fn) rates)))
+	    (update-pareto-frontier agent agents instrument timeframe types)
+	    (when report-fn
+	      (funcall report-fn (get-agents instrument timeframe types :limit -1) rates))))))
 
 (defun decompress-object (compressed-object)
   "Decompresses an object represented by `compressed-object`."
@@ -675,20 +1106,47 @@
 			 (format nil "~s" (marshal:marshal object)))
 			'salza2:zlib-compressor))
 
-(defun get-agents (instrument timeframe)
-  (let ((agents (with-connection (list *db-name* *db-user* *db-pass* *db-hostname*)
-		  (query (:select 'population :from 'populations :where (:and (:= 'instrument (format nil "~a" instrument))
-									      (:= 'timeframe (format nil "~a" timeframe))))))))
-    (when agents
-      (decompress-object (caar agents)))))
-;; (length (get-agents :EUR_USD :H1))
+(defun insert-pattern (instrument timeframe type)
+  (conn (make-dao 'pattern :type (format nil "~a" type)
+		  :instrument (format nil "~a" instrument)
+		  :timeframe (format nil "~a" timeframe))))
 
+;; (conn (query (:select '* :from 'patterns) :alists))
+
+(defun get-patterns (instrument timeframe types)
+  (conn (query (:select '* :from 'patterns :where (:and (:= 'instrument (format nil "~a" instrument))
+							(:= 'timeframe (format nil "~a" timeframe))
+							(:in 'type (:set (loop for type in types collect (format nil "~a" type))))))
+	       :alists)))
+;; (get-patterns :EUR_USD :H1 '(:BULLISH :BEARISH))
+
+(defun get-agent-ids-from-patterns (instrument timeframe types)
+  (let ((patterns (get-patterns instrument timeframe types)))
+    (conn (query (:select 'agent-id :from 'agents-patterns :where (:in 'pattern-id (:set (loop for pattern in patterns collect (access pattern :id))))) :column))))
+
+(defun get-agents (instrument timeframe types &key (limit 1) (offset 0))
+  (let* ((agent-ids (get-agent-ids-from-patterns instrument timeframe types))
+	 (agents (if (minusp limit)
+		     (conn (query (:select '* :from 'agents :where (:in 'id (:set agent-ids)))
+				  (:dao agent)))
+		     (conn (query (:limit (:order-by (:select '* :from 'agents :where (:in 'id (:set agent-ids)))
+						     'id)
+					  '$1 '$2)
+				  limit offset (:dao agent))))))
+    agents))
+;; (length (get-agents :EUR_USD :H1 '(:BULLISH) :limit 10))
+;; (length (get-agents :EUR_USD :H1 '(:BULLISH) :limit -1))
+;; (access (car (get-agents :EUR_USD :H1 '(:BULLISH) :limit 1)) :avg-revenue)
+
+;; (conn (query (:select '* :from 'agents)))
+
+;; Get number of agents. Then get agent #1, calculate, then release.
 (defun remove-bad-agents (&optional (max-agents-per-pool 600))
   (loop for timeframe in ominp:*timeframes*
      do (loop for instrument in ominp:*instruments*
 	   do (let* ((agents (get-agents instrument timeframe))
 		     (observations (loop for agent in agents
-					;; Fitnesses currently being used.
+				      ;; Fitnesses currently being used.
 				      collect (let* ((fitnesses (access agent :fitnesses))
 						     (avg-revenue (access fitnesses :avg-revenue))
 						     (stdev-revenue (access fitnesses :stdev-revenue))
@@ -696,7 +1154,7 @@
 						     (trades-lost (access fitnesses :trades-lost)))
 						(list avg-revenue stdev-revenue trades-won trades-lost)))))
 		;; (when agents
-		;;   (store-agents filtered-agents instrument timeframe))
+		;;   (insert-agents filtered-agents instrument timeframe))
 		(when (> (length agents) max-agents-per-pool)
 		  (let* ((clusters (km observations max-agents-per-pool))
 			 (centroids (mapcar #'centroid clusters))
@@ -710,7 +1168,7 @@
 							 cluster)
 						    observations :test #'equal)
 					  agents))))
-		    (store-agents representative-agents instrument timeframe)))))))
+		    (insert-agents representative-agents instrument timeframe)))))))
 
 ;; (remove-bad-agents 600)
 ;; (loop for market in ominp:*forex*
@@ -744,31 +1202,30 @@
 		      rr
 		      rr2))))))
 
-;; (describe-agent-fitnesses :EUR_USD)
-;; (length (get-agents :AUD_USD :H1))
+(defun insert-agent (agent instrument timeframe types)
+  (let ((agent-id (access agent :id))
+	(patterns (get-patterns instrument timeframe types)))
+    (conn (insert-dao agent)
+	  (loop for pattern in patterns
+	     do (make-dao 'agent-pattern :agent-id agent-id :pattern-id (access pattern :id))))
+    agent))
 
-(defun store-agents (agents instrument timeframe)
-  (let ((exists? (get-agents instrument timeframe)))
-    (if exists?
-	;; Updating.
-	(with-connection (list *db-name* *db-user* *db-pass* *db-hostname*)
-	  (query (:update 'populations
-		   :set
-		   'population (compress-object agents)
-		   :where (:and (:= 'instrument (format nil "~a" instrument))
-				(:= 'timeframe (format nil "~a" timeframe))))))
-	;; Creating new instance.
-	(with-connection (list *db-name* *db-user* *db-pass* *db-hostname*)
-	  (query (:insert-into 'populations
-		   :set
-		   'id (format nil "~a" (uuid:make-v4-uuid))
-		   'population (compress-object agents)
-		   'instrument (format nil "~a" instrument)
-		   'timeframe (format nil "~a" timeframe)))))))
+(defun delete-agent (agent instrument timeframe types)
+  (let ((agent-id (access agent :id))
+	(patterns (get-patterns instrument timeframe types)))
+    (conn
+     ;; First we remove agent-pattern.
+     (loop for pattern in patterns
+	do (delete-dao (make-instance 'agent-pattern :agent-id agent-id :pattern-id (access pattern :id))))
+     ;; Then we delete the agent only if there are no agent-patterns related to this agent.
+     (unless (query (:select 'agent-id :from 'agents-patterns :where (:= 'agent-id agent-id)))
+       (delete-dao agent)))))
 
-;; (store-agents (gen-agents 2 4 *rates*) :EUR_USD :H1)
+;; (conn (query (:select 'id :from 'agents) :alist))
+;; (conn (query (:select 'agent-id :from 'agents-patterns :where (:= 'agent-id "C3FE332F-82E7-41A6-89CA-E36550D1D687"))))
 
-;; (format t "~a" :EUR_USD)
+
+;; (insert-agent (gen-agent 3 *rates* (access *beliefs* :perception-fns) 10 55) :EUR_USD :H1 '(:BULLISH))
 
 (defun is-market-close ()
   (let ((day-of-week (local-time:timestamp-day-of-week (local-time:now) :timezone local-time:+utc-zone+))
@@ -783,48 +1240,7 @@
      ;; Sunday
      (and (= day-of-week 0)
 	  (< hour 21)))))
-
-(defun get-tests (instrument timeframe &optional (limit 10))
-  (with-connection (list *db-name* *db-user* *db-pass* *db-hostname*)
-    (query (:limit (:order-by (:select '*
-				       :from 'tests
-				       :where (:and (:= 'instrument (format nil "~a" instrument))
-						    (:= 'timeframe (format nil "~a" timeframe))))
-			      (:desc 'creation-time))
-		   '$1)
-	   limit
-	   :alists)))
-
-(defun get-last-test (instrument timeframe)
-  (car (get-tests instrument timeframe 1)))
-;; (access (get-last-test :EUR_USD :H1) :id)
-;; (get-tests :AUD_USD :H1 10)
-
-(defun get-last-tests (instruments timeframes &optional (limit 1))
-  (let* ((instruments (loop for instrument in instruments collect (format nil "~a" instrument)))
-	 (timeframes (loop for timeframe in timeframes collect (format nil "~a" timeframe)))
-	 (tests (with-connection (list *db-name* *db-user* *db-pass* *db-hostname*)
-		  (query (:select '* :from
-				  (:as (:select '*
-						(:as (:over (:row-number)
-							    (:partition-by 'instrument 'timeframe
-									   :order-by (:desc 'creation-time)))
-						     :idx)
-						:from 'tests
-						:where (:and (:in 'instrument (:set instruments))
-							     (:in 'timeframe (:set timeframes))))
-				       'results)
-				  :where (:<= 'idx '$1))
-			 limit
-			 :alists))))
-    ;; Decompressing fitnesses.
-    (loop for test in tests
-       when (/= (access test :tp) 0)
-       collect (progn
-		 (setf (access test :fitnesses)
-		       (decompress-object (access test :fitnesses)))
-		 test))
-    ))
+;; (is-market-close)
 
 ;; (time (get-last-tests ominp:*forex* ominp:*timeframes* 3))
 
@@ -833,58 +1249,127 @@
 ;; (get-last-tests '(:EUR_USD :GBP_USD) '(:H1 :D) 3)
 ;; (get-last-tests '(:GBP_USD) '(:H1))
 
-(defun store-test (instrument timeframe fitnesses prediction rates)
-  (with-connection (list *db-name* *db-user* *db-pass* *db-hostname*)
-    (query (:insert-into 'tests
-	     :set
-	     'id (format nil "~a" (uuid:make-v4-uuid))
-	     'instrument (format nil "~a" instrument)
-	     'timeframe (format nil "~a" timeframe)
-	     'creation-time (local-time:timestamp-to-unix (local-time:now))
-	     'fitnesses (compress-object fitnesses)
-	     'decision (if (= (access prediction :tp) 0)
-			   "HOLD"
-			   (if (> (access prediction :tp) 0)
-			       "BUY"
-			       "SELL"))
-	     'tp (access prediction :tp)
-	     'sl (access prediction :sl)
-	     'entry-price (access (last-elt rates) :close-bid)
-	     ))))
+(defun insert-trade (instrument timeframe types train-fitnesses test-fitnesses prediction rates)
+  (conn (let ((patterns (get-patterns instrument timeframe types))
+	      (trade (make-dao 'trade
+			       :creation-time (local-time:timestamp-to-unix (local-time:now))
+			       :decision (if (= (access prediction :tp) 0)
+					     "HOLD"
+					     (if (> (access prediction :tp) 0)
+						 "BUY"
+						 "SELL"))
+			       :tp (access prediction :tp)
+			       :sl (access prediction :sl)
+			       :entry-price (access (last-elt rates) :close-bid)
+			       :train-begin-time (access train-fitnesses :begin-time)
+			       :test-begin-time (access test-fitnesses :begin-time)
+			       :train-end-time (access train-fitnesses :end-time)
+			       :test-end-time (access test-fitnesses :end-time)
+			       :train-dataset-size (access train-fitnesses :dataset-size)
+			       :test-dataset-size (access test-fitnesses :dataset-size)
+			       :train-avg-revenue (access train-fitnesses :avg-revenue)
+			       :test-avg-revenue (access test-fitnesses :avg-revenue)
+			       :train-stdev-revenue (access train-fitnesses :stdev-revenue)
+			       :test-stdev-revenue (access test-fitnesses :stdev-revenue)
+			       :train-total-revenue (access train-fitnesses :total-revenue)
+			       :test-total-revenue (access test-fitnesses :total-revenue)
+			       :train-avg-max-pos (access train-fitnesses :avg-max-pos)
+			       :test-avg-max-pos (access test-fitnesses :avg-max-pos)
+			       :train-stdev-max-pos (access train-fitnesses :stdev-max-pos)
+			       :test-stdev-max-pos (access test-fitnesses :stdev-max-pos)
+			       :train-avg-max-neg (access train-fitnesses :avg-max-neg)
+			       :test-avg-max-neg (access test-fitnesses :avg-max-neg)
+			       :train-stdev-max-neg (access train-fitnesses :stdev-max-neg)
+			       :test-stdev-max-neg (access test-fitnesses :stdev-max-neg)
+			       :train-avg-tp (access train-fitnesses :avg-tp)
+			       :test-avg-tp (access test-fitnesses :avg-tp)
+			       :train-stdev-tp (access train-fitnesses :stdev-tp)
+			       :test-stdev-tp (access test-fitnesses :stdev-tp)
+			       :train-avg-sl (access train-fitnesses :avg-sl)
+			       :test-avg-sl (access test-fitnesses :avg-sl)
+			       :train-stdev-sl (access train-fitnesses :stdev-sl)
+			       :test-stdev-sl (access test-fitnesses :stdev-sl)
+			       :train-max-tp (access train-fitnesses :max-tp)
+			       :test-max-tp (access test-fitnesses :max-tp)
+			       :train-min-tp (access train-fitnesses :min-tp)
+			       :test-min-tp (access test-fitnesses :min-tp)
+			       :train-max-sl (access train-fitnesses :max-sl)
+			       :test-max-sl (access test-fitnesses :max-sl)
+			       :train-min-sl (access train-fitnesses :min-sl)
+			       :test-min-sl (access test-fitnesses :min-sl)
+			       :train-trades-won (access train-fitnesses :trades-won)
+			       :test-trades-won (access test-fitnesses :trades-won)
+			       :train-trades-lost (access train-fitnesses :trades-lost)
+			       :test-trades-lost (access test-fitnesses :trades-lost)
+			       :train-revenues (apply #'vector (access train-fitnesses :revenues))
+			       :test-revenues (apply #'vector (access test-fitnesses :revenues))
+			       :train-entry-times (apply #'vector (access train-fitnesses :entry-times))
+			       :test-entry-times (apply #'vector (access test-fitnesses :entry-times))
+			       :train-exit-times (apply #'vector (access train-fitnesses :exit-times))
+			       :test-exit-times (apply #'vector (access test-fitnesses :exit-times))
+			       :train-entry-prices (apply #'vector (access train-fitnesses :entry-prices))
+			       :test-entry-prices (apply #'vector (access test-fitnesses :entry-prices))
+			       :train-exit-prices (apply #'vector (access train-fitnesses :exit-prices))
+			       :test-exit-prices (apply #'vector (access test-fitnesses :exit-prices))
+			       :train-tps (apply #'vector (access train-fitnesses :tps))
+			       :test-tps (apply #'vector (access test-fitnesses :tps))
+			       :train-sls (apply #'vector (access train-fitnesses :sls))
+			       :test-sls (apply #'vector (access test-fitnesses :sls))
+			       )))
+	  (loop for pattern in patterns
+	     do (make-dao 'pattern-trade
+			  :pattern-id (access pattern :id)
+			  :trade-id (access trade :id)))
+	  )))
 
-(defun loop-optimize-test (iterations &key (creation-dataset-size 200) (training-dataset-size 200) (num-rules 3) (report-fn nil) (max-agents-per-pool 600))
+(defun loop-optimize-test (iterations &key (max-creation-dataset-size 500) (max-training-dataset-size 500) (max-testing-dataset-size 500) (num-rules 3) (report-fn nil) (beliefs *beliefs*) (type-groups '((:bullish) (:bearish) (:stagnated))))
   (loop (unless (is-market-close))
      (dolist (instrument ominp:*forex*)
        (dolist (timeframe ominp:*shortterm*)
 	 (unless (is-market-close)
-	   (let* ((rates (get-rates-count instrument timeframe
-					  (+ creation-dataset-size training-dataset-size)
-					  :provider :oanda :type :fx))
-		  (agents (get-agents instrument timeframe))
-		  (training-dataset (get-output-dataset rates training-dataset-size)))
-	     (when agents
-	       (let ((fitnesses (evaluate-agents agents training-dataset))
-		     (prediction (get-prediction agents training-dataset)))
-		 (when (and (/= (access prediction :tp) 0)
-			    (< (access prediction :tp) 100)
-			    (/= (access prediction :sl) 0)
-			    (< (access prediction :sl) 100)
-			    (/= (access fitnesses :trades-won) 0)
-			    (/= (+ (access fitnesses :trades-won)
-				   (access fitnesses :trades-lost))
-				0))
-		   (store-test instrument timeframe fitnesses prediction rates))))
-	     (let* ((creation-dataset (get-input-dataset rates creation-dataset-size))
-		    (trained-agents (optimization agents
-						  (lambda () (gen-agent num-rules creation-dataset))
-						  training-dataset
-						  iterations
-						  report-fn)))
-	       (if (> (length trained-agents) max-agents-per-pool)
-		   (store-agents (update-agents-fitnesses trained-agents rates) instrument timeframe)
-		   (store-agents trained-agents instrument timeframe)))
-	     ))))
-     (remove-bad-agents max-agents-per-pool)))
+	   (let ((rates (get-rates-count instrument timeframe
+					 (+ max-creation-dataset-size max-training-dataset-size max-testing-dataset-size)
+					 :provider :oanda :type :fx)))
+	     (multiple-value-bind (testing-dataset types)
+		 (winning-type-output-dataset rates type-groups :max-dataset-size max-testing-dataset-size)
+	       (let* ((dataset-size (length rates))
+		      (testing-dataset-size (length testing-dataset))
+		      (training-dataset (let ((dataset (subseq rates
+							       (- dataset-size testing-dataset-size max-training-dataset-size)
+							       (- dataset-size testing-dataset-size))))
+					  (multiple-value-bind (from to)
+					      (get-rates-chunk-of-types dataset types)
+					    (subseq dataset from to))))
+		      (creation-dataset (let ((dataset (subseq rates
+							       (- dataset-size testing-dataset-size (length training-dataset) max-creation-dataset-size)
+							       (- dataset-size testing-dataset-size (length training-dataset)))))
+					  (multiple-value-bind (from to)
+					      (get-rates-chunk-of-types dataset types)
+					    (subseq dataset from to)))))
+		 (when (> (get-agents-count instrument timeframe types) 0)
+		   (let ((train-fitnesses (evaluate-agents instrument timeframe types training-dataset))
+			 (test-fitnesses (evaluate-agents instrument timeframe types testing-dataset))
+			 (prediction (get-prediction instrument timeframe types testing-dataset)))
+		     (when (and (/= (access prediction :tp) 0)
+				(if (not (eq instrument :USD_CNH)) (< (access prediction :tp) 100) t)
+				(/= (access prediction :sl) 0)
+				(< (access prediction :sl) 100)
+				(/= (access test-fitnesses :trades-won) 0)
+				(/= (+ (access test-fitnesses :trades-won)
+				       (access test-fitnesses :trades-lost))
+				    0))
+		       (insert-trade instrument timeframe types train-fitnesses test-fitnesses prediction rates))))
+		 (optimization instrument timeframe types
+			       (lambda () (gen-agent num-rules creation-dataset
+						     (access beliefs :perception-fns)
+						     (access beliefs :lookahead-count)
+						     (access beliefs :lookbehind-count)))
+			       training-dataset
+			       iterations
+			       :report-fn report-fn)
+		 ))))))
+     ;; (remove-bad-agents max-agents-per-pool)
+     ))
 
 (defun sorted-indexes (list &optional (sort-fn #'<))
   (loop
@@ -966,8 +1451,8 @@
 
     
     ))
-(defun describe-agents (agents)
-  )
+;; (defun describe-agents (agents)
+;;   )
 
 ;; (describe-agent (gen-agent 4 *rates*))
 
@@ -996,55 +1481,112 @@
 ;; (get-last-tests '(:AUD_USD) '(:H1) 3)
 ;; (get-last-tests '(:EUR_JPY) '(:H1) 3)
 
-;; (get-agents :EUR_USD :H1)
-;; (get-agents :AUD_USD :H1)
-;; (loop-optimize-test 10)
-
-;; (get-agents :EUR_USD :H1)
-
 ;; (evaluate-agents (gen-agents 3 3 *rates*) (get-output-dataset *rates* (- (length *rates*) 5)))
 
 ;; (get-prediction (gen-agents 3 3 *rates*) *rates*)
 
-;; (loop for step from 100 below (length *rates*) by 50
-;;    collect (let ((lookahead 10)
-;; 		 (rates (last *rates* step)))
-;; 	     (let* ((directions (loop for i from lookahead below (length rates)
-;; 				   collect (let* ((dataset (last (get-input-dataset rates i) lookahead))
-;; 						  (last-rate (access (last-elt dataset) :close-bid))
-;; 						  (first-rate (access (first dataset) :close-bid))
-;; 						  (direction (- last-rate first-rate)))
-;; 					     direction)))
-;; 		    (pos (remove-if-not #'plusp directions))
-;; 		    (neg (remove-if-not #'minusp directions))
-;; 		    (pos-mean (if pos (mean pos) 0))
-;; 		    (neg-mean (if neg (mean neg) 0))
-;; 		    (uptrend (remove-if-not (lambda (elt) (> elt pos-mean)) pos))
-;; 		    (downtrend (remove-if-not (lambda (elt) (< elt neg-mean)) neg))
-;; 		    (stagnated (remove-if-not (lambda (elt) (and
-;; 							     (< elt pos-mean)
-;; 							     (> elt neg-mean)))
-;; 					      neg)))
-;; 	       (let ((lrates (length rates)))
-;; 		 (float (mean (list (abs (- (/ (length uptrend) lrates) 1/3))
-;; 				    (abs (- (/ (length downtrend) lrates) 1/3))
-;; 				    (abs (- (/ (length stagnated) lrates) 1/3))))))
+(defun score-rates (rates &key (lookahead 10) (stagnation-threshold 0.5))
+  (let* ((results (loop for i from 0 below (- (length rates) lookahead)
+		     collect (get-tp-sl (get-output-dataset rates i) lookahead)))
+	 (rrs (loop for result in results collect (* (/ (access result :sl)
+							(access result :tp))
+						     (if (plusp (access result :tp))
+							 -1
+							 1))))
+	 (stagnated (count-if (lambda (elt) (>= (abs elt) stagnation-threshold)) rrs))
+	 (uptrend (count-if (lambda (elt) (and (< (abs elt) stagnation-threshold)
+					       (plusp elt)))
+			    rrs))
+	 (downtrend (count-if (lambda (elt) (and (< (abs elt) stagnation-threshold)
+						 (minusp elt)))
+			      rrs)))
+    (let ((lrates (length rates)))
+      `((:bullish . ,(/ uptrend lrates))
+    	(:bearish . ,(/ downtrend lrates))
+    	(:stagnated . ,(/ stagnated lrates))))))
 
-;; 	       ;; (standard-deviation (list (length uptrend)
-;; 	       ;; 				 (length downtrend)
-;; 	       ;; 				 (length stagnated)))
-	       
-;; 	       ;; `((:uptrend . ,(length uptrend))
-;; 	       ;; 	 (:downtrend . ,(length downtrend))
-;; 	       ;; 	 (:stagnated . ,(length stagnated)))
-;; 	       )))
+(defun get-rates-chunk-of-types (rates types &key (min-chunk-size 100) (max-chunk-size 500)
+					       (chunk-step 20) (slide-step 20) (lookahead 10) (stagnation-threshold 0.5))
+  (let ((score 0)
+	(winner-from 0)
+	(winner-to 0))
+    (loop for chunk-plus from min-chunk-size below (- max-chunk-size min-chunk-size) by chunk-step
+       do (loop for idx from 0 below (- (length rates) chunk-plus) by slide-step
+	     do (let ((s (get-types-score (score-rates (subseq rates idx (+ idx chunk-plus)) :lookahead lookahead :stagnation-threshold stagnation-threshold) types)))
+		  (when (> s score)
+		    (setf score s)
+		    (setf winner-from idx)
+		    (setf winner-to (+ idx chunk-plus))))))
+    (values winner-from winner-to)))
 
-;; (defparameter *rates* (get-rates-count :USD_CHF :H1 1000 :provider :oanda :type :fx))
-;; (defparameter *creation-dataset* (get-input-dataset *rates* 200))
-;; (defparameter *training-dataset* (get-input-dataset (get-output-dataset *rates* 200) 200))
-;; (defparameter *testing-dataset* (get-output-dataset *rates* 400))
+;; (get-rates-chunk-of-types (subseq *rates* 0 500) '(:bullish))
+;; (get-rates-chunk-of-types *rates* '(:bullish))
+;; (loop for rate in (subseq *rates* 140 240)
+;;    do (print (access rate :close-bid)))
+;; (loop for rate in (subseq *rates* 340 440)
+;;    do (print (access rate :close-bid)))
+;; (loop for rate in (subseq *rates* 120 220)
+;;    do (print (access rate :close-bid)))
+
+(defun get-winning-type (scored-rates)
+  (caar (sort scored-rates #'< :key #'cdr)))
+
+(defun get-types-score (scored-rates types)
+  (loop for type in types sum (access scored-rates type)))
+
+;; (get-balance-score (score-rates *rates*))
+
+;; (get-winning-type (score-rates (get-output-dataset *rates* 400)))
+
+(defun winning-type-output-dataset (rates type-groups &key (min-dataset-size 100) (max-dataset-size 500) (chunk-step 20) (lookahead 10) (stagnation-threshold 0.5))
+  "Calculates what's the ideal index when calling GET-OUTPUT-DATASET, where an ideal index is one that makes GET-OUTPUT-DATASET return a subset of RATES that has a good ratio of uptrend chunks, downtrend chunks and stagnated chunks of RATES."
+  (let* ((score 0)
+	 (winner-types)
+	 (winner-chunk-size))
+    (loop for chunk-size from max-dataset-size downto min-dataset-size by chunk-step
+       do (let ((rates (last rates chunk-size)))
+	    (loop for types in type-groups
+	       do (let ((s (get-types-score
+			    (score-rates rates :lookahead lookahead :stagnation-threshold stagnation-threshold)
+			    ;; We can send single type, e.g. (:bullish) or collection of types, e.g. '(:bullish :bearish).
+			    types)))
+		    (when (> s score)
+		      (setf score s)
+		      (setf winner-chunk-size chunk-size)
+		      (setf winner-types types))))))
+    (values (last rates winner-chunk-size) winner-types)))
+;; (winning-type-output-dataset-idx *rates* '((:bullish) (:bearish) (:stagnated)) :max-dataset-size 500)
+;; (winning-type-output-dataset-idx (get-input-dataset *rates* 1400) '((:bullish) (:bearish) (:stagnated)) :max-dataset-size 500)
+;; (get-rates-chunk-of-types (subseq *rates* 0 1300) '(:bearish))
+;; (get-rates-chunk-of-types (subseq *rates* 0 900) '(:bearish))
+
+;; (loop for rate in (get-output-dataset *rates* 0)
+;;    do (print (access rate :close-bid)))
+;; (loop for rate in (subseq *rates* 900 1020)
+;;    do (print (access rate :close-bid)))
+;; (loop for rate in (subseq *rates* 500 600)
+;;    do (print (access rate :close-bid)))
+
+;; (loop for rate in (get-output-dataset *rates* (ideal-output-dataset-idx *rates* '(:stagnated) :max-dataset-size 1500))
+;;    do (print (access rate :close-bid)))
+
+;; (defparameter *rates* (get-rates-count :EUR_JPY :H1 1500 :provider :oanda :type :fx))
+;; (let* ((testing-idx (ideal-output-dataset-idx *rates*))
+;;        (training-idx (ideal-output-dataset-idx (get-input-dataset *rates* testing-idx)))
+;;        (creation-idx (ideal-output-dataset-idx (get-input-dataset *rates* training-idx))))
+  
+;;   (defparameter *testing-dataset* (get-output-dataset *rates* testing-idx))
+;;   (defparameter *training-dataset* (get-output-dataset (get-input-dataset *rates* testing-idx) training-idx))
+;;   (defparameter *creation-dataset* (get-output-dataset (get-input-dataset *rates* training-idx) creation-idx))
+
+;;   (list (list creation-idx training-idx testing-idx)
+;; 	(list (length *creation-dataset*)
+;; 	      (length *training-dataset*)
+;; 	      (length *testing-dataset*))))
+
 ;; (defparameter *results* nil)
 ;; (defparameter *agents* nil)
+
 ;; (defparameter *agents* (optimization *agents*
 ;; 				     (lambda () (gen-agent 3 *creation-dataset*))
 ;; 				     *training-dataset*
@@ -1062,18 +1604,39 @@
 ;; 				     for result in *results*
 ;; 				     when (oddp i)
 ;; 				     collect (nth idx result))))
-;;        (testing-results (reverse (loop
+;;        (testing-results (let ((results (reverse (loop
 ;; 				    for i from 0
 ;; 				    for result in *results*
 ;; 				    when (evenp i)
-;; 				    collect (nth idx result)))))
+;; 						   collect (nth idx result)))))
+;; 			  (if (/= (length results) (length training-results))
+;; 			      (butlast results)))))
 ;;   (format t "Correlation: ~a~%"
-;; 	  (cl-mathstats:correlation training-results testing-results))
+;;   	  (cl-mathstats:correlation training-results testing-results))
+;;   (format t "Absolute Correlation: ~a~%"
+;; 	  (let* (;; (mean-pos (mean (remove-if-not #'plusp training-results)))
+;; 		 ;; (possible-good-predictions (remove-if-not (lambda (res) (> res mean-pos)) training-results))
+;; 		 (possible-good-predictions (remove-if-not (lambda (res) (> res 0)) training-results))
+;; 		 (good-predictions (reduce #'+ (mapcar (lambda (training testing)
+;; 							 (if (and (> training 0)
+;; 							      ;; (> training mean-pos)
+;; 								  (> testing 0))
+;; 							     1
+;; 							     0))
+;; 						       training-results
+;; 						       testing-results))))
+;; 	    (format nil "~a/~a (~2$%)" good-predictions
+;; 		    (length possible-good-predictions)
+;; 		    (* 100 (float (/ good-predictions (length possible-good-predictions)))))))
+;;   (print (length training-results))
 ;;   (plotly-make-plot (plotly-layout)
 ;;   		    (plotly-line (iota (length training-results)) training-results "black" "dot")
 ;;   		    (plotly-line (iota (length testing-results)) testing-results "blue")
 ;;   		    )
 ;;   )
+
+
+
 
 ;; (loop repeat 1 collect (let* ((idx (random-int *rand-gen* 0 (length *rates*)))
 ;; 			       (input-dataset (get-input-dataset *rates* idx))

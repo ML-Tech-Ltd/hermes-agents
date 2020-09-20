@@ -1082,14 +1082,15 @@
 (defun optimization (instrument timeframe types gen-agent-fn rates iterations &key report-fn)
   ;; Checking if we need to initialize the agents collection.
   (let ((agents (if-let ((agents (get-agents instrument timeframe types :limit -1)))
-		  (update-agents-fitnesses agents rates)
+		    (update-agents-fitnesses agents rates)
 		  (let ((agent (evaluate-agent (funcall gen-agent-fn) rates)))
 		    (list (insert-agent agent instrument timeframe types))))))
     (loop repeat iterations
-       do (let ((agent (evaluate-agent (funcall gen-agent-fn) rates)))
-	    (update-pareto-frontier agent agents instrument timeframe types)
-	    (when report-fn
-	      (funcall report-fn (get-agents instrument timeframe types :limit -1) rates))))))
+       do (ignore-errors
+	    (let ((agent (evaluate-agent (funcall gen-agent-fn) rates)))
+	      (update-pareto-frontier agent agents instrument timeframe types)
+	      (when report-fn
+		(funcall report-fn (get-agents instrument timeframe types :limit -1) rates)))))))
 
 (defun decompress-object (compressed-object)
   "Decompresses an object represented by `compressed-object`."

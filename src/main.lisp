@@ -1079,18 +1079,27 @@
 	    (access r :trades-won)
 	    (access r :trades-lost))))
 
-(defun optimization (instrument timeframe types gen-agent-fn rates iterations &key report-fn)
+(defun optimization (instrument timeframe types gen-agent-fn rates minutes &key report-fn)
   ;; Checking if we need to initialize the agents collection.
   (let ((agents (if-let ((agents (get-agents instrument timeframe types :limit -1)))
-		    (update-agents-fitnesses agents rates)
+		  (update-agents-fitnesses agents rates)
 		  (let ((agent (evaluate-agent (funcall gen-agent-fn) rates)))
 		    (list (insert-agent agent instrument timeframe types))))))
-    (loop repeat iterations
-       do (ignore-errors
-	    (let ((agent (evaluate-agent (funcall gen-agent-fn) rates)))
-	      (update-pareto-frontier agent agents instrument timeframe types)
-	      (when report-fn
-		(funcall report-fn (get-agents instrument timeframe types :limit -1) rates)))))))
+    ;; (loop repeat minutes
+    ;;    do (ignore-errors
+    ;; 	    (let ((agent (evaluate-agent (funcall gen-agent-fn) rates)))
+    ;; 	      (update-pareto-frontier agent agents instrument timeframe types)
+    ;; 	      (when report-fn
+    ;; 		(funcall report-fn (get-agents instrument timeframe types :limit -1) rates)))))
+    (loop with until-timestamp = (local-time:timestamp+ (local-time:now) minutes :minute)
+       do (if (local-time:timestamp> (local-time:now) until-timestamp)
+    	      (return)
+    	      (ignore-errors
+    		(let ((agent (evaluate-agent (funcall gen-agent-fn) rates)))
+    		  (update-pareto-frontier agent agents instrument timeframe types)
+    		  (when report-fn
+    		    (funcall report-fn (get-agents instrument timeframe types :limit -1) rates))))))
+    ))
 
 (defun decompress-object (compressed-object)
   "Decompresses an object represented by `compressed-object`."
@@ -1323,7 +1332,7 @@
 			  :trade-id (access trade :id)))
 	  )))
 
-(defun loop-optimize-test (iterations &key (max-creation-dataset-size 500) (max-training-dataset-size 500) (max-testing-dataset-size 500) (num-rules 3) (report-fn nil) (beliefs *beliefs*) (type-groups '((:bullish) (:bearish) (:stagnated))))
+(defun loop-optimize-test (minutes &key (max-creation-dataset-size 500) (max-training-dataset-size 500) (max-testing-dataset-size 500) (num-rules 3) (report-fn nil) (beliefs *beliefs*) (type-groups '((:bullish) (:bearish) (:stagnated))))
   (loop (unless (is-market-close))
      (dolist (instrument ominp:*forex*)
        (dolist (timeframe ominp:*shortterm*)
@@ -1366,7 +1375,7 @@
 						     (access beliefs :lookahead-count)
 						     (access beliefs :lookbehind-count)))
 			       training-dataset
-			       iterations
+			       minutes
 			       :report-fn report-fn)
 		 ))))))
      ;; (remove-bad-agents max-agents-per-pool)

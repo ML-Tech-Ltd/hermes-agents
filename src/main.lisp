@@ -2,7 +2,7 @@
 ;; (ql:quickload :mlforecasting)
 ;; (mlforecasting:start :port 2001)
 ;; (loop-optimize-test 60 :instruments '(:AUD_USD))
-;; (loop-optimize-test 60)
+;; (loop-optimize-test 120)
 ;; (loop-optimize-test 50 :instruments-keys '(:forex) :timeframes-keys '(:all))
 ;; (loop-optimize-test 50 :instruments-keys '(:all) :timeframes-keys '(:longterm))
 ;; (loop-optimize-test 50 :instruments-keys '(:metals) :timeframes-keys '(:longterm))
@@ -277,18 +277,23 @@
 	  (t (* quantity 10000)))))
 ;; (to-pips :USD_CZK 0.010)
 
-(defun get-global-revenue ()
+(defun get-global-revenue (&key from to)
   (let ((trades (conn (query (:select 'trades.result 'patterns.instrument
 				      :from 'trades
 				      :inner-join 'patterns-trades
 				      :on (:= 'trades.id 'patterns-trades.trade-id)
 				      :inner-join 'patterns
 				      :on (:= 'patterns.id 'patterns-trades.pattern-id)
-				      :where (:not (:is-null 'trades.result))) :alists))))
+				      :where (:and (:not (:is-null 'trades.result))
+						   (:>= 'creation-time from)
+						   (:<= 'creation-time to)))
+			     :alists))))
     (loop for trade in trades
        summing (let ((instrument (make-keyword (access trade :instrument))))
 		 (to-pips instrument (access trade :result))))))
-;; (get-global-revenue)
+
+;; (get-global-revenue :to (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 0 :day)) :from (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 1 :day)))
+;; (loop for i from 0 below 48 do (format t "~a: ~a~%" i (get-global-revenue :to (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 0 :day)) :from (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) i :hour)))))
 
 (defun validate-trades ()
   (let ((trades (conn (query (:select 'trades.* 'patterns.*
@@ -1729,6 +1734,61 @@
 		      (setf winner-chunk-size chunk-size)
 		      (setf winner-types types))))))
     (values (last rates winner-chunk-size) winner-types)))
+
+
+
+(defun make-consequent (x0 x1)
+  (let* ((m (/ 1
+	       (- x1 x0)))
+	 (b (+ (* m (- x0)) 0)))
+    (lambda (y) (/ (- y b) m))))
+;; (funcall (make-consequent 5 10) 0.0)
+;; (funcall (make-consequent 5 10) 1.0)
+
+;; (funcall (make-consequent 10 5) 0.0)
+;; (funcall (make-consequent 10 5) 1.0)
+
+(defun make-antecedent (x0 x1)
+  (let* ((m (/ 1
+	       (- x1 x0)))
+	 (b (+ (* m (- x0)) 0)))
+    (lambda (x) (+ (* m x) b))))
+
+;; (funcall (make-antecedent 5 10) 10)
+;; (funcall (make-antecedent 5 10) 1.0)
+
+;; (funcall (make-antecedent 10 5) 0.0)
+;; (funcall (make-antecedent 10 5) 1.0)
+
+(defun make-antecedent (mean spread)
+  (lambda (x) (exp (* -0.5 (expt (/ (- x mean) spread) 2)))))
+;; (funcall (make-antecedent 0.5 0.05) 0.5)
+
+(defun ifis (i antecedents consequents)
+  (let ((winner-gm 0)
+	(winner-idx 0))
+    (loop
+       for idx from 0
+       for ant across antecedents
+       do (let ((gm (funcall ant i)))
+	    (when (and (<= gm 1)
+		       (>= gm 0)
+		       (>= gm winner-gm))
+	      (setf winner-idx idx)
+	      (setf winner-gm gm))))
+    (funcall (aref consequents winner-idx) winner-gm)))
+
+(quote
+ (let ((antecedents `#(,(make-antecedent 1.0 1.6)
+		       ,(make-antecedent 1.5 1.8)
+		       ,(make-antecedent 1.7 2)))
+       (consequents `#(,(make-consequent 0 4)
+		       ,(make-consequent 4 8)
+		       ,(make-consequent 8 10))))
+   ;; (time (loop repeat 1000000
+   ;; 	    do (ifis 0.0 antecedents consequents)))
+   (ifis -2.0 antecedents consequents)))
+
 ;; (winning-type-output-dataset *rates* '((:bullish) (:bearish) (:stagnated)))
 ;; (winning-type-output-dataset (get-input-dataset *rates* 1400) '((:bullish) (:bearish) (:stagnated)) :max-dataset-size 500)
 ;; (get-rates-chunk-of-types (subseq *rates* 0 1300) '(:bearish))

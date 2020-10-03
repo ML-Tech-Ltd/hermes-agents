@@ -243,20 +243,22 @@
 ;; (init-database)
 
 (defun get-trade-result (entry-price tp sl rates)
-  (loop for rate in rates do (progn
-			       ;; Then it's a buy. Lose.
-			       (when (and (> tp 0) (< (- (access rate :low-bid) entry-price) sl))
-				 (return sl))
-			       ;; Then it's a sell. Lose.
-			       (when (and (< tp 0) (> (- (access rate :high-bid) entry-price) sl))
-				 (return (- sl)))
-			       ;; Then it's a buy. Win.
-			       (when (and (> tp 0) (> (- (access rate :high-bid) entry-price) tp))
-				 (return tp))
-			       ;; Then it's a sell. Win.
-			       (when (and (< tp 0) (< (- (access rate :low-bid) entry-price) tp))
-				 (return (abs tp)))
-			       )))
+  (let ((low-type (if (plusp tp) :low-bid :low-ask))
+	(high-type (if (plusp tp) :high-bid :high-ask)))
+    (loop for rate in rates do (progn
+				 ;; Then it's a buy. Lose.
+				 (when (and (> tp 0) (< (- (access rate low-type) entry-price) sl))
+				   (return sl))
+				 ;; Then it's a sell. Lose.
+				 (when (and (< tp 0) (> (- (access rate high-type) entry-price) sl))
+				   (return (- sl)))
+				 ;; Then it's a buy. Win.
+				 (when (and (> tp 0) (> (- (access rate high-type) entry-price) tp))
+				   (return tp))
+				 ;; Then it's a sell. Win.
+				 (when (and (< tp 0) (< (- (access rate low-type) entry-price) tp))
+				   (return (abs tp)))
+				 ))))
 
 ;; (get-trade-result 0.72274 -0.0018100000000000893 0.0013900000000000026 )
 
@@ -286,14 +288,19 @@
 				      :on (:= 'patterns.id 'patterns-trades.pattern-id)
 				      :where (:and (:not (:is-null 'trades.result))
 						   (:>= 'creation-time from)
+						   (:not (:= 'patterns.instrument "USD_CNH"))
+						   ;; (:not (:= 'patterns.type "STAGNATED"))
+						   ;; (:= 'patterns.type "STAGNATED")
+						   ;; (:= 'patterns.instrument "USD_CNH")
 						   (:<= 'creation-time to)))
 			     :alists))))
     (loop for trade in trades
        summing (let ((instrument (make-keyword (access trade :instrument))))
 		 (to-pips instrument (access trade :result))))))
 
-;; (get-global-revenue :to (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 0 :day)) :from (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 1 :day)))
-;; (loop for i from 0 below 48 do (format t "~a: ~a~%" i (get-global-revenue :to (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 0 :day)) :from (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) i :hour)))))
+;; (get-global-revenue :to (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 1 :day)) :from (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 5 :day)))
+
+;; (loop for i from 23 below 72 do (format t "~a: ~a~%" i (get-global-revenue :to (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 0 :day)) :from (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) i :hour)))))
 
 (defun validate-trades ()
   (let ((trades (conn (query (:select 'trades.* 'patterns.*
@@ -311,8 +318,8 @@
 	    (when (local-time:timestamp< from-timestamp
 					 (local-time:timestamp- (local-time:now) 1 :day))
 	      (let* ((instrument (make-keyword (access trade :instrument)))
-		     (timeframe (make-keyword (access trade :timeframe)))
-		     (to (* (local-time:timestamp-to-unix (local-time:timestamp+ from-timestamp 30 :day)) 1000000))
+		     (timeframe :M1)
+		     (to (* (local-time:timestamp-to-unix (local-time:timestamp+ from-timestamp 3 :day)) 1000000))
 		     (rates (get-rates-range instrument timeframe from to :provider :oanda :type :fx))
 		     (result (get-trade-result (access trade :entry-price)
 					       (access trade :tp)
@@ -1737,6 +1744,11 @@
 
 
 
+
+;; RENEWAL
+;; (defparameter *rates* (get-rates-count :EUR_JPY :H1 1500 :provider :oanda :type :fx))
+;; (gen-random-perception-fns 2)
+
 (defun make-consequent (x0 x1)
   (let* ((m (/ 1
 	       (- x1 x0)))
@@ -1778,6 +1790,132 @@
 	      (setf winner-gm gm))))
     (funcall (aref consequents winner-idx) winner-gm)))
 
+(defun make-ifis (agent num-rules rates)
+  "Analytical version."
+  (let* ((perception-fn (gen-perception-fn (ms:unmarshal (read-from-string (access agent :perception-fns)))))
+	 (lookahead-count (access agent :lookahead-count))
+	 (lookbehind-count (access agent :lookbehind-count))
+	 (idxs (get-same-direction-outputs-idxs rates num-rules :lookahead-count lookahead-count :lookbehind-count lookbehind-count))
+	 (chosen-inputs (loop for idx in idxs collect (funcall perception-fn (get-input-dataset rates idx))))
+	 (chosen-outputs (loop for idx in idxs collect (get-tp-sl (get-output-dataset rates idx) lookahead-count)))
+	 (inp-sd (mapcar (lambda (inp) (standard-deviation inp)) (apply #'mapcar #'list chosen-inputs)))
+	 (tps (loop for output in chosen-outputs collect (access output :tp)))
+	 (sls (loop for output in chosen-outputs collect (access output :sl)))
+	 (tp-sd (standard-deviation tps))
+	 (sl-sd (standard-deviation sls))
+	 ;; (mn-inp (- (apply #'min (flatten chosen-inputs)) (apply #'max inp-sd)))
+	 ;; (mx-inp (+ (apply #'max (flatten chosen-inputs)) (apply #'max inp-sd)))
+	 (mn-out-tp (let ((min-chosen (apply #'min tps)))
+		      (if (and (> min-chosen 0) (< (- min-chosen tp-sd) 0))
+			  0.0
+			  (- min-chosen tp-sd))))
+	 (mn-out-sl (let ((min-chosen (apply #'min sls)))
+		      (if (and (> min-chosen 0) (< (- min-chosen sl-sd) 0))
+			  0.0
+			  (- min-chosen sl-sd))))
+	 (mx-out-tp (let ((max-chosen (apply #'max tps)))
+		      (if (and (< max-chosen 0) (> (+ max-chosen tp-sd) 0))
+			  0.0
+			  (+ max-chosen tp-sd))))
+	 (mx-out-sl (let ((max-chosen (apply #'max sls)))
+		      (if (and (< max-chosen 0) (> (+ max-chosen sl-sd) 0))
+			  0.0
+			  (+ max-chosen sl-sd)))))
+    ;; (format t "~a~%" (> (reduce #'* tps) 0))
+    ;; (format t "~a~%" (> (reduce #'* sls) 0))
+    ;; (format t "~a~%" chosen-outputs)
+    ;; (format t "~a .. ~a ~t ~a .. ~a~%" mn-out-tp mx-out-tp mn-out-sl mx-out-sl)
+    (make-if-system :domains (make-domains :antecedents-min 0
+					   :antecedents-max 0
+					   :consequents-min 0
+					   :consequents-max 0)
+		    ;; Handling two outputs.
+		    :rules (loop for j below (* 2 (length chosen-outputs))
+			      collect (loop for i below (length (first chosen-inputs))
+					 collect (let* ((input (nth (floor (/ j 2)) chosen-inputs))
+							(output (if (evenp j)
+								    (nth (floor (/ j 2)) tps)
+								    (nth (floor (/ j 2)) sls)))
+							(out-sd (if (evenp j)
+								    tp-sd
+								    sl-sd))
+							(mn-out (if (evenp j)
+								    mn-out-tp
+								    mn-out-sl))
+							(mx-out (if (evenp j)
+								    mx-out-tp
+								    mx-out-sl))
+							;; TODO: Consider creating different a,b,c for nmf.
+							(ai (* (- (nth i input) (nth i inp-sd)) 1.0d0))
+							(bi (* (nth i input) 1.0d0))
+							(ci (* (+ (nth i input) (nth i inp-sd)) 1.0d0))
+							
+							(ac (let ((out (* (- output out-sd) 1.0d0)))
+							      (if (<= out mn-out)
+								  mn-out
+								  out)))
+							(bc (* output 1.0d0))
+							(cc (let ((out (* (+ output out-sd) 1.0d0)))
+							      (if (>= out mx-out)
+								  mx-out
+								  out)))
+							;; TODO: Later we must change this to handle indeterminacy.
+							(mf-height 1d0)
+							(nmf-height 1d0))
+						   (make-rule :antecedent (make-ifs :mf (make-mf :type :triangular
+												 :parameters
+												 (make-ifs-params
+												  := (let ((ab-line (eq-line-two-points `(:x ,ai :y 0d0) `(:x ,bi :y ,mf-height)))
+													   (bc-line (eq-line-two-points `(:x ,bi :y ,mf-height) `(:x ,ci :y 0d0))))
+												       `((:a . ,ai)
+													 (:b . ,bi)
+													 (:c . ,ci)
+													 (:ab-m . ,(access ab-line :m))
+													 (:ab-b . ,(access ab-line :b))
+													 (:bc-m . ,(access bc-line :m))
+													 (:bc-b . ,(access bc-line :b))
+													 (:height . ,mf-height)))))
+										    :nmf (make-nmf :type :triangular
+												   :parameters
+												   (make-ifs-params
+												    := (let ((ab-line (eq-line-two-points `(:x ,ai :y 0d0) `(:x ,bi :y ,nmf-height)))
+													     (bc-line (eq-line-two-points `(:x ,bi :y ,nmf-height) `(:x ,ci :y 0d0))))
+													 `((:a . ,ai)
+													   (:b . ,bi)
+													   (:c . ,ci)
+													   (:ab-m . ,(access ab-line :m))
+													   (:ab-b . ,(access ab-line :b))
+													   (:bc-m . ,(access bc-line :m))
+													   (:bc-b . ,(access bc-line :b))
+													   (:height . ,nmf-height))))))
+							      :consequent (make-ifs :mf (make-mf :type :triangular
+												 :parameters
+												 (make-ifs-params
+												  := (let ((ab-line (eq-line-two-points `(:x ,ac :y 0d0) `(:x ,bc :y ,mf-height)))
+													   (bc-line (eq-line-two-points `(:x ,bc :y ,mf-height) `(:x ,cc :y 0d0))))
+												       `((:a . ,ac)
+													 (:b . ,bc)
+													 (:c . ,cc)
+													 (:ab-m . ,(access ab-line :m))
+													 (:ab-b . ,(access ab-line :b))
+													 (:bc-m . ,(access bc-line :m))
+													 (:bc-b . ,(access bc-line :b))
+													 (:height . ,mf-height)))))
+										    :nmf (make-nmf :type :triangular
+												   :parameters
+												   (make-ifs-params
+												    := (let ((ab-line (eq-line-two-points `(:x ,ac :y 0d0) `(:x ,bc :y ,nmf-height)))
+													     (bc-line (eq-line-two-points `(:x ,bc :y ,nmf-height) `(:x ,cc :y 0d0))))
+													 `((:a . ,ac)
+													   (:b . ,bc)
+													   (:c . ,cc)
+													   (:ab-m . ,(access ab-line :m))
+													   (:ab-b . ,(access ab-line :b))
+													   (:bc-m . ,(access bc-line :m))
+													   (:bc-b . ,(access bc-line :b))
+													   (:height . ,nmf-height)))))))))))
+    ))
+
 (quote
  (let ((antecedents `#(,(make-antecedent 1.0 1.6)
 		       ,(make-antecedent 1.5 1.8)
@@ -1787,7 +1925,25 @@
 		       ,(make-consequent 8 10))))
    ;; (time (loop repeat 1000000
    ;; 	    do (ifis 0.0 antecedents consequents)))
-   (ifis -2.0 antecedents consequents)))
+   (ifis -2.0 antecedents consequents))
+ )
+
+(quote
+ (let ((antecedents `#(,(make-antecedent 1.0 1.5)
+		       ,(make-antecedent 1.5 1.7)
+		       ,(make-antecedent 1.6 1.7)
+		       ,(make-antecedent 1.7 1.8)
+		       ,(make-antecedent 1.7 2)
+		       ))
+       (consequents `#(,(make-consequent 0 4)
+		       ,(make-consequent 4 6)
+		       ,(make-consequent 5 6)
+		       ,(make-consequent 5 8)
+		       ,(make-consequent 8 10))))
+   ;; (time (loop repeat 1000000
+   ;; 	    do (ifis 0.0 antecedents consequents)))
+   (ifis 1.6 antecedents consequents))
+ )
 
 ;; (winning-type-output-dataset *rates* '((:bullish) (:bearish) (:stagnated)))
 ;; (winning-type-output-dataset (get-input-dataset *rates* 1400) '((:bullish) (:bearish) (:stagnated)) :max-dataset-size 500)

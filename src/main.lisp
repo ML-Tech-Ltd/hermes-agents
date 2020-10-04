@@ -123,6 +123,11 @@
 (defun init-database ()
   "Creates all the necessary tables for Overmind Agents."
   (conn
+   (unless (table-exists-p 'rates)
+     (query (:create-table 'rates
+		((id :type string)
+		 (perception-fns :type string))
+	      (:primary-key id))))
    (unless (table-exists-p 'agents)
      (query (:create-table 'agents
 		((id :type string)
@@ -302,6 +307,34 @@
 
 ;; (loop for i from 23 below 72 do (format t "~a: ~a~%" i (get-global-revenue :to (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 0 :day)) :from (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) i :hour)))))
 
+(defun debug-trade ()
+  (let* ((trade (nth 5 (conn (query (:select 'trades.* 'patterns.*
+					     :from 'trades
+					     :inner-join 'patterns-trades
+					     :on (:= 'trades.id 'patterns-trades.trade-id)
+					     :inner-join 'patterns
+					     :on (:= 'patterns.id 'patterns-trades.pattern-id)
+					     :where (:= 'patterns.instrument "USD_CNH")
+					     ) :alists))))
+	 (from (print (* (access trade :creation-time) 1000000)))
+	 (from-timestamp (local-time:unix-to-timestamp (/ from 1000000))))
+    (let* ((instrument (make-keyword (access trade :instrument)))
+	   (timeframe :M1)
+	   (to (* (local-time:timestamp-to-unix (local-time:timestamp+ from-timestamp 3 :day)) 1000000))
+	   (rates (get-rates-range instrument timeframe from to :provider :oanda :type :fx))
+	   (result (get-trade-result (access trade :entry-price)
+				     (access trade :tp)
+				     (access trade :sl)
+				     rates)))
+
+      (format t "Result: ~a~%" result)
+      (format t "Entry: ~a~%" (access trade :entry-price))
+      (format t "TP: ~a~%" (access trade :tp))
+      (format t "SL: ~a~%" (access trade :sl))
+      (if (plusp (access trade :tp))
+	  (loop for rate in rates do (print (access rate :high-bid)))
+	  (loop for rate in rates do (print (access rate :high-bid)))))))
+
 (defun validate-trades ()
   (let ((trades (conn (query (:select 'trades.* 'patterns.*
 				      :from 'trades
@@ -311,7 +344,7 @@
 				      :on (:= 'patterns.id 'patterns-trades.pattern-id)
 				      :where (:is-null 'trades.result)) :alists))))
     (loop for trade in trades
-       do (let* ((from (access trade :test-end-time))
+       do (let* ((from (* (access trade :creation-time) 1000000))
 		 (from-timestamp (local-time:unix-to-timestamp (/ from 1000000))))
 	    ;; (print (make-keyword (access trade :instrument)))
 	    ;; (print (local-time:unix-to-timestamp (/ from 1000000)))

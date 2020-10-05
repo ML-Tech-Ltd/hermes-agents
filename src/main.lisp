@@ -340,11 +340,12 @@
 			     :alists))))
     (loop for trade in trades
        summing (let ((instrument (make-keyword (access trade :instrument))))
-		 (when (or (and (string= (access trade :decision) "SELL")
-				(string= (access trade :type) "BEARISH"))
-			   (and (string= (access trade :decision) "BUY")
-				(string= (access trade :type) "BULLISH")))
-		   (to-pips instrument (access trade :result)))))))
+		 (if (or (and (string= (access trade :decision) "SELL")
+			      (string= (access trade :type) "BEARISH"))
+			 (and (string= (access trade :decision) "BUY")
+			      (string= (access trade :type) "BULLISH")))
+		     (to-pips instrument (access trade :result))
+		     0)))))
 
 ;; (get-global-revenue :to (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 1 :day)) :from (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 5 :day)))
 

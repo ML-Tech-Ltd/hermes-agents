@@ -25,6 +25,9 @@
 	       :plotly-cl
 	       :postmodern
 	       :cl-cpus
+	       :bordeaux-threads
+
+	       :swank
 
 	       :overmind-intuition
 	       :overmind-input

@@ -1,7 +1,7 @@
 ;; (ql:quickload :overmind-agents)
 ;; (ql:quickload :mlforecasting)
 ;; (mlforecasting:start :port 2001)
-;; (loop-optimize-test 10 :instruments '(:AUD_USD))
+;; (loop-optimize-test 1000 :instruments '(:AUD_USD))
 ;; (loop-optimize-test 10)
 ;; (loop-optimize-test 50 :instruments-keys '(:forex) :timeframes-keys '(:all))
 ;; (loop-optimize-test 50 :instruments-keys '(:all) :timeframes-keys '(:longterm))
@@ -371,7 +371,7 @@
       (format t "TP: ~a~%" (access trade :tp))
       (format t "SL: ~a~%" (access trade :sl))
       (if (plusp (access trade :tp))
-	  (loop for rate in rates do (print (access rate :high-bid)))
+	  (loop for rate in rates do (print (access rate :high-ask)))
 	  (loop for rate in rates do (print (access rate :high-bid)))))))
 
 (defun validate-trades ()
@@ -942,8 +942,8 @@
 (defun evaluate-trade (tp sl rates)
   "Refactorize this."
   (let ((starting-rate (if (plusp tp)
-			   (rate-close-bid (first rates))
-			   (rate-close-ask (first rates))))
+			   (rate-close-ask (first rates))
+			   (rate-close-bid (first rates))))
 	(revenue 0)
 	(max-pos 0)
 	(max-neg 0)
@@ -953,11 +953,11 @@
     (loop for rate in (rest rates)
        for idx from 1 below (length (rest rates))
        do (let ((low (if (plusp tp)
-			 (rate-low-ask rate)
-			 (rate-low-bid rate)))
+			 (rate-low-bid rate)
+			 (rate-low-ask rate)))
 		(high (if (plusp tp)
-			  (rate-high-ask rate)
-			  (rate-high-bid rate)))
+			  (rate-high-bid rate)
+			  (rate-high-ask rate)))
 		(time (access rate :time)))
 	    (when (or (= tp 0) (= sl 0))
 	      ;; We move to the next price.
@@ -1161,12 +1161,12 @@
 		  (push (read-from-string (access (nth idx rates) :time)) entry-times)
 		  (push (read-from-string exit-time) exit-times)
 		  (push (if (plusp tp)
-			    (rate-close-bid (nth idx rates))
-			    (rate-close-ask (nth idx rates)))
+			    (rate-close-ask (nth idx rates))
+			    (rate-close-bid (nth idx rates)))
 			entry-prices)
 		  (push (if (plusp tp)
-			    (rate-close-ask (nth finish-idx output-dataset))
-			    (rate-close-bid (nth finish-idx output-dataset)))
+			    (rate-close-bid (nth finish-idx output-dataset))
+			    (rate-close-ask (nth finish-idx output-dataset)))
 			exit-prices)
 		  (push max-pos max-poses)
 		  (push max-neg max-negses)
@@ -1275,10 +1275,10 @@
 		;; Candidate agent was dominated.
 		(progn (setf is-dominated? t)
 		       (return))
-		(when (and (<= avg-revenue avg-revenue-0)
+		(when (and (< avg-revenue avg-revenue-0)
 			   ;; (> stdev-revenue stdev-revenue-0)
-			   (<= trades-won trades-won-0)
-			   (>= trades-lost trades-lost-0))
+			   (< trades-won trades-won-0)
+			   (> trades-lost trades-lost-0))
 		  ;; Candidate agent dominated another agent. Remove it.
 		  (delete-agent agent instrument timeframe types)))))
     (unless is-dominated?
@@ -1633,75 +1633,81 @@
 ;; (push-to-log (random 10) :size 10)
 ;; (read-log)
 
-(defun loop-optimize-test (minutes &key (max-creation-dataset-size 500) (max-training-dataset-size 500) (max-testing-dataset-size 500) (num-rules 4) (report-fn nil) (type-groups '((:bullish) (:bearish) (:stagnated))) (instruments ominp:*forex*) (timeframes ominp:*shortterm*))
+(defun init ()
+  (bt:make-thread
+   (lambda ()
+     (swank:create-server :port 4444))))
+(init)
+
+(defun -loop-optimize-test (&key (minutes 300) (max-creation-dataset-size 500) (max-training-dataset-size 500) (max-testing-dataset-size 500) (num-rules 4) (report-fn nil) (type-groups '((:bullish) (:bearish) (:stagnated))) (instruments ominp:*forex*) (timeframes ominp:*shortterm*))
+  (dolist (instrument instruments)
+    (dolist (timeframe timeframes)
+      (unless (is-market-close)
+	(push-to-log (format nil "<br/><b>STARTING ~s ~s.</b><hr/>" instrument timeframe))
+	(let ((rates (get-rates-count instrument timeframe
+				      (+ max-creation-dataset-size max-training-dataset-size max-testing-dataset-size)
+				      :provider :oanda :type :fx)))
+	  (push-to-log "Retrieved rates successfully.")
+	  (multiple-value-bind (testing-dataset types)
+	      (winning-type-output-dataset rates type-groups
+					   :max-dataset-size max-testing-dataset-size)
+	    (push-to-log (format nil "Testing dataset created successfully. Size: ~s. Dataset from ~a to ~a."
+				 (length testing-dataset)
+				 (local-time:unix-to-timestamp (/ (read-from-string (access (first testing-dataset) :time)) 1000000))
+				 (local-time:unix-to-timestamp (/ (read-from-string (access (last-elt testing-dataset) :time)) 1000000))))
+	    (let* ((dataset-size (length rates))
+		   (testing-dataset-size (length testing-dataset))
+		   (training-dataset (let ((dataset (subseq rates
+							    (- dataset-size testing-dataset-size max-training-dataset-size)
+							    (- dataset-size testing-dataset-size))))
+				       (multiple-value-bind (from to)
+					   (get-rates-chunk-of-types dataset types
+								     :min-chunk-size 200
+								     :max-chunk-size 500)
+					 (subseq dataset from to))))
+		   (creation-dataset (let ((dataset (subseq rates
+							    (- dataset-size testing-dataset-size (length training-dataset) max-creation-dataset-size)
+							    (- dataset-size testing-dataset-size (length training-dataset)))))
+				       (multiple-value-bind (from to)
+					   (get-rates-chunk-of-types dataset types
+								     :min-chunk-size 40
+								     :max-chunk-size 200)
+					 (subseq dataset from to))))
+		   (agents-count (get-agents-count instrument timeframe types)))
+	      (push-to-log (format nil "Creation dataset created successfully. Size: ~s. Dataset from ~a to ~a."
+				   (length creation-dataset)
+				   (local-time:unix-to-timestamp (/ (read-from-string (access (first creation-dataset) :time)) 1000000))
+				   (local-time:unix-to-timestamp (/ (read-from-string (access (last-elt creation-dataset) :time)) 1000000))))
+	      (push-to-log (format nil "Training dataset created successfully. Size: ~s. Dataset from ~a to ~a."
+				   (length training-dataset)
+				   (local-time:unix-to-timestamp (/ (read-from-string (access (first training-dataset) :time)) 1000000))
+				   (local-time:unix-to-timestamp (/ (read-from-string (access (last-elt training-dataset) :time)) 1000000))
+				   ))
+	      (push-to-log (format nil "~a agents retrieved for pattern ~s." agents-count types))
+	      (let ()
+		(push-to-log "<b>SIGNAL.</b><hr/>")
+		(push-to-log (format nil "Trying to create signal with ~a agents." agents-count))
+		(when (> agents-count 0)
+		  (test-agents instrument timeframe types rates training-dataset testing-dataset))
+		(push-to-log "<b>OPTIMIZATION.</b><hr/>")
+		(optimization instrument timeframe types
+			      (lambda () (let ((beliefs (gen-random-perception-fns 2)))
+					   (gen-agent num-rules creation-dataset
+						      (access beliefs :perception-fns)
+						      (access beliefs :lookahead-count)
+						      (access beliefs :lookbehind-count))))
+			      training-dataset
+			      minutes
+			      :report-fn report-fn)
+		;; (test-agents instrument timeframe types rates training-dataset testing-dataset)
+		(push-to-log "Optimization process completed.")
+		(push-to-log "<b>VALIDATION.</b><hr/>")
+		(push-to-log "Validating trades older than 24 hours.")
+		(validate-trades)))))))))
+
+(defun loop-optimize-test (&key )
   (loop (unless (is-market-close))
-     (dolist (instrument instruments)
-       (dolist (timeframe timeframes)
-	 (unless (is-market-close)
-	   (push-to-log (format nil "<br/><b>STARTING ~s ~s.</b><hr/>" instrument timeframe))
-	   (let ((rates (get-rates-count instrument timeframe
-					 (+ max-creation-dataset-size max-training-dataset-size max-testing-dataset-size)
-					 :provider :oanda :type :fx)))
-	     (push-to-log "Retrieved rates successfully.")
-	     (multiple-value-bind (testing-dataset types)
-		 (winning-type-output-dataset rates type-groups
-					      :max-dataset-size max-testing-dataset-size)
-	       (push-to-log (format nil "Testing dataset created successfully. Size: ~s. Dataset from ~a to ~a."
-				    (length testing-dataset)
-				    (local-time:unix-to-timestamp (/ (read-from-string (access (first testing-dataset) :time)) 1000000))
-				    (local-time:unix-to-timestamp (/ (read-from-string (access (last-elt testing-dataset) :time)) 1000000))))
-	       (let* ((dataset-size (length rates))
-		      (testing-dataset-size (length testing-dataset))
-		      (training-dataset (let ((dataset (subseq rates
-							       (- dataset-size testing-dataset-size max-training-dataset-size)
-							       (- dataset-size testing-dataset-size))))
-					  (multiple-value-bind (from to)
-					      (get-rates-chunk-of-types dataset types
-									:min-chunk-size 200
-									:max-chunk-size 500)
-					    (subseq dataset from to))))
-		      (creation-dataset (let ((dataset (subseq rates
-							       (- dataset-size testing-dataset-size (length training-dataset) max-creation-dataset-size)
-							       (- dataset-size testing-dataset-size (length training-dataset)))))
-					  (multiple-value-bind (from to)
-					      (get-rates-chunk-of-types dataset types
-									:min-chunk-size 40
-									:max-chunk-size 200)
-					    (subseq dataset from to))))
-		      (agents-count (get-agents-count instrument timeframe types)))
-		 (push-to-log (format nil "Creation dataset created successfully. Size: ~s. Dataset from ~a to ~a."
-				      (length creation-dataset)
-				      (local-time:unix-to-timestamp (/ (read-from-string (access (first creation-dataset) :time)) 1000000))
-				      (local-time:unix-to-timestamp (/ (read-from-string (access (last-elt creation-dataset) :time)) 1000000))))
-		 (push-to-log (format nil "Training dataset created successfully. Size: ~s. Dataset from ~a to ~a."
-				      (length training-dataset)
-				      (local-time:unix-to-timestamp (/ (read-from-string (access (first training-dataset) :time)) 1000000))
-				      (local-time:unix-to-timestamp (/ (read-from-string (access (last-elt training-dataset) :time)) 1000000))
-				      ))
-		 (push-to-log (format nil "~a agents retrieved for pattern ~s." agents-count types))
-		 (let ()
-		   (push-to-log "<b>SIGNAL.</b><hr/>")
-		   (push-to-log (format nil "Trying to create signal with ~a agents." agents-count))
-		   (when (> agents-count 0)
-		     (test-agents instrument timeframe types rates training-dataset testing-dataset))
-		   (push-to-log "<b>OPTIMIZATION.</b><hr/>")
-		   (optimization instrument timeframe types
-				 (lambda () (let ((beliefs (gen-random-perception-fns 2)))
-					      (gen-agent num-rules creation-dataset
-							 (access beliefs :perception-fns)
-							 (access beliefs :lookahead-count)
-							 (access beliefs :lookbehind-count))))
-				 training-dataset
-				 minutes
-				 :report-fn report-fn)
-		   ;; (test-agents instrument timeframe types rates training-dataset testing-dataset)
-		   (push-to-log "Optimization process completed.")
-		   (push-to-log "<b>VALIDATION.</b><hr/>")
-		   (push-to-log "Validating trades older than 24 hours.")
-		   (validate-trades))
-		 ))))))
-     ;; (remove-bad-agents max-agents-per-pool)
-     ))
+     (-loop-optimize-test)))
 
 (defun sorted-indexes (list &optional (sort-fn #'<))
   (loop

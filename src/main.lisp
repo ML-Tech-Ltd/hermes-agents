@@ -1085,6 +1085,7 @@
 	 (sls)
 	 (entry-times)
 	 (exit-times))
+    (push-to-log "Evaluating agent: ")
     (loop while (< idx (length rates))
        do (let* ((input-dataset (get-input-dataset rates idx))
 		 (output-dataset (get-output-dataset rates idx))
@@ -1099,21 +1100,24 @@
 		 (max-neg (access trade :max-neg))
 		 (exit-time (access trade :exit-time))
 		 (finish-idx (access trade :finish-idx)))
-	    (unless (= revenue 0)
-	      (if (> revenue 0)
-		  (incf trades-won)
-		  (incf trades-lost))
-	      (push tp tps)
-	      (push sl sls)
-	      (push (read-from-string (access (nth idx rates) :time)) entry-times)
-	      (push (read-from-string exit-time) exit-times)
-	      (push (access (nth idx rates) :close-bid) entry-prices)
-	      (push (access (nth finish-idx output-dataset) :close-bid) exit-prices)
-	      (push max-pos max-poses)
-	      (push max-neg max-negses)
-	      (push revenue revenues))
+	    (if (= revenue 0)
+		(push-to-log "." :add-newline? nil)
+		(progn
+		  (push-to-log "+" :add-newline? nil)
+		  (if (> revenue 0)
+		      (incf trades-won)
+		      (incf trades-lost))
+		  (push tp tps)
+		  (push sl sls)
+		  (push (read-from-string (access (nth idx rates) :time)) entry-times)
+		  (push (read-from-string exit-time) exit-times)
+		  (push (access (nth idx rates) :close-bid) entry-prices)
+		  (push (access (nth finish-idx output-dataset) :close-bid) exit-prices)
+		  (push max-pos max-poses)
+		  (push max-neg max-negses)
+		  (push revenue revenues)))
 	    (incf idx finish-idx)))
-    (push-to-log "Agents evaluated successfully.")
+    (push-to-log "<br/>Agents evaluated successfully.")
     `((:begin-time . ,(read-from-string (access (first rates) :time)))
       (:end-time . ,(read-from-string (access (last-elt rates) :time)))
       (:dataset-size . ,(length rates))
@@ -1279,7 +1283,7 @@
 		  (update-agents-fitnesses agents rates)
 		  (let ((agent (evaluate-agent (funcall gen-agent-fn) rates)))
 		    (list (insert-agent agent instrument timeframe types))))))
-    (push-to-log (format nil "~a agents retrieved to start optimization: ~s." (length agents)))
+    (push-to-log (format nil "~a agents retrieved to start optimization." (length agents)))
     (push-to-log (format nil "Performing optimization for ~a seconds." minutes))
     (loop with until-timestamp = (local-time:timestamp+ (local-time:now) minutes :sec)
        do (if (local-time:timestamp> (local-time:now) until-timestamp)
@@ -1561,13 +1565,15 @@
       (push-to-log "Trade created successfully."))))
 
 (let (log)
-  (defun push-to-log (msg &optional (size 100))
-    (push (format nil "<br/>~a<br/>"msg) log)
+  (defun push-to-log (msg &key (add-newline? t) (size 10000))
+    (if add-newline?
+	(push (format nil "~a<br/>" msg) log)
+	(push (format nil "~a" msg) log))
     (when (> (length log) size)
       (setf log (butlast log))))
   (defun read-log ()
     (format nil "~{~a~%~}" (reverse log))))
-;; (push-to-log (random 10) 10)
+;; (push-to-log (random 10) :size 10)
 ;; (read-log)
 
 (defun loop-optimize-test (minutes &key (max-creation-dataset-size 500) (max-training-dataset-size 500) (max-testing-dataset-size 500) (num-rules 4) (report-fn nil) (type-groups '((:bullish) (:bearish) (:stagnated))) (instruments ominp:*forex*) (timeframes ominp:*shortterm*))
@@ -1575,7 +1581,7 @@
      (dolist (instrument instruments)
        (dolist (timeframe timeframes)
 	 (unless (is-market-close)
-	   (push-to-log (format nil "~%Starting, ~s, ~s." instrument timeframe))
+	   (push-to-log (format nil "<br/><b>STARTING ~s ~s.</b>" instrument timeframe))
 	   (let ((rates (get-rates-count instrument timeframe
 					 (+ max-creation-dataset-size max-training-dataset-size max-testing-dataset-size)
 					 :provider :oanda :type :fx)))
@@ -1606,10 +1612,12 @@
 		 (push-to-log (format nil "Creation dataset created successfully, size: ~s." (length creation-dataset)))
 		 (push-to-log (format nil "Training dataset created successfully, size: ~s." (length training-dataset)))
 		 (push-to-log (format nil "~a agents retrieved for pattern ~s." agents-count types))
-		 (ignore-errors
+		 (let ()
+		   (push-to-log "<b>SIGNAL.</b>")
 		   (push-to-log (format nil "Trying to create signal with ~a agents." agents-count))
 		   (when (> agents-count 0)
 		     (test-agents instrument timeframe types rates training-dataset testing-dataset))
+		   (push-to-log "<b>OPTIMIZATION.</b>")
 		   (optimization instrument timeframe types
 				 (lambda () (let ((beliefs (gen-random-perception-fns 2)))
 					      (gen-agent num-rules creation-dataset
@@ -1621,6 +1629,7 @@
 				 :report-fn report-fn)
 		   ;; (test-agents instrument timeframe types rates training-dataset testing-dataset)
 		   (push-to-log "Optimization process completed.")
+		   (push-to-log "<b>VALIDATION.</b>")
 		   (push-to-log "Validating trades older than 24 hours.")
 		   (validate-trades))
 		 ))))))
@@ -1820,201 +1829,201 @@
 ;; (defparameter *rates* (get-rates-count :EUR_JPY :H1 1500 :provider :oanda :type :fx))
 ;; (gen-random-perception-fns 2)
 
-(defun make-consequent (x0 x1)
-  (let* ((m (/ 1
-	       (- x1 x0)))
-	 (b (+ (* m (- x0)) 0)))
-    (lambda (y) (/ (- y b) m))))
-;; (funcall (make-consequent 5 10) 0.0)
-;; (funcall (make-consequent 5 10) 1.0)
+;; (defun make-consequent (x0 x1)
+;;   (let* ((m (/ 1
+;; 	       (- x1 x0)))
+;; 	 (b (+ (* m (- x0)) 0)))
+;;     (lambda (y) (/ (- y b) m))))
+;; ;; (funcall (make-consequent 5 10) 0.0)
+;; ;; (funcall (make-consequent 5 10) 1.0)
 
-;; (funcall (make-consequent 10 5) 0.0)
-;; (funcall (make-consequent 10 5) 1.0)
+;; ;; (funcall (make-consequent 10 5) 0.0)
+;; ;; (funcall (make-consequent 10 5) 1.0)
 
-(defun make-antecedent (x0 x1)
-  (let* ((m (/ 1
-	       (- x1 x0)))
-	 (b (+ (* m (- x0)) 0)))
-    (lambda (x) (+ (* m x) b))))
+;; (defun make-antecedent (x0 x1)
+;;   (let* ((m (/ 1
+;; 	       (- x1 x0)))
+;; 	 (b (+ (* m (- x0)) 0)))
+;;     (lambda (x) (+ (* m x) b))))
 
-;; (funcall (make-antecedent 5 10) 10)
-;; (funcall (make-antecedent 5 10) 1.0)
+;; ;; (funcall (make-antecedent 5 10) 10)
+;; ;; (funcall (make-antecedent 5 10) 1.0)
 
-;; (funcall (make-antecedent 10 5) 0.0)
-;; (funcall (make-antecedent 10 5) 1.0)
+;; ;; (funcall (make-antecedent 10 5) 0.0)
+;; ;; (funcall (make-antecedent 10 5) 1.0)
 
-(defun make-antecedent (mean spread)
-  (lambda (x) (exp (* -0.5 (expt (/ (- x mean) spread) 2)))))
-;; (funcall (make-antecedent 0.5 0.05) 0.5)
+;; (defun make-antecedent (mean spread)
+;;   (lambda (x) (exp (* -0.5 (expt (/ (- x mean) spread) 2)))))
+;; ;; (funcall (make-antecedent 0.5 0.05) 0.5)
 
-(defun ifis (i antecedents consequents)
-  (let ((winner-gm 0)
-	(winner-idx 0))
-    (loop
-       for idx from 0
-       for ant across antecedents
-       do (let ((gm (funcall ant i)))
-	    (when (and (<= gm 1)
-		       (>= gm 0)
-		       (>= gm winner-gm))
-	      (setf winner-idx idx)
-	      (setf winner-gm gm))))
-    (funcall (aref consequents winner-idx) winner-gm)))
+;; (defun ifis (i antecedents consequents)
+;;   (let ((winner-gm 0)
+;; 	(winner-idx 0))
+;;     (loop
+;;        for idx from 0
+;;        for ant across antecedents
+;;        do (let ((gm (funcall ant i)))
+;; 	    (when (and (<= gm 1)
+;; 		       (>= gm 0)
+;; 		       (>= gm winner-gm))
+;; 	      (setf winner-idx idx)
+;; 	      (setf winner-gm gm))))
+;;     (funcall (aref consequents winner-idx) winner-gm)))
 
-(defun make-ifis (agent num-rules rates)
-  "Analytical version."
-  (let* ((perception-fn (gen-perception-fn (ms:unmarshal (read-from-string (access agent :perception-fns)))))
-	 (lookahead-count (access agent :lookahead-count))
-	 (lookbehind-count (access agent :lookbehind-count))
-	 (idxs (get-same-direction-outputs-idxs rates num-rules :lookahead-count lookahead-count :lookbehind-count lookbehind-count))
-	 (chosen-inputs (loop for idx in idxs collect (funcall perception-fn (get-input-dataset rates idx))))
-	 (chosen-outputs (loop for idx in idxs collect (get-tp-sl (get-output-dataset rates idx) lookahead-count)))
-	 (inp-sd (mapcar (lambda (inp) (standard-deviation inp)) (apply #'mapcar #'list chosen-inputs)))
-	 (tps (loop for output in chosen-outputs collect (access output :tp)))
-	 (sls (loop for output in chosen-outputs collect (access output :sl)))
-	 (tp-sd (standard-deviation tps))
-	 (sl-sd (standard-deviation sls))
-	 ;; (mn-inp (- (apply #'min (flatten chosen-inputs)) (apply #'max inp-sd)))
-	 ;; (mx-inp (+ (apply #'max (flatten chosen-inputs)) (apply #'max inp-sd)))
-	 (mn-out-tp (let ((min-chosen (apply #'min tps)))
-		      (if (and (> min-chosen 0) (< (- min-chosen tp-sd) 0))
-			  0.0
-			  (- min-chosen tp-sd))))
-	 (mn-out-sl (let ((min-chosen (apply #'min sls)))
-		      (if (and (> min-chosen 0) (< (- min-chosen sl-sd) 0))
-			  0.0
-			  (- min-chosen sl-sd))))
-	 (mx-out-tp (let ((max-chosen (apply #'max tps)))
-		      (if (and (< max-chosen 0) (> (+ max-chosen tp-sd) 0))
-			  0.0
-			  (+ max-chosen tp-sd))))
-	 (mx-out-sl (let ((max-chosen (apply #'max sls)))
-		      (if (and (< max-chosen 0) (> (+ max-chosen sl-sd) 0))
-			  0.0
-			  (+ max-chosen sl-sd)))))
-    ;; (format t "~a~%" (> (reduce #'* tps) 0))
-    ;; (format t "~a~%" (> (reduce #'* sls) 0))
-    ;; (format t "~a~%" chosen-outputs)
-    ;; (format t "~a .. ~a ~t ~a .. ~a~%" mn-out-tp mx-out-tp mn-out-sl mx-out-sl)
-    (make-if-system :domains (make-domains :antecedents-min 0
-					   :antecedents-max 0
-					   :consequents-min 0
-					   :consequents-max 0)
-		    ;; Handling two outputs.
-		    :rules (loop for j below (* 2 (length chosen-outputs))
-			      collect (loop for i below (length (first chosen-inputs))
-					 collect (let* ((input (nth (floor (/ j 2)) chosen-inputs))
-							(output (if (evenp j)
-								    (nth (floor (/ j 2)) tps)
-								    (nth (floor (/ j 2)) sls)))
-							(out-sd (if (evenp j)
-								    tp-sd
-								    sl-sd))
-							(mn-out (if (evenp j)
-								    mn-out-tp
-								    mn-out-sl))
-							(mx-out (if (evenp j)
-								    mx-out-tp
-								    mx-out-sl))
-							;; TODO: Consider creating different a,b,c for nmf.
-							(ai (* (- (nth i input) (nth i inp-sd)) 1.0d0))
-							(bi (* (nth i input) 1.0d0))
-							(ci (* (+ (nth i input) (nth i inp-sd)) 1.0d0))
+;; (defun make-ifis (agent num-rules rates)
+;;   "Analytical version."
+;;   (let* ((perception-fn (gen-perception-fn (ms:unmarshal (read-from-string (access agent :perception-fns)))))
+;; 	 (lookahead-count (access agent :lookahead-count))
+;; 	 (lookbehind-count (access agent :lookbehind-count))
+;; 	 (idxs (get-same-direction-outputs-idxs rates num-rules :lookahead-count lookahead-count :lookbehind-count lookbehind-count))
+;; 	 (chosen-inputs (loop for idx in idxs collect (funcall perception-fn (get-input-dataset rates idx))))
+;; 	 (chosen-outputs (loop for idx in idxs collect (get-tp-sl (get-output-dataset rates idx) lookahead-count)))
+;; 	 (inp-sd (mapcar (lambda (inp) (standard-deviation inp)) (apply #'mapcar #'list chosen-inputs)))
+;; 	 (tps (loop for output in chosen-outputs collect (access output :tp)))
+;; 	 (sls (loop for output in chosen-outputs collect (access output :sl)))
+;; 	 (tp-sd (standard-deviation tps))
+;; 	 (sl-sd (standard-deviation sls))
+;; 	 ;; (mn-inp (- (apply #'min (flatten chosen-inputs)) (apply #'max inp-sd)))
+;; 	 ;; (mx-inp (+ (apply #'max (flatten chosen-inputs)) (apply #'max inp-sd)))
+;; 	 (mn-out-tp (let ((min-chosen (apply #'min tps)))
+;; 		      (if (and (> min-chosen 0) (< (- min-chosen tp-sd) 0))
+;; 			  0.0
+;; 			  (- min-chosen tp-sd))))
+;; 	 (mn-out-sl (let ((min-chosen (apply #'min sls)))
+;; 		      (if (and (> min-chosen 0) (< (- min-chosen sl-sd) 0))
+;; 			  0.0
+;; 			  (- min-chosen sl-sd))))
+;; 	 (mx-out-tp (let ((max-chosen (apply #'max tps)))
+;; 		      (if (and (< max-chosen 0) (> (+ max-chosen tp-sd) 0))
+;; 			  0.0
+;; 			  (+ max-chosen tp-sd))))
+;; 	 (mx-out-sl (let ((max-chosen (apply #'max sls)))
+;; 		      (if (and (< max-chosen 0) (> (+ max-chosen sl-sd) 0))
+;; 			  0.0
+;; 			  (+ max-chosen sl-sd)))))
+;;     ;; (format t "~a~%" (> (reduce #'* tps) 0))
+;;     ;; (format t "~a~%" (> (reduce #'* sls) 0))
+;;     ;; (format t "~a~%" chosen-outputs)
+;;     ;; (format t "~a .. ~a ~t ~a .. ~a~%" mn-out-tp mx-out-tp mn-out-sl mx-out-sl)
+;;     (make-if-system :domains (make-domains :antecedents-min 0
+;; 					   :antecedents-max 0
+;; 					   :consequents-min 0
+;; 					   :consequents-max 0)
+;; 		    ;; Handling two outputs.
+;; 		    :rules (loop for j below (* 2 (length chosen-outputs))
+;; 			      collect (loop for i below (length (first chosen-inputs))
+;; 					 collect (let* ((input (nth (floor (/ j 2)) chosen-inputs))
+;; 							(output (if (evenp j)
+;; 								    (nth (floor (/ j 2)) tps)
+;; 								    (nth (floor (/ j 2)) sls)))
+;; 							(out-sd (if (evenp j)
+;; 								    tp-sd
+;; 								    sl-sd))
+;; 							(mn-out (if (evenp j)
+;; 								    mn-out-tp
+;; 								    mn-out-sl))
+;; 							(mx-out (if (evenp j)
+;; 								    mx-out-tp
+;; 								    mx-out-sl))
+;; 							;; TODO: Consider creating different a,b,c for nmf.
+;; 							(ai (* (- (nth i input) (nth i inp-sd)) 1.0d0))
+;; 							(bi (* (nth i input) 1.0d0))
+;; 							(ci (* (+ (nth i input) (nth i inp-sd)) 1.0d0))
 							
-							(ac (let ((out (* (- output out-sd) 1.0d0)))
-							      (if (<= out mn-out)
-								  mn-out
-								  out)))
-							(bc (* output 1.0d0))
-							(cc (let ((out (* (+ output out-sd) 1.0d0)))
-							      (if (>= out mx-out)
-								  mx-out
-								  out)))
-							;; TODO: Later we must change this to handle indeterminacy.
-							(mf-height 1d0)
-							(nmf-height 1d0))
-						   (make-rule :antecedent (make-ifs :mf (make-mf :type :triangular
-												 :parameters
-												 (make-ifs-params
-												  := (let ((ab-line (eq-line-two-points `(:x ,ai :y 0d0) `(:x ,bi :y ,mf-height)))
-													   (bc-line (eq-line-two-points `(:x ,bi :y ,mf-height) `(:x ,ci :y 0d0))))
-												       `((:a . ,ai)
-													 (:b . ,bi)
-													 (:c . ,ci)
-													 (:ab-m . ,(access ab-line :m))
-													 (:ab-b . ,(access ab-line :b))
-													 (:bc-m . ,(access bc-line :m))
-													 (:bc-b . ,(access bc-line :b))
-													 (:height . ,mf-height)))))
-										    :nmf (make-nmf :type :triangular
-												   :parameters
-												   (make-ifs-params
-												    := (let ((ab-line (eq-line-two-points `(:x ,ai :y 0d0) `(:x ,bi :y ,nmf-height)))
-													     (bc-line (eq-line-two-points `(:x ,bi :y ,nmf-height) `(:x ,ci :y 0d0))))
-													 `((:a . ,ai)
-													   (:b . ,bi)
-													   (:c . ,ci)
-													   (:ab-m . ,(access ab-line :m))
-													   (:ab-b . ,(access ab-line :b))
-													   (:bc-m . ,(access bc-line :m))
-													   (:bc-b . ,(access bc-line :b))
-													   (:height . ,nmf-height))))))
-							      :consequent (make-ifs :mf (make-mf :type :triangular
-												 :parameters
-												 (make-ifs-params
-												  := (let ((ab-line (eq-line-two-points `(:x ,ac :y 0d0) `(:x ,bc :y ,mf-height)))
-													   (bc-line (eq-line-two-points `(:x ,bc :y ,mf-height) `(:x ,cc :y 0d0))))
-												       `((:a . ,ac)
-													 (:b . ,bc)
-													 (:c . ,cc)
-													 (:ab-m . ,(access ab-line :m))
-													 (:ab-b . ,(access ab-line :b))
-													 (:bc-m . ,(access bc-line :m))
-													 (:bc-b . ,(access bc-line :b))
-													 (:height . ,mf-height)))))
-										    :nmf (make-nmf :type :triangular
-												   :parameters
-												   (make-ifs-params
-												    := (let ((ab-line (eq-line-two-points `(:x ,ac :y 0d0) `(:x ,bc :y ,nmf-height)))
-													     (bc-line (eq-line-two-points `(:x ,bc :y ,nmf-height) `(:x ,cc :y 0d0))))
-													 `((:a . ,ac)
-													   (:b . ,bc)
-													   (:c . ,cc)
-													   (:ab-m . ,(access ab-line :m))
-													   (:ab-b . ,(access ab-line :b))
-													   (:bc-m . ,(access bc-line :m))
-													   (:bc-b . ,(access bc-line :b))
-													   (:height . ,nmf-height)))))))))))
-    ))
+;; 							(ac (let ((out (* (- output out-sd) 1.0d0)))
+;; 							      (if (<= out mn-out)
+;; 								  mn-out
+;; 								  out)))
+;; 							(bc (* output 1.0d0))
+;; 							(cc (let ((out (* (+ output out-sd) 1.0d0)))
+;; 							      (if (>= out mx-out)
+;; 								  mx-out
+;; 								  out)))
+;; 							;; TODO: Later we must change this to handle indeterminacy.
+;; 							(mf-height 1d0)
+;; 							(nmf-height 1d0))
+;; 						   (make-rule :antecedent (make-ifs :mf (make-mf :type :triangular
+;; 												 :parameters
+;; 												 (make-ifs-params
+;; 												  := (let ((ab-line (eq-line-two-points `(:x ,ai :y 0d0) `(:x ,bi :y ,mf-height)))
+;; 													   (bc-line (eq-line-two-points `(:x ,bi :y ,mf-height) `(:x ,ci :y 0d0))))
+;; 												       `((:a . ,ai)
+;; 													 (:b . ,bi)
+;; 													 (:c . ,ci)
+;; 													 (:ab-m . ,(access ab-line :m))
+;; 													 (:ab-b . ,(access ab-line :b))
+;; 													 (:bc-m . ,(access bc-line :m))
+;; 													 (:bc-b . ,(access bc-line :b))
+;; 													 (:height . ,mf-height)))))
+;; 										    :nmf (make-nmf :type :triangular
+;; 												   :parameters
+;; 												   (make-ifs-params
+;; 												    := (let ((ab-line (eq-line-two-points `(:x ,ai :y 0d0) `(:x ,bi :y ,nmf-height)))
+;; 													     (bc-line (eq-line-two-points `(:x ,bi :y ,nmf-height) `(:x ,ci :y 0d0))))
+;; 													 `((:a . ,ai)
+;; 													   (:b . ,bi)
+;; 													   (:c . ,ci)
+;; 													   (:ab-m . ,(access ab-line :m))
+;; 													   (:ab-b . ,(access ab-line :b))
+;; 													   (:bc-m . ,(access bc-line :m))
+;; 													   (:bc-b . ,(access bc-line :b))
+;; 													   (:height . ,nmf-height))))))
+;; 							      :consequent (make-ifs :mf (make-mf :type :triangular
+;; 												 :parameters
+;; 												 (make-ifs-params
+;; 												  := (let ((ab-line (eq-line-two-points `(:x ,ac :y 0d0) `(:x ,bc :y ,mf-height)))
+;; 													   (bc-line (eq-line-two-points `(:x ,bc :y ,mf-height) `(:x ,cc :y 0d0))))
+;; 												       `((:a . ,ac)
+;; 													 (:b . ,bc)
+;; 													 (:c . ,cc)
+;; 													 (:ab-m . ,(access ab-line :m))
+;; 													 (:ab-b . ,(access ab-line :b))
+;; 													 (:bc-m . ,(access bc-line :m))
+;; 													 (:bc-b . ,(access bc-line :b))
+;; 													 (:height . ,mf-height)))))
+;; 										    :nmf (make-nmf :type :triangular
+;; 												   :parameters
+;; 												   (make-ifs-params
+;; 												    := (let ((ab-line (eq-line-two-points `(:x ,ac :y 0d0) `(:x ,bc :y ,nmf-height)))
+;; 													     (bc-line (eq-line-two-points `(:x ,bc :y ,nmf-height) `(:x ,cc :y 0d0))))
+;; 													 `((:a . ,ac)
+;; 													   (:b . ,bc)
+;; 													   (:c . ,cc)
+;; 													   (:ab-m . ,(access ab-line :m))
+;; 													   (:ab-b . ,(access ab-line :b))
+;; 													   (:bc-m . ,(access bc-line :m))
+;; 													   (:bc-b . ,(access bc-line :b))
+;; 													   (:height . ,nmf-height)))))))))))
+;;     ))
 
-(quote
- (let ((antecedents `#(,(make-antecedent 1.0 1.6)
-		       ,(make-antecedent 1.5 1.8)
-		       ,(make-antecedent 1.7 2)))
-       (consequents `#(,(make-consequent 0 4)
-		       ,(make-consequent 4 8)
-		       ,(make-consequent 8 10))))
-   ;; (time (loop repeat 1000000
-   ;; 	    do (ifis 0.0 antecedents consequents)))
-   (ifis -2.0 antecedents consequents))
- )
+;; (quote
+;;  (let ((antecedents `#(,(make-antecedent 1.0 1.6)
+;; 		       ,(make-antecedent 1.5 1.8)
+;; 		       ,(make-antecedent 1.7 2)))
+;;        (consequents `#(,(make-consequent 0 4)
+;; 		       ,(make-consequent 4 8)
+;; 		       ,(make-consequent 8 10))))
+;;    ;; (time (loop repeat 1000000
+;;    ;; 	    do (ifis 0.0 antecedents consequents)))
+;;    (ifis -2.0 antecedents consequents))
+;;  )
 
-(quote
- (let ((antecedents `#(,(make-antecedent 1.0 1.5)
-		       ,(make-antecedent 1.5 1.7)
-		       ,(make-antecedent 1.6 1.7)
-		       ,(make-antecedent 1.7 1.8)
-		       ,(make-antecedent 1.7 2)
-		       ))
-       (consequents `#(,(make-consequent 0 4)
-		       ,(make-consequent 4 6)
-		       ,(make-consequent 5 6)
-		       ,(make-consequent 5 8)
-		       ,(make-consequent 8 10))))
-   ;; (time (loop repeat 1000000
-   ;; 	    do (ifis 0.0 antecedents consequents)))
-   (ifis 1.6 antecedents consequents))
- )
+;; (quote
+;;  (let ((antecedents `#(,(make-antecedent 1.0 1.5)
+;; 		       ,(make-antecedent 1.5 1.7)
+;; 		       ,(make-antecedent 1.6 1.7)
+;; 		       ,(make-antecedent 1.7 1.8)
+;; 		       ,(make-antecedent 1.7 2)
+;; 		       ))
+;;        (consequents `#(,(make-consequent 0 4)
+;; 		       ,(make-consequent 4 6)
+;; 		       ,(make-consequent 5 6)
+;; 		       ,(make-consequent 5 8)
+;; 		       ,(make-consequent 8 10))))
+;;    ;; (time (loop repeat 1000000
+;;    ;; 	    do (ifis 0.0 antecedents consequents)))
+;;    (ifis 1.6 antecedents consequents))
+;;  )
 
 ;; (winning-type-output-dataset *rates* '((:bullish) (:bearish) (:stagnated)))
 ;; (winning-type-output-dataset (get-input-dataset *rates* 1400) '((:bullish) (:bearish) (:stagnated)) :max-dataset-size 500)

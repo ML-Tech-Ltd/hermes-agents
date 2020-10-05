@@ -1275,10 +1275,10 @@
 		;; Candidate agent was dominated.
 		(progn (setf is-dominated? t)
 		       (return))
-		(when (and (< avg-revenue avg-revenue-0)
+		(when (and (<= avg-revenue avg-revenue-0)
 			   ;; (> stdev-revenue stdev-revenue-0)
-			   (< trades-won trades-won-0)
-			   (> trades-lost trades-lost-0))
+			   (<= trades-won trades-won-0)
+			   (>= trades-lost trades-lost-0))
 		  ;; Candidate agent dominated another agent. Remove it.
 		  (delete-agent agent instrument timeframe types)))))
     (unless is-dominated?

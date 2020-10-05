@@ -1013,9 +1013,9 @@
   (length (get-agent-ids-from-patterns instrument timeframe types)))
 
 (defun describe-agents ()
-  (loop for instrument in ominp:*forex*
-     do (loop for types in '((:bullish) (:bearish) (:stagnated))
-	   do (print `(,instrument ,types ,(get-agents-count instrument :H1 types))))))
+  (format nil "<b>AGENTS POOL.</b><br/>~{~a<br/>~}<br/>" (flatten (loop for instrument in ominp:*forex*
+					collect (loop for types in '((:bullish) (:bearish) (:stagnated))
+						   collect (format nil "~a, ~a, ~a" instrument types (get-agents-count instrument :H1 types)))))))
 ;; (describe-agents)
 
 (defun get-trades (&optional limit)
@@ -1620,14 +1620,16 @@
       (push-to-log "Trade created successfully."))))
 
 (let (log)
-  (defun push-to-log (msg &key (add-newline? t) (size 10000))
+  (defun push-to-log (msg &key (add-newline? t) (size 100000))
     (if add-newline?
 	(push (format nil "~a<br/>" msg) log)
 	(push (format nil "~a" msg) log))
     (when (> (length log) size)
       (setf log (butlast log))))
   (defun read-log ()
-    (format nil "~{~a~%~}" (reverse log))))
+    (format nil "~a<b>LOG.</b><br/>~{~a~%~}"
+	    (describe-agents)
+	    (reverse log))))
 ;; (push-to-log (random 10) :size 10)
 ;; (read-log)
 

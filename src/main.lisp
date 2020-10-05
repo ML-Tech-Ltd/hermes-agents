@@ -1013,7 +1013,7 @@
   (length (get-agent-ids-from-patterns instrument timeframe types)))
 
 (defun describe-agents ()
-  (format nil "<b>AGENTS POOL.</b><br/>~{~a<br/>~}<br/>" (flatten (loop for instrument in ominp:*forex*
+  (format nil "<b>AGENTS POOL.</b><br/><hr/><br/>~{~a<br/>~}<br/>" (flatten (loop for instrument in ominp:*forex*
 					collect (loop for types in '((:bullish) (:bearish) (:stagnated))
 						   collect (format nil "~a, ~a, ~a" instrument types (get-agents-count instrument :H1 types)))))))
 ;; (describe-agents)
@@ -1627,7 +1627,7 @@
     (when (> (length log) size)
       (setf log (butlast log))))
   (defun read-log ()
-    (format nil "~a<b>LOG.</b><br/>~{~a~%~}"
+    (format nil "~a<b>LOG.</b><hr/><br/>~{~a~%~}"
 	    (describe-agents)
 	    (reverse log))))
 ;; (push-to-log (random 10) :size 10)
@@ -1638,7 +1638,7 @@
      (dolist (instrument instruments)
        (dolist (timeframe timeframes)
 	 (unless (is-market-close)
-	   (push-to-log (format nil "<br/><b>STARTING ~s ~s.</b>" instrument timeframe))
+	   (push-to-log (format nil "<br/><b>STARTING ~s ~s.</b><hr/>" instrument timeframe))
 	   (let ((rates (get-rates-count instrument timeframe
 					 (+ max-creation-dataset-size max-training-dataset-size max-testing-dataset-size)
 					 :provider :oanda :type :fx)))
@@ -1680,12 +1680,11 @@
 				      ))
 		 (push-to-log (format nil "~a agents retrieved for pattern ~s." agents-count types))
 		 (let ()
-		   (push-to-log "<b>SIGNAL.</b>")
+		   (push-to-log "<b>SIGNAL.</b><hr/>")
 		   (push-to-log (format nil "Trying to create signal with ~a agents." agents-count))
 		   (when (> agents-count 0)
 		     (test-agents instrument timeframe types rates training-dataset testing-dataset))
-		   (push-to-log "<b>OPTIMIZATION.</b>")
-		   (push-to-log "<b>OPTIMIZATION.</b>")
+		   (push-to-log "<b>OPTIMIZATION.</b><hr/>")
 		   (optimization instrument timeframe types
 				 (lambda () (let ((beliefs (gen-random-perception-fns 2)))
 					      (gen-agent num-rules creation-dataset
@@ -1697,7 +1696,7 @@
 				 :report-fn report-fn)
 		   ;; (test-agents instrument timeframe types rates training-dataset testing-dataset)
 		   (push-to-log "Optimization process completed.")
-		   (push-to-log "<b>VALIDATION.</b>")
+		   (push-to-log "<b>VALIDATION.</b><hr/>")
 		   (push-to-log "Validating trades older than 24 hours.")
 		   (validate-trades))
 		 ))))))

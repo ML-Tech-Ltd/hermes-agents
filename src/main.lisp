@@ -545,6 +545,7 @@
    (ifis :col-type string :initarg :ifis)
    (creation-begin-time :col-type (or db-null int8) :initarg :creation-begin-time :initform :null)
    (creation-end-time :col-type (or db-null int8) :initarg :creation-end-time :initform :null)
+   (begin-time :col-type (or db-null int8) :initarg :begin-time :initform :null)
    (end-time :col-type (or db-null int8) :initarg :train-end-time :initform :null)
    (dataset-size :col-type (or db-null integer) :initarg :test-dataset-size :initform :null)
    (avg-revenue :col-type (or db-null double-float) :initarg :test-avg-revenue :initform :null)
@@ -1643,7 +1644,10 @@
 	     (multiple-value-bind (testing-dataset types)
 		 (winning-type-output-dataset rates type-groups
 					      :max-dataset-size max-testing-dataset-size)
-	       (push-to-log (format nil "Testing dataset created successfully, size: ~s." (length testing-dataset)))
+	       (push-to-log (format nil "Testing dataset created successfully. Size: ~s. Dataset from ~a to ~a."
+				    (length testing-dataset)
+				    (local-time:unix-to-timestamp (/ (read-from-string (access (first testing-dataset) :time)) 1000000))
+				    (local-time:unix-to-timestamp (/ (read-from-string (access (last-elt testing-dataset) :time)) 1000000))))
 	       (let* ((dataset-size (length rates))
 		      (testing-dataset-size (length testing-dataset))
 		      (training-dataset (let ((dataset (subseq rates
@@ -1663,14 +1667,22 @@
 									:max-chunk-size 200)
 					    (subseq dataset from to))))
 		      (agents-count (get-agents-count instrument timeframe types)))
-		 (push-to-log (format nil "Creation dataset created successfully, size: ~s." (length creation-dataset)))
-		 (push-to-log (format nil "Training dataset created successfully, size: ~s." (length training-dataset)))
+		 (push-to-log (format nil "Creation dataset created successfully. Size: ~s. Dataset from ~a to ~a."
+				      (length creation-dataset)
+				      (local-time:unix-to-timestamp (/ (read-from-string (access (first creation-dataset) :time)) 1000000))
+				      (local-time:unix-to-timestamp (/ (read-from-string (access (last-elt creation-dataset) :time)) 1000000))))
+		 (push-to-log (format nil "Training dataset created successfully. Size: ~s. Dataset from ~a to ~a."
+				      (length training-dataset)
+				      (local-time:unix-to-timestamp (/ (read-from-string (access (first training-dataset) :time)) 1000000))
+				      (local-time:unix-to-timestamp (/ (read-from-string (access (last-elt training-dataset) :time)) 1000000))
+				      ))
 		 (push-to-log (format nil "~a agents retrieved for pattern ~s." agents-count types))
 		 (let ()
 		   (push-to-log "<b>SIGNAL.</b>")
 		   (push-to-log (format nil "Trying to create signal with ~a agents." agents-count))
 		   (when (> agents-count 0)
 		     (test-agents instrument timeframe types rates training-dataset testing-dataset))
+		   (push-to-log "<b>OPTIMIZATION.</b>")
 		   (push-to-log "<b>OPTIMIZATION.</b>")
 		   (optimization instrument timeframe types
 				 (lambda () (let ((beliefs (gen-random-perception-fns 2)))

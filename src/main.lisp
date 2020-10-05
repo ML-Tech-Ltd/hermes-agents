@@ -324,7 +324,7 @@
 ;; (to-pips :USD_CZK 0.010)
 
 (defun get-global-revenue (&key from to)
-  (let ((trades (conn (query (:select 'trades.result 'patterns.instrument
+  (let ((trades (conn (query (:select 'trades.result 'trades.decision 'patterns.*
 				      :from 'trades
 				      :inner-join 'patterns-trades
 				      :on (:= 'trades.id 'patterns-trades.trade-id)
@@ -332,7 +332,7 @@
 				      :on (:= 'patterns.id 'patterns-trades.pattern-id)
 				      :where (:and (:not (:is-null 'trades.result))
 						   (:>= 'creation-time from)
-						   (:not (:= 'patterns.instrument "USD_CNH"))
+						   ;; (:not (:= 'patterns.instrument "USD_CNH"))
 						   ;; (:not (:= 'patterns.type "STAGNATED"))
 						   ;; (:= 'patterns.type "STAGNATED")
 						   ;; (:= 'patterns.instrument "USD_CNH")
@@ -340,7 +340,11 @@
 			     :alists))))
     (loop for trade in trades
        summing (let ((instrument (make-keyword (access trade :instrument))))
-		 (to-pips instrument (access trade :result))))))
+		 (when (or (and (string= (access trade :decision) "SELL")
+				(string= (access trade :type) "BEARISH"))
+			   (and (string= (access trade :decision) "BUY")
+				(string= (access trade :type) "BULLISH")))
+		   (to-pips instrument (access trade :result)))))))
 
 ;; (get-global-revenue :to (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 1 :day)) :from (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 5 :day)))
 

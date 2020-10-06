@@ -2,7 +2,7 @@
 ;; (ql:quickload :mlforecasting)
 ;; (mlforecasting:start :port 2001)
 ;; (loop-optimize-test 1000 :instruments '(:AUD_USD))
-;; (loop-optimize-test 10)
+;; (loop-optimize-test)
 ;; (loop-optimize-test 50 :instruments-keys '(:forex) :timeframes-keys '(:all))
 ;; (loop-optimize-test 50 :instruments-keys '(:all) :timeframes-keys '(:longterm))
 ;; (loop-optimize-test 50 :instruments-keys '(:metals) :timeframes-keys '(:longterm))
@@ -223,6 +223,7 @@
    (unless (table-exists-p 'trades)
      (query (:create-table 'trades
 		((id :type string)
+		 (agent-id :type (or db-null string))
 		 (creation-time :type integer)
 		 (decision :type string)
 		 (result :type (or db-null double-float))
@@ -606,6 +607,7 @@
 
 (defclass trade ()
   ((id :col-type string :initform (format nil "~a" (uuid:make-v4-uuid)) :initarg :id)
+   (agent-id :col-type (or db-null string) :initform (format nil "~a" (uuid:make-v4-uuid)) :initarg :id)
    (creation-time :col-type integer :initarg :creation-time)
    (decision :col-type string :initarg :decision)
    (result :col-type (or db-null double-float) :initarg :result)
@@ -1229,7 +1231,8 @@
 	 (tp (-> (access response :tp) :cx))
 	 (sl (-> (access response :sl) :cx)))
     `((:tp . ,tp)
-      (:sl . ,sl))))
+      (:sl . ,sl)
+      (:agent-id . ,(access agent :id)))))
 ;; (get-prediction :EUR_USD :H1 '(:BULLISH) (subseq *rates* 0 100))
 
 (defun update-agent-fitnesses (agent rates)
@@ -1285,8 +1288,10 @@
 			   (<= trades-won trades-won-0)
 			   (>= trades-lost trades-lost-0))
 		  ;; Candidate agent dominated another agent. Remove it.
+		  (push-to-log (format nil "Removing agent with ID: ~a" (access agent :id)))
 		  (delete-agent agent instrument timeframe types)))))
     (unless is-dominated?
+      (push-to-log (format nil "Inserting new agent with ID: ~a" (access agent :id)))
       (insert-agent agent instrument timeframe types))))
 
 (defun plotly-candlestick (rates)
@@ -1353,6 +1358,8 @@
 		(push-to-log (format nil "Updating Pareto frontier with ~a agents." (length agents)))
 		(update-pareto-frontier agent agents instrument timeframe types)
 		(push-to-log "Pareto frontier updated successfully.")
+		;; (push-to-log (format nil "Inserting new agent with ID: ~a" (access agent :id)))
+		;; (insert-agent agent instrument timeframe types)
 		(when report-fn
 		  (funcall report-fn (get-agents instrument timeframe types :limit -1) rates))))))
   ;; (loop repeat minutes
@@ -1521,9 +1528,10 @@
 ;; (get-last-tests '(:EUR_USD :GBP_USD) '(:H1 :D) 3)
 ;; (get-last-tests '(:GBP_USD) '(:H1))
 
-(defun insert-trade (instrument timeframe types train-fitnesses test-fitnesses prediction rates)
+(defun insert-trade (agent-id instrument timeframe types train-fitnesses test-fitnesses prediction rates)
   (conn (let ((patterns (get-patterns instrument timeframe types))
 	      (trade (make-dao 'trade
+			       :agent-id agent-id
 			       :creation-time (local-time:timestamp-to-unix (local-time:now))
 			       :decision (if (= (access prediction :tp) 0)
 					     "HOLD"
@@ -1620,8 +1628,8 @@
 	       (/= (+ (access test-fitnesses :trades-won)
 		      (access test-fitnesses :trades-lost))
 		   0))
-      (push-to-log "Trying to create trade.")
-      (insert-trade instrument timeframe types train-fitnesses test-fitnesses prediction rates)
+      (push-to-log (format nil "Trying to create trade. Agent ID: ~a" (access prediction :agent-id)))
+      (insert-trade (access prediction :agent-id) instrument timeframe types train-fitnesses test-fitnesses prediction rates)
       (push-to-log "Trade created successfully."))))
 
 (let (log)

@@ -18,6 +18,7 @@
 	:alexandria
         :computable-reals
 	:random-state
+	:defenum
 	:overmind-code
 	:overmind-input
 	:overmind-perception
@@ -88,7 +89,7 @@
     (drop-table 'trades)))
 ;; (drop-database)
 
-;; (progn (drop-database) (init-database) (init-patterns))
+;; (progn (drop-database) (init-database) (init-patterns) (clear-log))
 
 ;; (ql:update-all-dists)
 
@@ -171,7 +172,8 @@
 		 (perception-fns :type string)
 		 (lookahead-count :type integer)
 		 (lookbehind-count :type integer)
-		 (ifis :type string)
+		 (antecedents :type string)
+		 (consequents :type string)
 		 (creation-begin-time :type (or db-null int8))
 		 (creation-end-time :type (or db-null int8))
 		 (begin-time :type (or db-null int8))
@@ -337,7 +339,8 @@
 						   ;; (:not (:= 'patterns.type "STAGNATED"))
 						   ;; (:= 'patterns.type "STAGNATED")
 						   ;; (:= 'patterns.instrument "USD_CNH")
-						   (:<= 'creation-time to)))
+						   (:<= 'creation-time to)
+						   ))
 			     :alists))))
     (loop for trade in trades
        summing (let ((instrument (make-keyword (access trade :instrument))))
@@ -416,7 +419,7 @@
 		(sleep 1)))))))
 ;; (validate-trades)
 
-(defun ->delta-close (rates &key (offset 0))
+(defun ->delta-close (rates offset)
   (let* ((lrates (length rates))
 	 (last-candle (nth (- lrates offset 1) rates))
 	 (penultimate-candle (nth (- lrates (1+ offset) 1) rates)))
@@ -424,11 +427,52 @@
        (rate-close penultimate-candle))))
 ;; (->delta-close *rates*)
 
-(defun ->sma-close (rates &key (offset 0) (n 10))
-  (mean (loop for i below n
-	   collect (->delta-close rates :offset (+ i offset)))))
+(defun ->sma-close (rates offset n)
+  (/ (loop for i below n
+	summing (->delta-close rates (+ i offset)))
+     n))
 
-(defun ->high-height (rates &key (offset 0))
+(defun ->wma-close (rates offset n)
+  (/ (loop
+	for i below n
+	for j from n above 0
+	summing (* j (->delta-close rates (+ i offset))))
+     (* n (1+ n) 1/2)))
+
+(defun ->ema-close (rates offset n)
+  (let ((smoothing (/ 2 (1+ n))))
+    ))
+
+;; (describe-trades 1000)
+
+(defun ->rsi-close (rates offset n)
+  (let ((gain 0)
+	(loss 0))
+    (loop for i from 0 below n
+       do (let ((delta (->delta-close rates (+ offset i))))
+	    (if (plusp delta)
+		(incf gain delta)
+		(incf loss (abs delta)))))
+    (if (= loss 0)
+	100
+	(let ((rs (/ (/ gain n) (/ loss n))))
+	  (- 100 (/ 100 (1+ rs)))))))
+
+(defun exponential-moving-average (period sequence)
+  "This function calculates the exponential moving average (EMA) of a sequence."
+  ;;; XXX: This is too slow!
+  (let ((smoothing-factor (/ 2 (1+ period)))) ; This is alpha.
+    (loop for end from period to (length sequence) collect
+          ;; This should actually be divided by 1+(1-a)+(1-a)**2+... as an
+          ;; infinite summation, but this approaches 1/a.
+          (* smoothing-factor
+             (sum (mapcar #'*
+                          ;; These are the weights.
+                          (loop for e from 0 to (length sequence) collect
+                                (expt (1- smoothing-factor) e))
+                          (subseq sequence (- end period) end)))))))
+
+(defun ->high-height (rates offset)
   (let* ((lrates (length rates))
 	 (last-candle (nth (- lrates offset 1) rates)))
     (- (rate-high last-candle)
@@ -437,7 +481,7 @@
 	   (rate-open last-candle)
 	   (rate-close last-candle)))))
 
-(defun ->low-height (rates &key (offset 0))
+(defun ->low-height (rates offset)
   (let* ((lrates (length rates))
 	 (last-candle (nth (- lrates offset 1) rates)))
     (- (if (> (rate-open last-candle)
@@ -446,7 +490,7 @@
 	   (rate-open last-candle))
        (rate-low last-candle))))
 
-(defun ->candle-height (rates &key (offset 0))
+(defun ->candle-height (rates offset)
   (let* ((lrates (length rates))
 	 (last-candle (nth (- lrates offset 1) rates)))
     (abs (- (rate-close last-candle)
@@ -454,101 +498,92 @@
 
 ;; (->delta-close-bid *rates* :offset 1)
 
-(defparameter *beliefs*
-  `((:perception-fns . (((:fn . ->high-height) (:offset . 2))
-			((:fn . ->low-height) (:offset . 2))
-			((:fn . ->candle-height) (:offset . 2))
-			((:fn . ->high-height) (:offset . 1))
-			((:fn . ->low-height) (:offset . 1))
-			((:fn . ->candle-height) (:offset . 1))
-			((:fn . ->high-height) (:offset . 0))
-			((:fn . ->low-height) (:offset . 0))
-			((:fn . ->candle-height) (:offset . 0))))
-    (:lookahead-count . 10)
-    (:lookbehind-count . 5)))
+(defenum perceptions
+    (->sma-close
+     ->wma-close
+     ->rsi-close
+     ;; ->delta-close
+     ;; ->high-height
+     ;; ->low-height
+     ;; ->candle-height
+     ))
 
-(defparameter *beliefs*
-  `((:perception-fns . (((:fn . ->sma-close) (:offset . 9))
-			((:fn . ->sma-close) (:offset . 8))
-			((:fn . ->sma-close) (:offset . 7))
-			((:fn . ->sma-close) (:offset . 6))
-			((:fn . ->sma-close) (:offset . 5))
-			((:fn . ->sma-close) (:offset . 4))
-			((:fn . ->sma-close) (:offset . 3))
-			((:fn . ->sma-close) (:offset . 2))
-			((:fn . ->sma-close) (:offset . 1))
-			((:fn . ->sma-close) (:offset . 0))))
-    (:lookahead-count . 10)
-    (:lookbehind-count . 20)))
+(defun random->sma-close ()
+  (let ((offset (random-int *rand-gen* 0 9))
+	(n (random-int *rand-gen* 3 14)))
+    (values `#(,->sma-close ,offset ,n)
+	    (+ offset n))))
+(defun random->wma-close ()
+  (let ((offset (random-int *rand-gen* 0 9))
+	(n (random-int *rand-gen* 3 14)))
+    (values `#(,->wma-close ,offset ,n)
+	    (+ offset n))))
+(defun random->rsi-close ()
+  (let ((offset (random-int *rand-gen* 0 9))
+	(n (random-int *rand-gen* 10 14)))
+    (values `#(,->rsi-close ,offset ,n)
+	    (+ offset n))))
+(defun random->high-height ()
+  (let ((offset (random-int *rand-gen* 0 24)))
+    (values `#(,->high-height ,offset)
+	    offset)))
+(defun random->low-height ()
+  (let ((offset (random-int *rand-gen* 0 24)))
+    (values `#(,->low-height ,offset)
+	    offset)))
+(defun random->candle-height ()
+  (let ((offset (random-int *rand-gen* 0 24)))
+    (values `#(,->candle-height ,offset)
+	    offset)))
+(defun random->delta-close ()
+  (let ((offset (random-int *rand-gen* 0 24)))
+    (values `#(,->delta-close ,offset)
+	    offset)))
 
-(defparameter *beliefs*
-  `((:perception-fns . (((:fn . ->delta-close) (:offset . 2))
-			((:fn . ->delta-close) (:offset . 1))
-			((:fn . ->delta-close) (:offset . 0))))
-    (:lookahead-count . 10)
-    (:lookbehind-count . 4)))
-
-(defparameter *beliefs*
-  `((:perception-fns . (((:fn . ->high-height) (:offset . 2))
-			((:fn . ->low-height) (:offset . 2))
-			((:fn . ->candle-height) (:offset . 2))
-			((:fn . ->high-height) (:offset . 1))
-			((:fn . ->low-height) (:offset . 1))
-			((:fn . ->candle-height) (:offset . 1))
-			((:fn . ->high-height) (:offset . 0))
-			((:fn . ->low-height) (:offset . 0))
-			((:fn . ->candle-height) (:offset . 0))))
-    (:lookahead-count . 10)
-    (:lookbehind-count . 5)))
-
-(defparameter *beliefs*
-  `((:perception-fns . (((:fn . ->sma-close) (:offset . 0) (:n . 15))
-			((:fn . ->sma-close) (:offset . 0) (:n . 5))
-			))
-    (:lookahead-count . 10)
-    (:lookbehind-count . 16)))
-
-(defun gen-random-perception-fns (fns-count)
-  (let ((fns-bag '(((:fn . ->sma-close) (:offset . 0) (:n . 13))
-		   ((:fn . ->sma-close) (:offset . 0) (:n . 11))
-		   ((:fn . ->sma-close) (:offset . 0) (:n . 9))
-		   ((:fn . ->sma-close) (:offset . 0) (:n . 7))
-		   ((:fn . ->sma-close) (:offset . 0) (:n . 5))
-		   ((:fn . ->sma-close) (:offset . 0) (:n . 3))
-		   ((:fn . ->high-height) (:offset . 2))
-		   ((:fn . ->low-height) (:offset . 2))
-		   ((:fn . ->candle-height) (:offset . 2))
-		   ((:fn . ->high-height) (:offset . 1))
-		   ((:fn . ->low-height) (:offset . 1))
-		   ((:fn . ->candle-height) (:offset . 1))
-		   ((:fn . ->high-height) (:offset . 0))
-		   ((:fn . ->low-height) (:offset . 0))
-		   ((:fn . ->candle-height) (:offset . 0))
-		   ((:fn . ->delta-close) (:offset . 2))
-		   ((:fn . ->delta-close) (:offset . 1))
-		   ((:fn . ->delta-close) (:offset . 0))
-		   )))
-    `((:perception-fns . ,(subseq (shuffle fns-bag) 0 fns-count))
+(defun gen-random-beliefs (fns-count)
+  (let ((fns-bag `(,#'random->sma-close
+		   ,#'random->wma-close
+		   ,#'random->rsi-close
+		   ;; ,#'random->high-height
+		   ;; ,#'random->low-height
+		   ;; ,#'random->candle-height
+		   ;; ,#'random->delta-close
+		   ))
+	(max-lookbehind 0)
+	(perceptions))
+    (loop repeat fns-count
+       collect (multiple-value-bind (perc lookbehind)
+		   (funcall (random-elt fns-bag))
+		 (when (> lookbehind max-lookbehind)
+		   (setf max-lookbehind lookbehind))
+		 (push perc perceptions)))
+    `((:perception-fns . ,(make-array (length perceptions) :initial-contents perceptions))
       (:lookahead-count . 10)
-      (:lookbehind-count . 16))))
-;; (gen-random-perception-fns 2)
+      (:lookbehind-count . ,(+ 10 max-lookbehind)))))
+;; (gen-random-beliefs 30)
 
 (defun gen-perception-fn (perception-fns)
   (lambda (rates)
-    (loop for fn in perception-fns
-       collect (apply #'funcall (access fn :fn) rates (flatten (rest fn))))))
+    (loop for fn across perception-fns
+       collect (apply #'funcall
+		      (nth-enum-tag (aref fn 0) 'perceptions)
+		      rates (coerce (subseq fn 1) 'list)))))
 
 ;; (let ((fn '((:fn . ->sma-close) (:offset . 0) (:n . 20))))
 ;;   (apply #'funcall (access fn :fn) *rates* (flatten (rest fn))))
 
-;; (funcall (gen-perception-fn (access *beliefs* :perception-fns)) *rates*)
+;; (time (loop repeat 1000 do (funcall (gen-perception-fn #(#(0 0 10) #(0 1 10) #(1 0))) *rates*)))
+
+;; (let ((perc-fn (gen-perception-fn #(#(0 0 10) #(0 1 10) #(0 1 10) #(0 1 10) #(0 1 10) #(0 1 10) #(0 1 10) #(0 1 10) #(0 1 10) #(1 0)))))
+;;   (time (loop repeat 1000 do (funcall perc-fn *rates*))))
 
 (defclass agent ()
   ((id :col-type string :initform (format nil "~a" (uuid:make-v4-uuid)) :initarg :id)
-   (perception-fns :col-type string :initarg :perception-fn)
+   (perception-fns :col-type string :initarg :perception-fns)
    (lookahead-count :col-type integer :initarg :lookahead-count)
    (lookbehind-count :col-type integer :initarg :lookbehind-count)
-   (ifis :col-type string :initarg :ifis)
+   (antecedents :col-type string :initarg :antecedents)
+   (consequents :col-type string :initarg :consequents)
    (creation-begin-time :col-type (or db-null int8) :initarg :creation-begin-time :initform :null)
    (creation-end-time :col-type (or db-null int8) :initarg :creation-end-time :initform :null)
    (begin-time :col-type (or db-null int8) :initarg :begin-time :initform :null)
@@ -672,26 +707,6 @@
   (:table-name trades)
   (:keys id))
 
-;; (conn
-;;   (let ((agent (make-instance 'agent)))
-;;     (setf (access agent :beliefs) (format nil "~s" (ms:marshal *beliefs*)))
-;;     (setf (access agent :rules) (format nil "~s" (ms:marshal (gen-ifis agent 4 *rates*))))
-;;     (print (access agent :id))
-;;     (insert-dao agent)
-;;     ))
-;; (conn
-;;   (access (get-dao 'agent "A8E60D60-1E90-4191-B225-E151C72FD455") :beliefs))
-;; (access (make-instance 'agent) :rules)
-;; (funcall (gen-perception-fn (access (ms:unmarshal (ms:marshal *beliefs*)) :perception-fns)) *rates*)
-
-(defmethod ms:class-persistent-slots ((self agent))
-  '(beliefs rules fitnesses))
-
-;; (let* ((agents (update-agents-fitnesses (gen-agents 10 3 *rates*) *rates*))
-;;        (ds-agents (ms:unmarshal (ms:marshal agents))))
-;;   (list (access (evaluate-agents agents *rates*) :avg-revenue)
-;; 	(access (evaluate-agents ds-agents *rates*) :avg-revenue)))
-
 (defun get-tp-sl (rates &optional (lookahead-count 10))
   (let* ((init-rate (rate-close (first rates)))
 	 (max-pos 0)
@@ -752,132 +767,6 @@
     `((:m . ,m) (:b . ,b))))
 ;; (eq-line-two-points '(:x 3 :y 7) '(:x 5 :y 11))
 
-(defun gen-ifis (agent num-rules rates)
-  "Analytical version."
-  (let* ((perception-fn (gen-perception-fn (ms:unmarshal (read-from-string (access agent :perception-fns)))))
-	 (lookahead-count (access agent :lookahead-count))
-	 (lookbehind-count (access agent :lookbehind-count))
-	 (idxs (get-same-direction-outputs-idxs rates num-rules :lookahead-count lookahead-count :lookbehind-count lookbehind-count))
-	 (chosen-inputs (loop for idx in idxs collect (funcall perception-fn (get-input-dataset rates idx))))
-	 (chosen-outputs (loop for idx in idxs collect (get-tp-sl (get-output-dataset rates idx) lookahead-count)))
-	 (inp-sd (mapcar (lambda (inp) (standard-deviation inp)) (apply #'mapcar #'list chosen-inputs)))
-	 (tps (loop for output in chosen-outputs collect (access output :tp)))
-	 (sls (loop for output in chosen-outputs collect (access output :sl)))
-	 (tp-sd (standard-deviation tps))
-	 (sl-sd (standard-deviation sls))
-	 ;; (mn-inp (- (apply #'min (flatten chosen-inputs)) (apply #'max inp-sd)))
-	 ;; (mx-inp (+ (apply #'max (flatten chosen-inputs)) (apply #'max inp-sd)))
-	 (mn-out-tp (let ((min-chosen (apply #'min tps)))
-		      (if (and (> min-chosen 0) (< (- min-chosen tp-sd) 0))
-			  0.0
-			  (- min-chosen tp-sd))))
-	 (mn-out-sl (let ((min-chosen (apply #'min sls)))
-		      (if (and (> min-chosen 0) (< (- min-chosen sl-sd) 0))
-			  0.0
-			  (- min-chosen sl-sd))))
-	 (mx-out-tp (let ((max-chosen (apply #'max tps)))
-		      (if (and (< max-chosen 0) (> (+ max-chosen tp-sd) 0))
-			  0.0
-			  (+ max-chosen tp-sd))))
-	 (mx-out-sl (let ((max-chosen (apply #'max sls)))
-		      (if (and (< max-chosen 0) (> (+ max-chosen sl-sd) 0))
-			  0.0
-			  (+ max-chosen sl-sd)))))
-    ;; (format t "~a~%" (> (reduce #'* tps) 0))
-    ;; (format t "~a~%" (> (reduce #'* sls) 0))
-    ;; (format t "~a~%" chosen-outputs)
-    ;; (format t "~a .. ~a ~t ~a .. ~a~%" mn-out-tp mx-out-tp mn-out-sl mx-out-sl)
-    (make-if-system :domains (make-domains :antecedents-min 0
-					   :antecedents-max 0
-					   :consequents-min 0
-					   :consequents-max 0)
-		    ;; Handling two outputs.
-		    :rules (loop for j below (* 2 (length chosen-outputs))
-			      collect (loop for i below (length (first chosen-inputs))
-					 collect (let* ((input (nth (floor (/ j 2)) chosen-inputs))
-							(output (if (evenp j)
-								    (nth (floor (/ j 2)) tps)
-								    (nth (floor (/ j 2)) sls)))
-							(out-sd (if (evenp j)
-								    tp-sd
-								    sl-sd))
-							(mn-out (if (evenp j)
-								    mn-out-tp
-								    mn-out-sl))
-							(mx-out (if (evenp j)
-								    mx-out-tp
-								    mx-out-sl))
-							;; TODO: Consider creating different a,b,c for nmf.
-							(ai (* (- (nth i input) (nth i inp-sd)) 1.0d0))
-							(bi (* (nth i input) 1.0d0))
-							(ci (* (+ (nth i input) (nth i inp-sd)) 1.0d0))
-							
-							(ac (let ((out (* (- output out-sd) 1.0d0)))
-							      (if (<= out mn-out)
-								  mn-out
-								  out)))
-							(bc (* output 1.0d0))
-							(cc (let ((out (* (+ output out-sd) 1.0d0)))
-							      (if (>= out mx-out)
-								  mx-out
-								  out)))
-							;; TODO: Later we must change this to handle indeterminacy.
-							(mf-height 1d0)
-							(nmf-height 1d0))
-						   (make-rule :antecedent (make-ifs :mf (make-mf :type :triangular
-												 :parameters
-												 (make-ifs-params
-												  := (let ((ab-line (eq-line-two-points `(:x ,ai :y 0d0) `(:x ,bi :y ,mf-height)))
-													   (bc-line (eq-line-two-points `(:x ,bi :y ,mf-height) `(:x ,ci :y 0d0))))
-												       `((:a . ,ai)
-													 (:b . ,bi)
-													 (:c . ,ci)
-													 (:ab-m . ,(access ab-line :m))
-													 (:ab-b . ,(access ab-line :b))
-													 (:bc-m . ,(access bc-line :m))
-													 (:bc-b . ,(access bc-line :b))
-													 (:height . ,mf-height)))))
-										    :nmf (make-nmf :type :triangular
-												   :parameters
-												   (make-ifs-params
-												    := (let ((ab-line (eq-line-two-points `(:x ,ai :y 0d0) `(:x ,bi :y ,nmf-height)))
-													     (bc-line (eq-line-two-points `(:x ,bi :y ,nmf-height) `(:x ,ci :y 0d0))))
-													 `((:a . ,ai)
-													   (:b . ,bi)
-													   (:c . ,ci)
-													   (:ab-m . ,(access ab-line :m))
-													   (:ab-b . ,(access ab-line :b))
-													   (:bc-m . ,(access bc-line :m))
-													   (:bc-b . ,(access bc-line :b))
-													   (:height . ,nmf-height))))))
-							      :consequent (make-ifs :mf (make-mf :type :triangular
-												 :parameters
-												 (make-ifs-params
-												  := (let ((ab-line (eq-line-two-points `(:x ,ac :y 0d0) `(:x ,bc :y ,mf-height)))
-													   (bc-line (eq-line-two-points `(:x ,bc :y ,mf-height) `(:x ,cc :y 0d0))))
-												       `((:a . ,ac)
-													 (:b . ,bc)
-													 (:c . ,cc)
-													 (:ab-m . ,(access ab-line :m))
-													 (:ab-b . ,(access ab-line :b))
-													 (:bc-m . ,(access bc-line :m))
-													 (:bc-b . ,(access bc-line :b))
-													 (:height . ,mf-height)))))
-										    :nmf (make-nmf :type :triangular
-												   :parameters
-												   (make-ifs-params
-												    := (let ((ab-line (eq-line-two-points `(:x ,ac :y 0d0) `(:x ,bc :y ,nmf-height)))
-													     (bc-line (eq-line-two-points `(:x ,bc :y ,nmf-height) `(:x ,cc :y 0d0))))
-													 `((:a . ,ac)
-													   (:b . ,bc)
-													   (:c . ,cc)
-													   (:ab-m . ,(access ab-line :m))
-													   (:ab-b . ,(access ab-line :b))
-													   (:bc-m . ,(access bc-line :m))
-													   (:bc-b . ,(access bc-line :b))
-													   (:height . ,nmf-height)))))))))))
-    ))
-
 (defun plot-poly (poly)
   (apply #'plotly-make-plot
 	 (plotly-layout)
@@ -906,45 +795,19 @@
   (let ((agent (make-instance 'agent)))
     (setf (access agent :creation-begin-time) (read-from-string (access (first rates) :time)))
     (setf (access agent :creation-end-time) (read-from-string (access (last-elt rates) :time)))
-    (setf (access agent :perception-fns) (format nil "~s" (ms:marshal perception-fns)))
+    (setf (access agent :perception-fns) (format nil "~s" perception-fns))
     (setf (access agent :lookahead-count) lookahead-count)
     (setf (access agent :lookbehind-count) lookbehind-count)
-    (setf (access agent :ifis) (format nil "~s" (ms:marshal (gen-ifis agent num-rules rates))))
+    (multiple-value-bind (antecedents consequents)
+    	(make-ifis agent num-rules rates)
+      (setf (access agent :antecedents) (format nil "~s" antecedents))
+      (setf (access agent :consequents) (format nil "~s" consequents)))
     agent))
-;; (gen-agent 3 *rates* (access *beliefs* :perception-fns) 10 55)
+;; (gen-agent 3 *rates* (gen-random-beliefs 2) 10 55)
 
 (defun gen-agents (num-agents num-rules rates perception-fns lookahead-count lookbehind-count)
   (loop repeat num-agents collect (gen-agent num-rules rates perception-fns lookahead-count lookbehind-count)))
 ;; (gen-agents 2 3 *rates* (access *beliefs* :perception-fns) 10 55)
-
-(defun evaluate-ifis (agent inputs)
-  (let ((rule-groups (-> (ms:unmarshal (read-from-string (access agent :ifis))) :rules))
-	(tp-outputs)
-	(sl-outputs))
-    ;; Handling two outputs.
-    (loop
-       for rule-group in rule-groups
-       for i from 0
-       ;; As all the consequents are the same for each `rule-group`,
-       ;; we'll just find the minimum if-memebership and use that
-       ;; to fire the rule, by directly using `alpha-cut` (not using `fire-rule`).
-       do (let ((y (apply #'min (loop
-				   for input in inputs
-				   for rule in rule-group
-				   collect (if-membership input (-> rule :antecedent)))))
-		;; All the consequents are the same in this `rule-group`.
-		(consequent (-> (first rule-group) :consequent)))
-	    (if (evenp i)
-		;; Take profit.
-		(push (alpha-cut y consequent) tp-outputs)
-		;; Stop loss.
-		(push (alpha-cut y consequent) sl-outputs))))
-    `((:tp . ,(if-coa (reduce #'ifunion tp-outputs)))
-      (:sl . ,(if-coa (reduce #'ifunion sl-outputs))))))
-;; (fare-memoization:memoize 'evaluate-ifis)
-;; (time (evaluate-ifis (gen-agent 3 *rates* (access *beliefs* :perception-fns) 10 55) '(0 0 0)))
-
-;; (loop repeat 10 collect (-> (access (evaluate-ifis (gen-agent 4 *rates*) '(0 0 0)) :tp) :cx))
 
 (defun evaluate-trade (tp sl rates)
   "Refactorize this."
@@ -1046,15 +909,22 @@
 ;; (get-trades 1)
 
 (defun describe-trades (&optional limit)
-  (loop for trade in (get-trades limit)
-     do (format t "market: ~a, train-avg-revenue: ~5$, train-trades-won: ~a, train-trades-lost: ~a,    test-avg-revenue: ~5$, test-trades-won: ~a, test-trades-lost: ~a~%"
-		(access trade :instrument)
-		(access trade :train-avg-revenue)
-		(access trade :train-trades-won)
-		(access trade :train-trades-lost)
-		(access trade :test-avg-revenue)
-		(access trade :test-trades-won)
-		(access trade :test-trades-lost))))
+  (let ((trades (get-trades limit)))
+    (format t "~a~%~%" (loop for trade in trades
+			  summing (if (or t (plusp (access trade :train-total-revenue)))
+				      (to-pips (access trade :instrument)
+					       (access trade :test-total-revenue))
+				      0)))
+    (loop for trade in trades
+       do (format t "market: ~a, train-avg-revenue: ~5$, train-trades-won: ~a, train-trades-lost: ~a,    test-avg-revenue: ~5$, test-trades-won: ~a, test-trades-lost: ~a~%"
+		  (access trade :instrument)
+		  (access trade :train-total-revenue)
+		  (access trade :train-trades-won)
+		  (access trade :train-trades-lost)
+		  (access trade :test-total-revenue)
+		  (access trade :test-trades-won)
+		  (access trade :test-trades-lost)))
+    ))
 ;; (get-global-revenue)
 ;; (describe-agents)
 ;; (describe-trades 1000)
@@ -1062,48 +932,17 @@
 ;; (conn (query (:select 'agent-id :from 'agents-patterns)))
 ;; TODO: when removing an agent in update-pareto-frontier, also remove agent-pattern
 
-(defun pick-most-relevant-agent (agents rates)
-  (let ((biggest-activation 0)
-	(winner 0))
-    (loop
-       for idx from 0
-       for agent in agents
-       collect (let* ((perception-fn (gen-perception-fn (accesses agent :beliefs :perception-fns)))
-		      (inputs (funcall perception-fn rates))
-		      (activation (let ((rule-groups (-> (rules agent) :rules)))
-				    ;; Collecting TP rules only (same antecedents as SL).
-				    (mean (flatten
-					   (loop for i below (length rule-groups) by 2
-					      collect (loop
-							 for input in inputs
-							 for rule in (nth i rule-groups)
-							 collect (if-membership input (-> rule :antecedent)))))))))
-		 (when (> activation biggest-activation)
-		   (setf biggest-activation activation)
-		   (setf winner idx))))
-    (nth winner agents)))
-
-(defun get-activation (rules inputs)
-  ;; Collecting TP rules only (same antecedents as SL).
-  (mean (flatten
-	 (loop for i below (length rules) by 2
-	    collect (loop
-		       for input in inputs
-		       for rule in (nth i rules)
-		       collect (if-membership input (-> rule :antecedent)))))))
-
 (defun get-perception-fn (agent)
-  (gen-perception-fn (ms:unmarshal (read-from-string (access agent :perception-fns)))))
+  (gen-perception-fn (read-from-string (access agent :perception-fns))))
 ;; (fare-memoization:memoize 'get-perception-fn)
 
 (defun get-agent-activation (agent rates)
   (let* ((perception-fn (get-perception-fn agent))
-	 (ifis (ms:unmarshal (read-from-string (access agent :ifis))))
+	 (antecedents (read-from-string (access agent :antecedents)))
 	 (inputs (funcall perception-fn rates))
-	 (activation (get-activation (-> ifis :rules) inputs))
+	 (activation (eval-activation inputs antecedents))
 	 (agent-activation `(,activation . ,(access agent :id))))
     (values activation agent-activation)))
-;; (fare-memoization:memoize 'get-agent-activation)
 
 (defun get-most-activated-agents (instrument timeframe types rates &key (count 1) (limit 1000))
   (let (activations)
@@ -1146,39 +985,40 @@
        do (let* ((input-dataset (get-input-dataset rates idx))
 		 (output-dataset (get-output-dataset rates idx))
 		 (agent (if agent agent (first (get-most-activated-agents instrument timeframe types input-dataset))))
-		 (perception-fn (gen-perception-fn (ms:unmarshal (read-from-string (access agent :perception-fns)))))
-		 (response (evaluate-ifis agent (funcall perception-fn input-dataset)))
-		 (tp (-> (access response :tp) :cx))
-		 (sl (-> (access response :sl) :cx))
-		 (trade (evaluate-trade tp sl output-dataset))
-		 (revenue (access trade :revenue))
-		 (max-pos (access trade :max-pos))
-		 (max-neg (access trade :max-neg))
-		 (exit-time (access trade :exit-time))
-		 (finish-idx (access trade :finish-idx)))
-	    (if (= revenue 0)
-		(push-to-log "." :add-newline? nil)
-		(progn
-		  (push-to-log "+" :add-newline? nil)
-		  (if (> revenue 0)
-		      (incf trades-won)
-		      (incf trades-lost))
-		  (push tp tps)
-		  (push sl sls)
-		  (push (read-from-string (access (nth idx rates) :time)) entry-times)
-		  (push (read-from-string exit-time) exit-times)
-		  (push (if (plusp tp)
-			    (rate-close-ask (nth idx rates))
-			    (rate-close-bid (nth idx rates)))
-			entry-prices)
-		  (push (if (plusp tp)
-			    (rate-close-bid (nth finish-idx output-dataset))
-			    (rate-close-ask (nth finish-idx output-dataset)))
-			exit-prices)
-		  (push max-pos max-poses)
-		  (push max-neg max-negses)
-		  (push revenue revenues)))
-	    (incf idx finish-idx)))
+		 (perception-fn (get-perception-fn agent)))
+	    (multiple-value-bind (tp sl)
+		(eval-ifis (funcall perception-fn input-dataset)
+			   (read-from-string (access agent :antecedents))
+			   (read-from-string (access agent :consequents)))
+	      (let* ((trade (evaluate-trade tp sl output-dataset))
+		     (revenue (access trade :revenue))
+		     (max-pos (access trade :max-pos))
+		     (max-neg (access trade :max-neg))
+		     (exit-time (access trade :exit-time))
+		     (finish-idx (access trade :finish-idx)))
+		(if (= revenue 0)
+		    (push-to-log "." :add-newline? nil)
+		    (progn
+		      (push-to-log "+" :add-newline? nil)
+		      (if (> revenue 0)
+			  (incf trades-won)
+			  (incf trades-lost))
+		      (push tp tps)
+		      (push sl sls)
+		      (push (read-from-string (access (nth idx rates) :time)) entry-times)
+		      (push (read-from-string exit-time) exit-times)
+		      (push (if (plusp tp)
+				(rate-close-ask (nth idx rates))
+				(rate-close-bid (nth idx rates)))
+			    entry-prices)
+		      (push (if (plusp tp)
+				(rate-close-bid (nth finish-idx output-dataset))
+				(rate-close-ask (nth finish-idx output-dataset)))
+			    exit-prices)
+		      (push max-pos max-poses)
+		      (push max-neg max-negses)
+		      (push revenue revenues)))
+		(incf idx finish-idx)))))
     (push-to-log "<br/>Agents evaluated successfully.")
     `((:begin-time . ,(read-from-string (access (first rates) :time)))
       (:end-time . ,(read-from-string (access (last-elt rates) :time)))
@@ -1226,13 +1066,15 @@
 
 (defun get-prediction (instrument timeframe types rates)
   (let* ((agent (first (get-most-activated-agents instrument timeframe types rates)))
-	 (perception-fn (gen-perception-fn (ms:unmarshal (read-from-string (access agent :perception-fns)))))
-	 (response (evaluate-ifis agent (funcall perception-fn rates)))
-	 (tp (-> (access response :tp) :cx))
-	 (sl (-> (access response :sl) :cx)))
-    `((:tp . ,tp)
-      (:sl . ,sl)
-      (:agent-id . ,(access agent :id)))))
+	 (perception-fn (get-perception-fn agent))
+	 (response ))
+    (multiple-value-bind (tp sl)
+	(eval-ifis (funcall perception-fn rates)
+		   (read-from-string (access agent :antecedents))
+		   (read-from-string (access agent :consequents)))
+      `((:tp . ,tp)
+	(:sl . ,sl)
+	(:agent-id . ,(access agent :id))))))
 ;; (get-prediction :EUR_USD :H1 '(:BULLISH) (subseq *rates* 0 100))
 
 (defun update-agent-fitnesses (agent rates)
@@ -1262,7 +1104,7 @@
   (read-from-string (format nil ":~a-~a" kw1 kw2)))
 ;; (merge-keywords :hello :moto)
 
-(defun update-pareto-frontier (agent agents instrument timeframe types)
+(defun is-agent-dominated? (agent agents instrument timeframe types)
   (let* ((avg-revenue-0 (access agent :avg-revenue))
 	 (trades-won-0 (access agent :trades-won))
 	 (trades-lost-0 (access agent :trades-lost))
@@ -1290,9 +1132,7 @@
 		  ;; Candidate agent dominated another agent. Remove it.
 		  (push-to-log (format nil "Removing agent with ID: ~a" (access agent :id)))
 		  (delete-agent agent instrument timeframe types)))))
-    (unless is-dominated?
-      (push-to-log (format nil "Inserting new agent with ID: ~a" (access agent :id)))
-      (insert-agent agent instrument timeframe types))))
+    is-dominated?))
 
 (defun plotly-candlestick (rates)
   (let ((x (loop for rate in rates collect (/ (read-from-string (access rate :time)) 1000000)))
@@ -1342,48 +1182,32 @@
 	    (access r :trades-won)
 	    (access r :trades-lost))))
 
-(defun optimization (instrument timeframe types gen-agent-fn rates minutes &key report-fn)
+(defun optimization (instrument timeframe types gen-agent-fn rates seconds &key report-fn)
   ;; Checking if we need to initialize the agents collection.
   (let ((agents (if-let ((agents (get-agents instrument timeframe types :limit -1)))
 		  (update-agents-fitnesses agents rates)
-		  (let ((agent (evaluate-agent (funcall gen-agent-fn) rates)))
-		    (list (insert-agent agent instrument timeframe types))))))
+		  (list (evaluate-agent (funcall gen-agent-fn) rates)))))
     (push-to-log (format nil "~a agents retrieved to start optimization." (length agents)))
-    (push-to-log (format nil "Performing optimization for ~a seconds." minutes))
-    (loop with until-timestamp = (local-time:timestamp+ (local-time:now) minutes :sec)
+    (push-to-log (format nil "Performing optimization for ~a seconds." seconds))
+    (loop with until-timestamp = (local-time:timestamp+ (local-time:now) seconds :sec)
        do (if (local-time:timestamp> (local-time:now) until-timestamp)
-	      (return)
-	      (let ((agents (get-agents instrument timeframe types :limit -1))
-		    (agent (evaluate-agent (funcall gen-agent-fn) rates)))
+	      (progn
+		;; Inserting new agents in Pareto Frontier.
 		(push-to-log (format nil "Updating Pareto frontier with ~a agents." (length agents)))
-		(update-pareto-frontier agent agents instrument timeframe types)
+		(conn (loop for agent in agents
+			 do (unless (get-dao 'agent (access agent :id))
+			      (push-to-log (format nil "Inserting new agent with ID: ~a" (access agent :id)))
+			      (insert-agent agent instrument timeframe types))))
 		(push-to-log "Pareto frontier updated successfully.")
+		(return))
+	      (let* ((agent (evaluate-agent (funcall gen-agent-fn) rates))
+		     (is-dominated? (is-agent-dominated? agent agents instrument timeframe types)))
+		(unless is-dominated?
+		  (push agent agents))
 		;; (push-to-log (format nil "Inserting new agent with ID: ~a" (access agent :id)))
 		;; (insert-agent agent instrument timeframe types)
 		(when report-fn
-		  (funcall report-fn (get-agents instrument timeframe types :limit -1) rates))))))
-  ;; (loop repeat minutes
-  ;;    do (ignore-errors
-  ;; 	    (let ((agent (evaluate-agent (funcall gen-agent-fn) rates)))
-  ;; 	      (update-pareto-frontier agent agents instrument timeframe types)
-  ;; 	      (when report-fn
-  ;; 		(funcall report-fn (get-agents instrument timeframe types :limit -1) rates)))))
-  )
-
-(defun decompress-object (compressed-object)
-  "Decompresses an object represented by `compressed-object`."
-  ;; (decompress-object (compress-object (gen-agents 1 3 *rates*)))
-  (ms:unmarshal
-   (read-from-string
-    (flexi-streams:octets-to-string
-     (zlib:uncompress compressed-object)))))
-
-(defun compress-object (object)
-  "Compresses `object`, which can be any lisp data structure."
-  ;; (compress-object (gen-agents 5 3 *rates*))
-  (salza2:compress-data (flexi-streams:string-to-octets
-			 (format nil "~s" (marshal:marshal object)))
-			'salza2:zlib-compressor))
+		  (funcall report-fn (get-agents instrument timeframe types :limit -1) rates)))))))
 
 (defun insert-pattern (instrument timeframe type)
   (conn (make-dao 'pattern :type (format nil "~a" type)
@@ -1642,7 +1466,9 @@
   (defun read-log ()
     (format nil "~a<b>LOG.</b><hr/><br/>~{~a~%~}"
 	    (describe-agents)
-	    (reverse log))))
+	    (reverse log)))
+  (defun clear-log ()
+    (setf log nil)))
 ;; (push-to-log (random 10) :size 10)
 ;; (read-log)
 
@@ -1652,12 +1478,13 @@
      (swank:create-server :port 4444))))
 (init)
 
-(defun -loop-optimize-test (&key (minutes 300) (max-creation-dataset-size 500) (max-training-dataset-size 500) (max-testing-dataset-size 500) (num-rules 4) (report-fn nil) (type-groups '((:bullish) (:bearish) (:stagnated))) (instruments ominp:*forex*) (timeframes ominp:*shortterm*))
+(defun -loop-optimize-test (&key (seconds 60) (max-creation-dataset-size 500) (max-training-dataset-size 500) (max-testing-dataset-size 500)
+			      (num-rules 100) (num-inputs 5) (report-fn nil) (type-groups '((:bullish) (:bearish) (:stagnated))) (instruments ominp:*forex*) (timeframes ominp:*shortterm*))
   (dolist (instrument instruments)
     (dolist (timeframe timeframes)
       (unless (is-market-close)
 	(push-to-log (format nil "<br/><b>STARTING ~s ~s.</b><hr/>" instrument timeframe))
-	(let ((rates (get-rates-count instrument timeframe
+	(let ((rates (get-random-rates-count instrument timeframe
 				      (+ max-creation-dataset-size max-training-dataset-size max-testing-dataset-size)
 				      :provider :oanda :type :fx)))
 	  (push-to-log "Retrieved rates successfully.")
@@ -1676,15 +1503,15 @@
 				       (multiple-value-bind (from to)
 					   (get-rates-chunk-of-types dataset types
 								     :min-chunk-size 200
-								     :max-chunk-size 500)
+								     :max-chunk-size max-creation-dataset-size)
 					 (subseq dataset from to))))
 		   (creation-dataset (let ((dataset (subseq rates
 							    (- dataset-size testing-dataset-size (length training-dataset) max-creation-dataset-size)
 							    (- dataset-size testing-dataset-size (length training-dataset)))))
 				       (multiple-value-bind (from to)
 					   (get-rates-chunk-of-types dataset types
-								     :min-chunk-size 40
-								     :max-chunk-size 200)
+								     :min-chunk-size 200
+								     :max-chunk-size max-creation-dataset-size)
 					 (subseq dataset from to))))
 		   (agents-count (get-agents-count instrument timeframe types)))
 	      (push-to-log (format nil "Creation dataset created successfully. Size: ~s. Dataset from ~a to ~a."
@@ -1700,25 +1527,27 @@
 	      (let ()
 		(push-to-log "<b>SIGNAL.</b><hr/>")
 		(push-to-log (format nil "Trying to create signal with ~a agents." agents-count))
-		(when (> agents-count 0)
-		  (test-agents instrument timeframe types rates training-dataset testing-dataset))
+		;; (when (> agents-count 0)
+		;;   (test-agents instrument timeframe types rates training-dataset testing-dataset))
 		(push-to-log "<b>OPTIMIZATION.</b><hr/>")
 		(optimization instrument timeframe types
-			      (lambda () (let ((beliefs (gen-random-perception-fns 2)))
+			      (lambda () (let ((beliefs (gen-random-beliefs num-inputs)))
 					   (gen-agent num-rules creation-dataset
 						      (access beliefs :perception-fns)
 						      (access beliefs :lookahead-count)
 						      (access beliefs :lookbehind-count))))
 			      training-dataset
-			      minutes
+			      seconds
 			      :report-fn report-fn)
-		;; (test-agents instrument timeframe types rates training-dataset testing-dataset)
+		(test-agents instrument timeframe types rates training-dataset testing-dataset)
+		(conn (query (:delete-from 'agents)))
 		(push-to-log "Optimization process completed.")
 		(push-to-log "<b>VALIDATION.</b><hr/>")
 		(push-to-log "Validating trades older than 24 hours.")
 		(validate-trades)))))))))
 
-(defun loop-optimize-test (&key )
+(defun loop-optimize-test ()
+  (clear-log)
   (loop (unless (is-market-close))
      (-loop-optimize-test)))
 
@@ -1913,35 +1742,27 @@
 
 ;; RENEWAL
 ;; (defparameter *rates* (get-rates-count :EUR_JPY :H1 1500 :provider :oanda :type :fx))
-;; (gen-random-perception-fns 2)
+;; (gen-random-beliefs 2)
 
-;; (defun make-consequent (x0 x1)
-;;   (let* ((m (/ 1
-;; 	       (- x1 x0)))
-;; 	 (b (+ (* m (- x0)) 0)))
-;;     (lambda (y) (/ (- y b) m))))
-;; ;; (funcall (make-consequent 5 10) 0.0)
-;; ;; (funcall (make-consequent 5 10) 1.0)
+(defun con (y x0 x1)
+  (let* ((m (/ 1
+	       (- x1 x0)))
+	 (b (+ (* m (- x0)) 0)))
+    (/ (- y b) m)))
+;; (funcall (con 0 5) 0.0)
+;; (funcall (con 5 0) 0.0)
 
-;; ;; (funcall (make-consequent 10 5) 0.0)
-;; ;; (funcall (make-consequent 10 5) 1.0)
-
-;; (defun make-antecedent (x0 x1)
-;;   (let* ((m (/ 1
-;; 	       (- x1 x0)))
-;; 	 (b (+ (* m (- x0)) 0)))
-;;     (lambda (x) (+ (* m x) b))))
-
-;; ;; (funcall (make-antecedent 5 10) 10)
-;; ;; (funcall (make-antecedent 5 10) 1.0)
-
-;; ;; (funcall (make-antecedent 10 5) 0.0)
-;; ;; (funcall (make-antecedent 10 5) 1.0)
+(defun ant (x x0 x1)
+  (let* ((m (/ 1
+	       (- x1 x0)))
+	 (b (+ (* m (- x0)) 0)))
+    (+ (* m x) b)))
 
 ;; (defun make-antecedent (mean spread)
 ;;   (lambda (x) (exp (* -0.5 (expt (/ (- x mean) spread) 2)))))
 ;; ;; (funcall (make-antecedent 0.5 0.05) 0.5)
 
+;; Keeping for historical reasons.
 ;; (defun ifis (i antecedents consequents)
 ;;   (let ((winner-gm 0)
 ;; 	(winner-idx 0))
@@ -1956,160 +1777,203 @@
 ;; 	      (setf winner-gm gm))))
 ;;     (funcall (aref consequents winner-idx) winner-gm)))
 
-;; (defun make-ifis (agent num-rules rates)
-;;   "Analytical version."
-;;   (let* ((perception-fn (gen-perception-fn (ms:unmarshal (read-from-string (access agent :perception-fns)))))
-;; 	 (lookahead-count (access agent :lookahead-count))
-;; 	 (lookbehind-count (access agent :lookbehind-count))
-;; 	 (idxs (get-same-direction-outputs-idxs rates num-rules :lookahead-count lookahead-count :lookbehind-count lookbehind-count))
-;; 	 (chosen-inputs (loop for idx in idxs collect (funcall perception-fn (get-input-dataset rates idx))))
-;; 	 (chosen-outputs (loop for idx in idxs collect (get-tp-sl (get-output-dataset rates idx) lookahead-count)))
-;; 	 (inp-sd (mapcar (lambda (inp) (standard-deviation inp)) (apply #'mapcar #'list chosen-inputs)))
-;; 	 (tps (loop for output in chosen-outputs collect (access output :tp)))
-;; 	 (sls (loop for output in chosen-outputs collect (access output :sl)))
-;; 	 (tp-sd (standard-deviation tps))
-;; 	 (sl-sd (standard-deviation sls))
-;; 	 ;; (mn-inp (- (apply #'min (flatten chosen-inputs)) (apply #'max inp-sd)))
-;; 	 ;; (mx-inp (+ (apply #'max (flatten chosen-inputs)) (apply #'max inp-sd)))
-;; 	 (mn-out-tp (let ((min-chosen (apply #'min tps)))
-;; 		      (if (and (> min-chosen 0) (< (- min-chosen tp-sd) 0))
-;; 			  0.0
-;; 			  (- min-chosen tp-sd))))
-;; 	 (mn-out-sl (let ((min-chosen (apply #'min sls)))
-;; 		      (if (and (> min-chosen 0) (< (- min-chosen sl-sd) 0))
-;; 			  0.0
-;; 			  (- min-chosen sl-sd))))
-;; 	 (mx-out-tp (let ((max-chosen (apply #'max tps)))
-;; 		      (if (and (< max-chosen 0) (> (+ max-chosen tp-sd) 0))
-;; 			  0.0
-;; 			  (+ max-chosen tp-sd))))
-;; 	 (mx-out-sl (let ((max-chosen (apply #'max sls)))
-;; 		      (if (and (< max-chosen 0) (> (+ max-chosen sl-sd) 0))
-;; 			  0.0
-;; 			  (+ max-chosen sl-sd)))))
-;;     ;; (format t "~a~%" (> (reduce #'* tps) 0))
-;;     ;; (format t "~a~%" (> (reduce #'* sls) 0))
-;;     ;; (format t "~a~%" chosen-outputs)
-;;     ;; (format t "~a .. ~a ~t ~a .. ~a~%" mn-out-tp mx-out-tp mn-out-sl mx-out-sl)
-;;     (make-if-system :domains (make-domains :antecedents-min 0
-;; 					   :antecedents-max 0
-;; 					   :consequents-min 0
-;; 					   :consequents-max 0)
-;; 		    ;; Handling two outputs.
-;; 		    :rules (loop for j below (* 2 (length chosen-outputs))
-;; 			      collect (loop for i below (length (first chosen-inputs))
-;; 					 collect (let* ((input (nth (floor (/ j 2)) chosen-inputs))
-;; 							(output (if (evenp j)
-;; 								    (nth (floor (/ j 2)) tps)
-;; 								    (nth (floor (/ j 2)) sls)))
-;; 							(out-sd (if (evenp j)
-;; 								    tp-sd
-;; 								    sl-sd))
-;; 							(mn-out (if (evenp j)
-;; 								    mn-out-tp
-;; 								    mn-out-sl))
-;; 							(mx-out (if (evenp j)
-;; 								    mx-out-tp
-;; 								    mx-out-sl))
-;; 							;; TODO: Consider creating different a,b,c for nmf.
-;; 							(ai (* (- (nth i input) (nth i inp-sd)) 1.0d0))
-;; 							(bi (* (nth i input) 1.0d0))
-;; 							(ci (* (+ (nth i input) (nth i inp-sd)) 1.0d0))
-							
-;; 							(ac (let ((out (* (- output out-sd) 1.0d0)))
-;; 							      (if (<= out mn-out)
-;; 								  mn-out
-;; 								  out)))
-;; 							(bc (* output 1.0d0))
-;; 							(cc (let ((out (* (+ output out-sd) 1.0d0)))
-;; 							      (if (>= out mx-out)
-;; 								  mx-out
-;; 								  out)))
-;; 							;; TODO: Later we must change this to handle indeterminacy.
-;; 							(mf-height 1d0)
-;; 							(nmf-height 1d0))
-;; 						   (make-rule :antecedent (make-ifs :mf (make-mf :type :triangular
-;; 												 :parameters
-;; 												 (make-ifs-params
-;; 												  := (let ((ab-line (eq-line-two-points `(:x ,ai :y 0d0) `(:x ,bi :y ,mf-height)))
-;; 													   (bc-line (eq-line-two-points `(:x ,bi :y ,mf-height) `(:x ,ci :y 0d0))))
-;; 												       `((:a . ,ai)
-;; 													 (:b . ,bi)
-;; 													 (:c . ,ci)
-;; 													 (:ab-m . ,(access ab-line :m))
-;; 													 (:ab-b . ,(access ab-line :b))
-;; 													 (:bc-m . ,(access bc-line :m))
-;; 													 (:bc-b . ,(access bc-line :b))
-;; 													 (:height . ,mf-height)))))
-;; 										    :nmf (make-nmf :type :triangular
-;; 												   :parameters
-;; 												   (make-ifs-params
-;; 												    := (let ((ab-line (eq-line-two-points `(:x ,ai :y 0d0) `(:x ,bi :y ,nmf-height)))
-;; 													     (bc-line (eq-line-two-points `(:x ,bi :y ,nmf-height) `(:x ,ci :y 0d0))))
-;; 													 `((:a . ,ai)
-;; 													   (:b . ,bi)
-;; 													   (:c . ,ci)
-;; 													   (:ab-m . ,(access ab-line :m))
-;; 													   (:ab-b . ,(access ab-line :b))
-;; 													   (:bc-m . ,(access bc-line :m))
-;; 													   (:bc-b . ,(access bc-line :b))
-;; 													   (:height . ,nmf-height))))))
-;; 							      :consequent (make-ifs :mf (make-mf :type :triangular
-;; 												 :parameters
-;; 												 (make-ifs-params
-;; 												  := (let ((ab-line (eq-line-two-points `(:x ,ac :y 0d0) `(:x ,bc :y ,mf-height)))
-;; 													   (bc-line (eq-line-two-points `(:x ,bc :y ,mf-height) `(:x ,cc :y 0d0))))
-;; 												       `((:a . ,ac)
-;; 													 (:b . ,bc)
-;; 													 (:c . ,cc)
-;; 													 (:ab-m . ,(access ab-line :m))
-;; 													 (:ab-b . ,(access ab-line :b))
-;; 													 (:bc-m . ,(access bc-line :m))
-;; 													 (:bc-b . ,(access bc-line :b))
-;; 													 (:height . ,mf-height)))))
-;; 										    :nmf (make-nmf :type :triangular
-;; 												   :parameters
-;; 												   (make-ifs-params
-;; 												    := (let ((ab-line (eq-line-two-points `(:x ,ac :y 0d0) `(:x ,bc :y ,nmf-height)))
-;; 													     (bc-line (eq-line-two-points `(:x ,bc :y ,nmf-height) `(:x ,cc :y 0d0))))
-;; 													 `((:a . ,ac)
-;; 													   (:b . ,bc)
-;; 													   (:c . ,cc)
-;; 													   (:ab-m . ,(access ab-line :m))
-;; 													   (:ab-b . ,(access ab-line :b))
-;; 													   (:bc-m . ,(access bc-line :m))
-;; 													   (:bc-b . ,(access bc-line :b))
-;; 													   (:height . ,nmf-height)))))))))))
-;;     ))
+(defun eval-activation (inputs input-antecedents)
+  (let ((activation 0))
+    (loop
+       for input in inputs
+       for antecedents across input-antecedents
+       do (let ((winner-gm 0))
+	    (loop
+	       for idx from 0
+	       for ant across antecedents
+	       do (let ((gm (ant input (aref ant 0) (aref ant 1))))
+		    ;; Antecedents will always work with OR (max).
+		    (when (and (<= gm 1)
+			       (>= gm 0)
+			       (>= gm winner-gm))
+		      (setf winner-gm gm))))
+	    (incf activation winner-gm)
+	    ))
+    (/ activation (length inputs))
+    ))
 
-;; (quote
-;;  (let ((antecedents `#(,(make-antecedent 1.0 1.6)
-;; 		       ,(make-antecedent 1.5 1.8)
-;; 		       ,(make-antecedent 1.7 2)))
-;;        (consequents `#(,(make-consequent 0 4)
-;; 		       ,(make-consequent 4 8)
-;; 		       ,(make-consequent 8 10))))
-;;    ;; (time (loop repeat 1000000
-;;    ;; 	    do (ifis 0.0 antecedents consequents)))
-;;    (ifis -2.0 antecedents consequents))
-;;  )
+;; (let* ((agent (gen-agent 3 *rates* (access (gen-random-beliefs 15) :perception-fns) 10 30))
+;;        (perception-fn (get-perception-fn agent))
+;;        (antecedents (read-from-string (access agent :antecedents))))
+;;   (time (loop repeat 10
+;; 	   do (print (eval-activation (funcall perception-fn *rates*)
+;; 				      (read-from-string (access agent :antecedents)))))))
 
-;; (quote
-;;  (let ((antecedents `#(,(make-antecedent 1.0 1.5)
-;; 		       ,(make-antecedent 1.5 1.7)
-;; 		       ,(make-antecedent 1.6 1.7)
-;; 		       ,(make-antecedent 1.7 1.8)
-;; 		       ,(make-antecedent 1.7 2)
-;; 		       ))
-;;        (consequents `#(,(make-consequent 0 4)
-;; 		       ,(make-consequent 4 6)
-;; 		       ,(make-consequent 5 6)
-;; 		       ,(make-consequent 5 8)
-;; 		       ,(make-consequent 8 10))))
-;;    ;; (time (loop repeat 1000000
-;;    ;; 	    do (ifis 0.0 antecedents consequents)))
-;;    (ifis 1.6 antecedents consequents))
-;;  )
+(defun eval-ifis (inputs input-antecedents input-consequents)
+  (let ((tp 0)
+	(sl 0)
+	(len (length inputs)))
+    (loop
+       for input in inputs
+       for antecedents across input-antecedents
+       for consequents across input-consequents
+       do (let ((winner-gm 0)
+		(winner-idx 0))
+	    (loop
+	       for idx from 0
+	       for ant across antecedents
+	       do (let ((gm (ant input (aref ant 0) (aref ant 1))))
+		    ;; Antecedents will always work with OR (max).
+		    (when (and (<= gm 1)
+			       (>= gm 0)
+			       (>= gm winner-gm))
+		      (setf winner-idx idx)
+		      (setf winner-gm gm))))
+	    ;; Averaging outputs (tp and sl).
+	    (incf tp (con winner-gm
+			  (aref (aref (aref consequents winner-idx) 0) 0)
+			  (aref (aref (aref consequents winner-idx) 0) 1)))
+	    (incf sl (con winner-gm
+			  (aref (aref (aref consequents winner-idx) 1) 0)
+			  (aref (aref (aref consequents winner-idx) 1) 1)))))
+    (values (/ tp len) (/ sl len))))
+
+;; Tipping problem.
+;; Food Q, Service Q
+;; (loop for f from 0 upto 10
+;;    do (progn
+;; 	(loop for s from 0 upto 10
+;; 	 do (let ((inputs `(,f ,s))
+;; 		  (input-antecedents (vector (vector #(0 4)
+;; 						     #(3 7)
+;; 						     #(6 10))
+;; 					     (vector #(0 4)
+;; 						     #(3 7)
+;; 						     #(6 10))
+;; 					     ))
+;; 		  (input-consequents (vector (vector (vector #(0 5) #(0 1))
+;; 						     (vector #(5 10) #(0 1))
+;; 						     (vector #(10 15) #(0 1)))
+;; 					     (vector (vector #(0 0.01) #(0 1))
+;; 						     (vector #(5 10) #(0 1))
+;; 						     (vector #(10 15) #(0 1))))))
+;; 	      (format t "~2$, " (float (eval-ifis inputs input-antecedents input-consequents)))))
+;; 	(format t "~%")))
+
+(defmacro :is (inp fn)
+  `(funcall ,fn ,inp))
+(defmacro :and (&rest body)
+  `(min ,@body))
+(defmacro :or (&rest body)
+  `(max ,@body))
+
+;; `((:or (:is height (ant 1 3))
+;;        (:is weight (ant 6 8))
+;;        (:is weight (ant 1 2)))
+;;   (:and (:is height (ant 2 8))
+;; 	(:is weight (ant 3 9))))
+
+(defun make-ifis (agent num-rules rates)
+  "Analytical version."
+  (let* ((perception-fn (get-perception-fn agent))
+	 (lookahead-count (access agent :lookahead-count))
+	 (lookbehind-count (access agent :lookbehind-count))
+	 (idxs (get-same-direction-outputs-idxs rates num-rules :lookahead-count lookahead-count :lookbehind-count lookbehind-count))
+	 (chosen-inputs (loop for idx in idxs collect (funcall perception-fn (get-input-dataset rates idx))))
+	 (chosen-outputs (loop for idx in idxs collect (get-tp-sl (get-output-dataset rates idx) lookahead-count)))
+	 (inp-sd (mapcar (lambda (inp) (standard-deviation inp)) (apply #'mapcar #'list chosen-inputs)))
+	 (tps (loop for output in chosen-outputs collect (access output :tp)))
+	 (sls (loop for output in chosen-outputs collect (access output :sl)))
+	 (tp-sd (standard-deviation tps))
+	 (sl-sd (standard-deviation sls))
+	 ;; (mn-inp (- (apply #'min (flatten chosen-inputs)) (apply #'max inp-sd)))
+	 ;; (mx-inp (+ (apply #'max (flatten chosen-inputs)) (apply #'max inp-sd)))
+	 (mn-out-tp (let ((min-chosen (apply #'min tps)))
+		      (if (and (> min-chosen 0) (< (- min-chosen tp-sd) 0))
+			  0.0
+			  (- min-chosen tp-sd))))
+	 (mn-out-sl (let ((min-chosen (apply #'min sls)))
+		      (if (and (> min-chosen 0) (< (- min-chosen sl-sd) 0))
+			  0.0
+			  (- min-chosen sl-sd))))
+	 (mx-out-tp (let ((max-chosen (apply #'max tps)))
+		      (if (and (< max-chosen 0) (> (+ max-chosen tp-sd) 0))
+			  0.0
+			  (+ max-chosen tp-sd))))
+	 (mx-out-sl (let ((max-chosen (apply #'max sls)))
+		      (if (and (< max-chosen 0) (> (+ max-chosen sl-sd) 0))
+			  0.0
+			  (+ max-chosen sl-sd)))))
+    (values
+     (let ((v (loop
+		 for inputs in (apply #'mapcar #'list chosen-inputs)
+		 for idx from 0
+		 collect (let ((v (flatten (loop
+					      for input in inputs
+					      collect (list (vector (- input (nth idx inp-sd)) input)
+							    (vector input (+ input (nth idx inp-sd))))))))
+			   (make-array (length v) :initial-contents v)))))
+       (make-array (length v) :initial-contents v))
+     (let* ((one-set-outputs
+	     (flatten (loop for output in chosen-outputs
+			 collect (let* ((tp (access output :tp))
+					(sl (access output :sl))
+					(mn-tp (- tp tp-sd))
+					(mx-tp (+ tp tp-sd))
+					(mn-sl (- sl sl-sd))
+					(mx-sl (+ sl sl-sd)))
+				   (list (vector (vector (if (< mn-tp mn-out-tp)
+							     mn-out-tp
+							     mn-tp)
+							 tp)
+						 (vector (if (< mn-sl mn-out-sl)
+							     mn-out-sl
+							     mn-sl)
+							 sl))
+					 (vector (vector tp
+							 (if (> mx-tp mx-out-tp)
+							     mx-out-tp
+							     mx-tp))
+						 (vector sl
+							 (if (> mx-sl mx-out-sl)
+							     mx-out-sl
+							     mx-sl))
+						 ))))))
+	    (one-set-outputs-v (make-array (length one-set-outputs) :initial-contents one-set-outputs))
+	    (v (loop repeat (length (first chosen-inputs))
+		  collect one-set-outputs-v)))
+       (make-array (length v) :initial-contents v)))))
+;; (gen-agent 3 *rates* (access (gen-random-beliefs 2) :perception-fns) 10 10)
+;; (access (gen-agent 2 *rates* (access (gen-random-beliefs 2) :perception-fns) 10 10) :perception-fns)
+
+;; (insert-agent (gen-agent 2 *rates* (access (gen-random-beliefs 2) :perception-fns) 10 16) :EUR_USD :H1 '(:BULLISH))
+
+;; (let* ((agent (gen-agent 30 *rates* (access (gen-random-beliefs 10) :perception-fns) 10 16))
+;;        (perception-fn (gen-perception-fn (access agent :perception-fns)))
+;;        (antecedents (access agent :antecedents))
+;;        (consequents (access agent :consequents)))
+;;   (time (loop repeat 1000
+;; 	   do (eval-ifis (funcall perception-fn *rates*)
+;; 			 (access agent :antecedents)
+;; 			 (access agent :consequents)))))
+
+;; (time (let ((inputs #(10 10))
+;; 	    (input-antecedents #(#(#(0 4)
+;; 				   #(3 7)
+;; 				   #(6 10))
+;; 				 #(#(0 4)
+;; 				   #(3 7)
+;; 				   #(6 10))))
+;; 	    (input-consequents #(#(#(#(0 5) #(0 1))
+;; 				   #(#(5 10) #(0 1))
+;; 				   #(#(10 15) #(0 1)))
+;; 				 #(#(#(0 0.01) #(0 1))
+;; 				   #(#(5 10) #(0 1))
+;; 				   #(#(10 15) #(0 1))))))
+;; 	(loop repeat 10 do (eval-ifis inputs input-antecedents input-consequents))))
+
+
+
+
+
+
+
+
 
 ;; (winning-type-output-dataset *rates* '((:bullish) (:bearish) (:stagnated)))
 ;; (winning-type-output-dataset (get-input-dataset *rates* 1400) '((:bullish) (:bearish) (:stagnated)) :max-dataset-size 500)

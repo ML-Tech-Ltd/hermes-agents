@@ -13,7 +13,6 @@
                ;; :sxql
 	       :cl21
 	       :uuid
-	       :marshal
 	       :salza2
 	       :zlib
 	       :flexi-streams
@@ -26,6 +25,7 @@
 	       :postmodern
 	       :cl-cpus
 	       :bordeaux-threads
+	       :defenum
 
 	       :swank
 

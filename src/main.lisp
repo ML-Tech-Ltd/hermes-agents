@@ -722,7 +722,9 @@
 	      (when (< delta-low max-neg)
 		(setf max-neg delta-low)))))
     `((:tp . ,(if (>= max-pos (abs max-neg)) max-pos max-neg))
-      (:sl . ,(if (>= (abs max-neg) max-pos) max-pos max-neg)))))
+      (:sl . ,(if (>= max-pos (abs max-neg)) (* max-pos -0.5) (* max-neg -0.5)))
+      ;; (:sl . ,(if (>= (abs max-neg) max-pos) max-pos max-neg))
+      )))
 ;; (time (get-tp-sl (get-input-dataset *rates* 400)))
 
 ;; (funcall (access *perception-fn* :perception-fn) (subseq *rates* 10 20))
@@ -909,19 +911,29 @@
 ;; (get-trades 1)
 
 (defun describe-trades (&optional limit)
-  (let ((trades (get-trades limit)))
-    (format t "~a~%~%" (loop for trade in trades
-			  summing (if (or t (plusp (access trade :train-total-revenue)))
-				      (to-pips (access trade :instrument)
-					       (access trade :test-total-revenue))
-				      0)))
+  (let* ((trades (get-trades limit))
+	 (trades-won (loop for trade in trades
+			summing (access trade :test-trades-won)))
+	 (trades-lost (loop for trade in trades
+			 summing (access trade :test-trades-lost)))
+	 (total-revenue (loop for trade in trades
+			   summing (to-pips (access trade :instrument)
+					    (access trade :test-total-revenue)))))
+    (format t "Total trades won: ~a. Total trades lost: ~a. Total trades: ~a. Total revenue: ~a. Avg revenue: ~a.~%~%"
+	    trades-won
+	    trades-lost
+	    (+ trades-won trades-lost)
+	    total-revenue
+	    (/ total-revenue (+ trades-won trades-lost)))
     (loop for trade in trades
-       do (format t "market: ~a, train-avg-revenue: ~5$, train-trades-won: ~a, train-trades-lost: ~a,    test-avg-revenue: ~5$, test-trades-won: ~a, test-trades-lost: ~a~%"
+       do (format t "market: ~a, train-total-revenue: ~5$, train-trades-won: ~a, train-trades-lost: ~a,    test-total-revenue: ~5$, test-trades-won: ~a, test-trades-lost: ~a~%"
 		  (access trade :instrument)
-		  (access trade :train-total-revenue)
+		  (to-pips (access trade :instrument)
+			   (access trade :train-total-revenue))
 		  (access trade :train-trades-won)
 		  (access trade :train-trades-lost)
-		  (access trade :test-total-revenue)
+		  (to-pips (access trade :instrument)
+			   (access trade :test-total-revenue))
 		  (access trade :test-trades-won)
 		  (access trade :test-trades-lost)))
     ))
@@ -936,34 +948,55 @@
   (gen-perception-fn (read-from-string (access agent :perception-fns))))
 ;; (fare-memoization:memoize 'get-perception-fn)
 
-(defun get-agent-activation (agent rates)
-  (let* ((perception-fn (get-perception-fn agent))
-	 (antecedents (read-from-string (access agent :antecedents)))
-	 (inputs (funcall perception-fn rates))
-	 (activation (eval-activation inputs antecedents))
-	 (agent-activation `(,activation . ,(access agent :id))))
-    (values activation agent-activation)))
+(defun eval-agent (agent rates)
+  (let ((perception-fn (get-perception-fn agent)))
+    (eval-ifis (funcall perception-fn rates)
+	       (read-from-string (access agent :antecedents))
+	       (read-from-string (access agent :consequents)))))
 
-(defun get-most-activated-agents (instrument timeframe types rates &key (count 1) (limit 1000))
-  (let (activations)
+(defun eval-agents (instrument timeframe types rates &key (count 1) (limit 1000))
+  (let (tps sls activations ids)
     (loop for offset from 0 below (get-agents-count instrument timeframe types) by limit
        do (let ((agents (get-agents instrument timeframe types :limit limit :offset offset)))
 	    (loop for agent in agents
-	       do (multiple-value-bind (activation agent-activation)
-		      (get-agent-activation agent rates)
-		    (if (< (length activations) count)
-			(progn
-			  (push agent-activation activations)
-			  (setf activations (sort activations #'> :key #'first)))
-			(when (> activation (first (last-elt activations)))
-			  (setf (last-elt activations) agent-activation)
-			  (setf activations (sort activations #'> :key #'first))))))))
-    (let ((agent-ids (loop for act in activations collect (cdr act))))
-      (conn (query (:select '* :from 'agents :where (:in 'id (:set agent-ids)))
-		   (:dao agent))))))
-;; (time (get-most-activated-agents :EUR_USD :H1 '(:BULLISH) *rates* :count 1 :limit 5))
-
-;; (evaluate-agents :EUR_USD :H1 '(:BULLISH) *rates*)
+	       do (multiple-value-bind (tp sl activation)
+		      (eval-agent agent rates)
+		    (push tp tps)
+		    (push sl sls)
+		    (push activation activations)
+		    (push (access agent :id) ids)))))
+    (let ((idxs (sorted-indexes activations #'>))
+	  (tp 0)
+	  (sl 0)
+	  (len (min count (length activations))))
+      (setf tp (nth (position 0 idxs) tps))
+      (setf sl (nth (position 0 idxs) sls))
+      ;; (loop for idx from 1 below len
+      ;; 	 do (let* ((pos (position idx idxs))
+      ;; 		   (nth-tp (nth pos tps))
+      ;; 		   (nth-sl (nth pos sls)))
+      ;; 	      (when (< (* nth-tp tp) 0)
+      ;; 	      	(setf tp 0)
+      ;; 	      	(setf sl 0)
+      ;; 	      	(return))
+      ;; 	      (when (< (* nth-sl sl) 0)
+      ;; 	      	(setf tp 0)
+      ;; 	      	(setf sl 0)
+      ;; 	      	(return))
+      ;; 	      ;; (when (or (= tp 0) (< (abs nth-tp) (abs tp)))
+      ;; 	      ;; 	(setf tp nth-tp))
+      ;; 	      ;; (when (or (= sl 0) (< (abs nth-sl) (abs sl)))
+      ;; 	      ;; 	(setf sl nth-sl))
+      ;; 	      ;; (when (or (= tp 0) (< (abs nth-tp) (abs tp)))
+      ;; 	      ;; 	(setf tp nth-tp))
+      ;; 	      ;; (when (or (= sl 0) (< (abs nth-sl) (abs sl)))
+      ;; 	      ;; 	(setf sl nth-sl))
+      ;; 	      ;; (incf tp nth-tp)
+      ;; 	      ;; (incf sl nth-sl)
+      ;; 	      ))
+      (values (/ tp 1)
+	      (/ sl 1)
+	      ids))))
 
 (defun -evaluate-agents (&key instrument timeframe types rates agent idx)
   "Used for EVALUATE-AGENT and EVALUATE-AGENTS."
@@ -983,22 +1016,28 @@
     (push-to-log "Evaluating agent: ")
     (loop while (< idx (length rates))
        do (let* ((input-dataset (get-input-dataset rates idx))
-		 (output-dataset (get-output-dataset rates idx))
-		 (agent (if agent agent (first (get-most-activated-agents instrument timeframe types input-dataset))))
-		 (perception-fn (get-perception-fn agent)))
+		 (output-dataset (get-output-dataset rates idx)))
 	    (multiple-value-bind (tp sl)
-		(eval-ifis (funcall perception-fn input-dataset)
-			   (read-from-string (access agent :antecedents))
-			   (read-from-string (access agent :consequents)))
+		(if agent
+		    (eval-agent agent input-dataset)
+		    (eval-agents instrument timeframe types input-dataset))
 	      (let* ((trade (evaluate-trade tp sl output-dataset))
 		     (revenue (access trade :revenue))
 		     (max-pos (access trade :max-pos))
 		     (max-neg (access trade :max-neg))
 		     (exit-time (access trade :exit-time))
 		     (finish-idx (access trade :finish-idx)))
-		(if (= revenue 0)
+		(if (or (= revenue 0)
+			(> (abs sl) (abs tp))
+			(> (* tp sl) 0)
+			(= tp 0)
+			(= sl 0)
+		        (< (abs (to-pips instrument sl)) 3)
+			;; (> (abs (to-pips instrument sl)) 20)
+			)
 		    (push-to-log "." :add-newline? nil)
 		    (progn
+		      ;; (format t "TP: ~a, SL: ~a, R: ~a~%" tp sl revenue)
 		      (push-to-log "+" :add-newline? nil)
 		      (if (> revenue 0)
 			  (incf trades-won)
@@ -1050,6 +1089,8 @@
       (:tps . ,(reverse tps))
       (:sls . ,(reverse sls)))))
 
+;; (evaluate-agents :EUR_USD :H1 '(:BULLISH) *rates*)
+
 ;; (room)
 
 (defun evaluate-agent (agent rates)
@@ -1063,19 +1104,6 @@
 (defun evaluate-agents (instrument timeframe types rates)
   (-evaluate-agents :instrument instrument :timeframe timeframe :types types :rates rates))
 ;; (time (evaluate-agents :EUR_USD :H1 '(:BULLISH) (subseq *rates* 0 200)))
-
-(defun get-prediction (instrument timeframe types rates)
-  (let* ((agent (first (get-most-activated-agents instrument timeframe types rates)))
-	 (perception-fn (get-perception-fn agent))
-	 (response ))
-    (multiple-value-bind (tp sl)
-	(eval-ifis (funcall perception-fn rates)
-		   (read-from-string (access agent :antecedents))
-		   (read-from-string (access agent :consequents)))
-      `((:tp . ,tp)
-	(:sl . ,sl)
-	(:agent-id . ,(access agent :id))))))
-;; (get-prediction :EUR_USD :H1 '(:BULLISH) (subseq *rates* 0 100))
 
 (defun update-agent-fitnesses (agent rates)
   (conn (update-dao (evaluate-agent agent rates))))
@@ -1126,7 +1154,7 @@
 		(progn (setf is-dominated? t)
 		       (return))
 		(when (and (<= avg-revenue avg-revenue-0)
-			   ;; (> stdev-revenue stdev-revenue-0)
+			   ;; (>= stdev-revenue stdev-revenue-0)
 			   (<= trades-won trades-won-0)
 			   (>= trades-lost trades-lost-0))
 		  ;; Candidate agent dominated another agent. Remove it.
@@ -1336,8 +1364,7 @@
     (or
      ;; Friday
      (and (= day-of-week 5)
-	  (>= hour 20)
-	  )
+	  (>= hour 20))
      ;; Saturday
      (= day-of-week 6)
      ;; Sunday
@@ -1352,18 +1379,18 @@
 ;; (get-last-tests '(:EUR_USD :GBP_USD) '(:H1 :D) 3)
 ;; (get-last-tests '(:GBP_USD) '(:H1))
 
-(defun insert-trade (agent-id instrument timeframe types train-fitnesses test-fitnesses prediction rates)
+(defun insert-trade (agent-id instrument timeframe types train-fitnesses test-fitnesses tp sl rates)
   (conn (let ((patterns (get-patterns instrument timeframe types))
 	      (trade (make-dao 'trade
 			       :agent-id agent-id
 			       :creation-time (local-time:timestamp-to-unix (local-time:now))
-			       :decision (if (= (access prediction :tp) 0)
+			       :decision (if (or (= sl 0) (= tp 0))
 					     "HOLD"
-					     (if (> (access prediction :tp) 0)
+					     (if (> tp 0)
 						 "BUY"
 						 "SELL"))
-			       :tp (access prediction :tp)
-			       :sl (access prediction :sl)
+			       :tp tp
+			       :sl sl
 			       :entry-price (access (last-elt rates) :close-bid)
 			       :train-begin-time (access train-fitnesses :begin-time)
 			       :test-begin-time (access test-fitnesses :begin-time)
@@ -1426,7 +1453,6 @@
 			  :trade-id (access trade :id)))
 	  )))
 
-
 ;; (require 'sb-sprof)
 ;; (sb-sprof:start-profiling)
 ;; (sb-sprof:report :type :flat)
@@ -1435,26 +1461,29 @@
 ;; (function-cache:purge-all-caches)
 
 (defun test-agents (instrument timeframe types rates training-dataset testing-dataset)
-  (let ((train-fitnesses (evaluate-agents instrument timeframe types training-dataset))
-	(test-fitnesses (evaluate-agents instrument timeframe types testing-dataset))
-	(prediction (get-prediction instrument timeframe types testing-dataset)))
-    (when train-fitnesses
-      (push-to-log "Training process successful."))
-    (when test-fitnesses
-      (push-to-log "Testing process successful."))
-    (when prediction
-      (push-to-log (format nil "Prediction: ~s." prediction)))
-    (when (and (/= (access prediction :tp) 0)
-	       (if (not (eq instrument :USD_CNH)) (< (access prediction :tp) 100) t)
-	       (/= (access prediction :sl) 0)
-	       (< (access prediction :sl) 100)
-	       (/= (access test-fitnesses :trades-won) 0)
-	       (/= (+ (access test-fitnesses :trades-won)
-		      (access test-fitnesses :trades-lost))
-		   0))
-      (push-to-log (format nil "Trying to create trade. Agent ID: ~a" (access prediction :agent-id)))
-      (insert-trade (access prediction :agent-id) instrument timeframe types train-fitnesses test-fitnesses prediction rates)
-      (push-to-log "Trade created successfully."))))
+  (multiple-value-bind (tp sl agent-ids)
+      (eval-agents instrument timeframe types testing-dataset)
+    (let* ((train-fitnesses (evaluate-agents instrument timeframe types training-dataset))
+	   (test-fitnesses (evaluate-agents instrument timeframe types testing-dataset)))
+      (when train-fitnesses
+	(push-to-log "Training process successful."))
+      (when test-fitnesses
+	(push-to-log "Testing process successful."))
+      (push-to-log (format nil "Prediction. TP: ~a, SL: ~a." tp sl))
+      (when (and (/= tp 0)
+		 ;; (if (not (eq instrument :USD_CNH)) (< (access prediction :tp) 100) t)
+		 (> (abs tp) (abs sl))
+		 (/= sl 0)
+		 (< (* tp sl) 0)
+		 (> (abs (to-pips instrument sl)) 3)
+		 ;; (< (to-pips instrument (abs sl)) 20)
+		 (/= (access test-fitnesses :trades-won) 0)
+		 (/= (+ (access test-fitnesses :trades-won)
+			(access test-fitnesses :trades-lost))
+		     0))
+	(push-to-log (format nil "Trying to create trade. Agents IDs: ~a" agent-ids))
+	(insert-trade (first agent-ids) instrument timeframe types train-fitnesses test-fitnesses tp sl rates)
+	(push-to-log "Trade created successfully.")))))
 
 (let (log)
   (defun push-to-log (msg &key (add-newline? t) (size 100000))
@@ -1478,13 +1507,13 @@
      (swank:create-server :port 4444))))
 (init)
 
-(defun -loop-optimize-test (&key (seconds 60) (max-creation-dataset-size 500) (max-training-dataset-size 500) (max-testing-dataset-size 500)
+(defun -loop-optimize-test (&key (seconds 300) (max-creation-dataset-size 500) (max-training-dataset-size 500) (max-testing-dataset-size 500)
 			      (num-rules 100) (num-inputs 5) (report-fn nil) (type-groups '((:bullish) (:bearish) (:stagnated))) (instruments ominp:*forex*) (timeframes ominp:*shortterm*))
   (dolist (instrument instruments)
     (dolist (timeframe timeframes)
       (unless (is-market-close)
 	(push-to-log (format nil "<br/><b>STARTING ~s ~s.</b><hr/>" instrument timeframe))
-	(let ((rates (get-random-rates-count instrument timeframe
+	(let ((rates (get-rates-count instrument timeframe
 				      (+ max-creation-dataset-size max-training-dataset-size max-testing-dataset-size)
 				      :provider :oanda :type :fx)))
 	  (push-to-log "Retrieved rates successfully.")
@@ -1527,8 +1556,8 @@
 	      (let ()
 		(push-to-log "<b>SIGNAL.</b><hr/>")
 		(push-to-log (format nil "Trying to create signal with ~a agents." agents-count))
-		;; (when (> agents-count 0)
-		;;   (test-agents instrument timeframe types rates training-dataset testing-dataset))
+		(when (> agents-count 0)
+		  (test-agents instrument timeframe types rates training-dataset testing-dataset))
 		(push-to-log "<b>OPTIMIZATION.</b><hr/>")
 		(optimization instrument timeframe types
 			      (lambda () (let ((beliefs (gen-random-beliefs num-inputs)))
@@ -1539,8 +1568,10 @@
 			      training-dataset
 			      seconds
 			      :report-fn report-fn)
-		(test-agents instrument timeframe types rates training-dataset testing-dataset)
-		(conn (query (:delete-from 'agents)))
+		;; (test-agents instrument timeframe types rates training-dataset testing-dataset)
+		;; (conn (query (:delete-from 'agents :where (:= 1 1)))
+		;;       (query (:delete-from 'agents-patterns :where (:= 1 1)))
+		;;       (query (:delete-from 'agents-patterns :where (:= 1 1))))
 		(push-to-log "Optimization process completed.")
 		(push-to-log "<b>VALIDATION.</b><hr/>")
 		(push-to-log "Validating trades older than 24 hours.")
@@ -1749,14 +1780,17 @@
 	       (- x1 x0)))
 	 (b (+ (* m (- x0)) 0)))
     (/ (- y b) m)))
-;; (funcall (con 0 5) 0.0)
-;; (funcall (con 5 0) 0.0)
+;; (con 0.0 -5 0)
+;; (funcall (con 0 5 0) 0.0)
 
 (defun ant (x x0 x1)
-  (let* ((m (/ 1
-	       (- x1 x0)))
-	 (b (+ (* m (- x0)) 0)))
-    (+ (* m x) b)))
+  (if (= (- x1 x0) 0)
+      0
+      (let* ((m (/ 1 (- x1 x0)))
+	     (b (+ (* m (- x0)) 0)))
+	(+ (* m x) b))))
+;; (ant 3 0 5)
+;; (ant 3 5 0)
 
 ;; (defun make-antecedent (mean spread)
 ;;   (lambda (x) (exp (* -0.5 (expt (/ (- x mean) spread) 2)))))
@@ -1807,6 +1841,7 @@
 (defun eval-ifis (inputs input-antecedents input-consequents)
   (let ((tp 0)
 	(sl 0)
+	(activation 0)
 	(len (length inputs)))
     (loop
        for input in inputs
@@ -1825,13 +1860,14 @@
 		      (setf winner-idx idx)
 		      (setf winner-gm gm))))
 	    ;; Averaging outputs (tp and sl).
+	    (incf activation winner-gm)
 	    (incf tp (con winner-gm
 			  (aref (aref (aref consequents winner-idx) 0) 0)
 			  (aref (aref (aref consequents winner-idx) 0) 1)))
 	    (incf sl (con winner-gm
 			  (aref (aref (aref consequents winner-idx) 1) 0)
 			  (aref (aref (aref consequents winner-idx) 1) 1)))))
-    (values (/ tp len) (/ sl len))))
+    (values (/ tp len) (/ sl len) (/ activation len))))
 
 ;; Tipping problem.
 ;; Food Q, Service Q
@@ -1876,69 +1912,88 @@
 	 (idxs (get-same-direction-outputs-idxs rates num-rules :lookahead-count lookahead-count :lookbehind-count lookbehind-count))
 	 (chosen-inputs (loop for idx in idxs collect (funcall perception-fn (get-input-dataset rates idx))))
 	 (chosen-outputs (loop for idx in idxs collect (get-tp-sl (get-output-dataset rates idx) lookahead-count)))
-	 (inp-sd (mapcar (lambda (inp) (standard-deviation inp)) (apply #'mapcar #'list chosen-inputs)))
-	 (tps (loop for output in chosen-outputs collect (access output :tp)))
-	 (sls (loop for output in chosen-outputs collect (access output :sl)))
-	 (tp-sd (standard-deviation tps))
-	 (sl-sd (standard-deviation sls))
+	 ;; (inp-sd (mapcar (lambda (inp) (standard-deviation inp)) (apply #'mapcar #'list chosen-inputs)))
+	 ;; (tps (loop for output in chosen-outputs collect (access output :tp)))
+	 ;; (sls (loop for output in chosen-outputs collect (access output :sl)))
+	 ;; (tp-sd (standard-deviation tps))
+	 ;; (sl-sd (standard-deviation sls))
 	 ;; (mn-inp (- (apply #'min (flatten chosen-inputs)) (apply #'max inp-sd)))
 	 ;; (mx-inp (+ (apply #'max (flatten chosen-inputs)) (apply #'max inp-sd)))
-	 (mn-out-tp (let ((min-chosen (apply #'min tps)))
-		      (if (and (> min-chosen 0) (< (- min-chosen tp-sd) 0))
-			  0.0
-			  (- min-chosen tp-sd))))
-	 (mn-out-sl (let ((min-chosen (apply #'min sls)))
-		      (if (and (> min-chosen 0) (< (- min-chosen sl-sd) 0))
-			  0.0
-			  (- min-chosen sl-sd))))
-	 (mx-out-tp (let ((max-chosen (apply #'max tps)))
-		      (if (and (< max-chosen 0) (> (+ max-chosen tp-sd) 0))
-			  0.0
-			  (+ max-chosen tp-sd))))
-	 (mx-out-sl (let ((max-chosen (apply #'max sls)))
-		      (if (and (< max-chosen 0) (> (+ max-chosen sl-sd) 0))
-			  0.0
-			  (+ max-chosen sl-sd)))))
+	 ;; (mn-out-tp (let ((min-chosen (apply #'min tps)))
+	 ;; 	      (if (and (> min-chosen 0) (< (- min-chosen tp-sd) 0))
+	 ;; 		  0.0
+	 ;; 		  (- min-chosen tp-sd))))
+	 ;; (mn-out-sl (let ((min-chosen (apply #'min sls)))
+	 ;; 	      (if (and (> min-chosen 0) (< (- min-chosen sl-sd) 0))
+	 ;; 		  0.0
+	 ;; 		  (- min-chosen sl-sd))))
+	 ;; (mx-out-tp (let ((max-chosen (apply #'max tps)))
+	 ;; 	      (if (and (< max-chosen 0) (> (+ max-chosen tp-sd) 0))
+	 ;; 		  0.0
+	 ;; 		  (+ max-chosen tp-sd))))
+	 ;; (mx-out-sl (let ((max-chosen (apply #'max sls)))
+	 ;; 	      (if (and (< max-chosen 0) (> (+ max-chosen sl-sd) 0))
+	 ;; 		  0.0
+	 ;; 		  (+ max-chosen sl-sd))))
+	 )
     (values
      (let ((v (loop
 		 for inputs in (apply #'mapcar #'list chosen-inputs)
 		 for idx from 0
 		 collect (let ((v (flatten (loop
 					      for input in inputs
-					      collect (list (vector (- input (nth idx inp-sd)) input)
-							    (vector input (+ input (nth idx inp-sd))))))))
+					      collect (list
+						       (if (plusp input)
+							   (vector 0 input)
+							   (vector input 0))
+							    ;; (vector (- input (nth idx inp-sd)) input)
+							    ;; (vector input (+ input (nth idx inp-sd)))
+							    )))))
 			   (make-array (length v) :initial-contents v)))))
        (make-array (length v) :initial-contents v))
      (let* ((one-set-outputs
 	     (flatten (loop for output in chosen-outputs
 			 collect (let* ((tp (access output :tp))
 					(sl (access output :sl))
-					(mn-tp (- tp tp-sd))
-					(mx-tp (+ tp tp-sd))
-					(mn-sl (- sl sl-sd))
-					(mx-sl (+ sl sl-sd)))
-				   (list (vector (vector (if (< mn-tp mn-out-tp)
-							     mn-out-tp
-							     mn-tp)
-							 tp)
-						 (vector (if (< mn-sl mn-out-sl)
-							     mn-out-sl
-							     mn-sl)
-							 sl))
-					 (vector (vector tp
-							 (if (> mx-tp mx-out-tp)
-							     mx-out-tp
-							     mx-tp))
-						 (vector sl
-							 (if (> mx-sl mx-out-sl)
-							     mx-out-sl
-							     mx-sl))
-						 ))))))
+					;; (mn-tp (- tp tp-sd))
+					;; (mx-tp (+ tp tp-sd))
+					;; (mn-sl (- sl sl-sd))
+					;; (mx-sl (+ sl sl-sd))
+					)
+				   (list (vector (vector ;; (if (and nil (< mn-tp mn-out-tp))
+							 ;;     mn-out-tp
+						  ;;     mn-tp)
+						  0 tp
+						  )
+						 (vector ;; (if (and nil (< mn-sl mn-out-sl))
+							 ;;     mn-out-sl
+						  ;;     mn-sl)
+						  0 sl
+						  ;; (if (plusp sl)
+						  ;;     0
+						  ;;     sl)
+						  ;; (if (plusp sl)
+						  ;;     sl
+						  ;;     0)
+						  ))
+					 ;; (vector (vector tp
+					 ;; 		 ;; (if (and nil (> mx-tp mx-out-tp))
+					 ;; 		 ;;     mx-out-tp
+					 ;; 		 ;;     mx-tp)
+					 ;; 		 0)
+					 ;; 	 (vector sl
+					 ;; 		 ;; (if (and nil (> mx-sl mx-out-sl))
+					 ;; 		 ;;     mx-out-sl
+					 ;; 		 ;;     mx-sl)
+					 ;; 		 0
+					 ;; 		 )
+					 ;; 	 )
+					 )))))
 	    (one-set-outputs-v (make-array (length one-set-outputs) :initial-contents one-set-outputs))
 	    (v (loop repeat (length (first chosen-inputs))
 		  collect one-set-outputs-v)))
        (make-array (length v) :initial-contents v)))))
-;; (gen-agent 3 *rates* (access (gen-random-beliefs 2) :perception-fns) 10 10)
+;; (make-ifis (gen-agent 3 *rates* (access (gen-random-beliefs 2) :perception-fns) 10 10) 3 *rates*)
 ;; (access (gen-agent 2 *rates* (access (gen-random-beliefs 2) :perception-fns) 10 10) :perception-fns)
 
 ;; (insert-agent (gen-agent 2 *rates* (access (gen-random-beliefs 2) :perception-fns) 10 16) :EUR_USD :H1 '(:BULLISH))
@@ -1952,7 +2007,7 @@
 ;; 			 (access agent :antecedents)
 ;; 			 (access agent :consequents)))))
 
-;; (time (let ((inputs #(10 10))
+;; (time (let ((inputs '(10 10))
 ;; 	    (input-antecedents #(#(#(0 4)
 ;; 				   #(3 7)
 ;; 				   #(6 10))
@@ -1965,7 +2020,7 @@
 ;; 				 #(#(#(0 0.01) #(0 1))
 ;; 				   #(#(5 10) #(0 1))
 ;; 				   #(#(10 15) #(0 1))))))
-;; 	(loop repeat 10 do (eval-ifis inputs input-antecedents input-consequents))))
+;;         (eval-ifis inputs input-antecedents input-consequents)))
 
 
 

@@ -39,38 +39,41 @@
 			    (if (/= ideal-cores-count 0)
 				ideal-cores-count 1))))
 
+(defun assoccess (o k)
+  (cdr (assoc k o)))
+
 (defun rate-close (rate)
-  (/ (+ (access rate :close-bid)
-	(access rate :close-ask))
+  (/ (+ (assoccess rate :close-bid)
+	(assoccess rate :close-ask))
      2))
 (defun rate-high (rate)
-  (/ (+ (access rate :high-bid)
-	(access rate :high-ask))
+  (/ (+ (assoccess rate :high-bid)
+	(assoccess rate :high-ask))
      2))
 (defun rate-low (rate)
-  (/ (+ (access rate :low-bid)
-	(access rate :low-ask))
+  (/ (+ (assoccess rate :low-bid)
+	(assoccess rate :low-ask))
      2))
 (defun rate-open (rate)
-  (/ (+ (access rate :open-bid)
-	(access rate :open-ask))
+  (/ (+ (assoccess rate :open-bid)
+	(assoccess rate :open-ask))
      2))
 (defun rate-close-bid (rate)
-  (access rate :close-bid))
+  (assoccess rate :close-bid))
 (defun rate-close-ask (rate)
-  (access rate :close-bid))
+  (assoccess rate :close-bid))
 (defun rate-low-bid (rate)
-  (access rate :low-bid))
+  (assoccess rate :low-bid))
 (defun rate-low-ask (rate)
-  (access rate :low-ask))
+  (assoccess rate :low-ask))
 (defun rate-high-bid (rate)
-  (access rate :high-bid))
+  (assoccess rate :high-bid))
 (defun rate-high-ask (rate)
-  (access rate :high-ask))
+  (assoccess rate :high-ask))
 (defun rate-open-bid (rate)
-  (access rate :open-bid))
+  (assoccess rate :open-bid))
 (defun rate-open-ask (rate)
-  (access rate :open-ask))
+  (assoccess rate :open-ask))
 
 ;; (rate-close (first *rates*))
 ;; (rate-high (first *rates*))
@@ -158,14 +161,31 @@
     (insert-pattern :USD_JPY :H1 :STAGNATED)))
 ;; (init-patterns)
 
+;; (time (get-rates :EUR_USD 2 :H1))
+;; (defparameter *rates* (get-rates-count :EUR_USD :H1 30 :provider :oanda :type :fx))
+
+;; (defun )
+
+;; (local-time:unix-to-timestamp )
+
 (defun init-database ()
   "Creates all the necessary tables for Overmind Agents."
   (conn
    (unless (table-exists-p 'rates)
      (query (:create-table 'rates
-		((id :type string)
-		 (perception-fns :type string))
-	      (:primary-key id))))
+		((time :type (or db-null int8))
+		 (instrument :type string)
+		 (timeframe :type string)
+		 (open-bid :type double-float)
+		 (open-ask :type double-float)
+		 (high-bid :type double-float)
+		 (high-ask :type double-float)
+		 (low-bid :type double-float)
+		 (low-ask :type double-float)
+		 (close-bid :type double-float)
+		 (close-ask :type double-float)
+		 (volume :type double-float))
+	      (:primary-key time instrument timeframe))))
    (unless (table-exists-p 'agents)
      (query (:create-table 'agents
 		((id :type string)
@@ -294,16 +314,16 @@
 	(high-type (if (plusp tp) :high-bid :high-ask)))
     (loop for rate in rates do (progn
 				 ;; Then it's a buy. Lose.
-				 (when (and (> tp 0) (< (- (access rate low-type) entry-price) sl))
+				 (when (and (> tp 0) (< (- (assoccess rate low-type) entry-price) sl))
 				   (return sl))
 				 ;; Then it's a sell. Lose.
-				 (when (and (< tp 0) (> (- (access rate high-type) entry-price) sl))
+				 (when (and (< tp 0) (> (- (assoccess rate high-type) entry-price) sl))
 				   (return (- sl)))
 				 ;; Then it's a buy. Win.
-				 (when (and (> tp 0) (> (- (access rate high-type) entry-price) tp))
+				 (when (and (> tp 0) (> (- (assoccess rate high-type) entry-price) tp))
 				   (return tp))
 				 ;; Then it's a sell. Win.
-				 (when (and (< tp 0) (< (- (access rate low-type) entry-price) tp))
+				 (when (and (< tp 0) (< (- (assoccess rate low-type) entry-price) tp))
 				   (return (abs tp)))
 				 ))))
 
@@ -343,12 +363,12 @@
 						   ))
 			     :alists))))
     (loop for trade in trades
-       summing (let ((instrument (make-keyword (access trade :instrument))))
-		 (if (or (and (string= (access trade :decision) "SELL")
-			      (string= (access trade :type) "BEARISH"))
-			 (and (string= (access trade :decision) "BUY")
-			      (string= (access trade :type) "BULLISH")))
-		     (to-pips instrument (access trade :result))
+       summing (let ((instrument (make-keyword (assoccess trade :instrument))))
+		 (if (or (and (string= (assoccess trade :decision) "SELL")
+			      (string= (assoccess trade :type) "BEARISH"))
+			 (and (string= (assoccess trade :decision) "BUY")
+			      (string= (assoccess trade :type) "BULLISH")))
+		     (to-pips instrument (assoccess trade :result))
 		     0)))))
 
 ;; (get-global-revenue :to (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 1 :day)) :from (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 5 :day)))
@@ -364,24 +384,24 @@
 					     :on (:= 'patterns.id 'patterns-trades.pattern-id)
 					     :where (:= 'patterns.instrument "USD_CNH")
 					     ) :alists))))
-	 (from (print (* (access trade :creation-time) 1000000)))
+	 (from (print (* (assoccess trade :creation-time) 1000000)))
 	 (from-timestamp (local-time:unix-to-timestamp (/ from 1000000))))
-    (let* ((instrument (make-keyword (access trade :instrument)))
+    (let* ((instrument (make-keyword (assoccess trade :instrument)))
 	   (timeframe :M1)
 	   (to (* (local-time:timestamp-to-unix (local-time:timestamp+ from-timestamp 3 :day)) 1000000))
 	   (rates (get-rates-range instrument timeframe from to :provider :oanda :type :fx))
-	   (result (get-trade-result (access trade :entry-price)
-				     (access trade :tp)
-				     (access trade :sl)
+	   (result (get-trade-result (assoccess trade :entry-price)
+				     (assoccess trade :tp)
+				     (assoccess trade :sl)
 				     rates)))
 
       (format t "Result: ~a~%" result)
-      (format t "Entry: ~a~%" (access trade :entry-price))
-      (format t "TP: ~a~%" (access trade :tp))
-      (format t "SL: ~a~%" (access trade :sl))
-      (if (plusp (access trade :tp))
-	  (loop for rate in rates do (print (access rate :high-ask)))
-	  (loop for rate in rates do (print (access rate :high-bid)))))))
+      (format t "Entry: ~a~%" (assoccess trade :entry-price))
+      (format t "TP: ~a~%" (assoccess trade :tp))
+      (format t "SL: ~a~%" (assoccess trade :sl))
+      (if (plusp (assoccess trade :tp))
+	  (loop for rate in rates do (print (assoccess rate :high-ask)))
+	  (loop for rate in rates do (print (assoccess rate :high-bid)))))))
 
 (defun validate-trades ()
   (let ((trades (conn (query (:select 'trades.* 'patterns.*
@@ -393,28 +413,28 @@
 				      :where (:is-null 'trades.result)) :alists))))
     (push-to-log (format nil "Trying to validate ~a trades." (length trades)))
     (loop for trade in trades
-       do (let* ((from (* (access trade :creation-time) 1000000))
+       do (let* ((from (* (assoccess trade :creation-time) 1000000))
 		 (from-timestamp (local-time:unix-to-timestamp (/ from 1000000))))
-	    ;; (print (make-keyword (access trade :instrument)))
+	    ;; (print (make-keyword (assoccess trade :instrument)))
 	    ;; (print (local-time:unix-to-timestamp (/ from 1000000)))
 	    (when (local-time:timestamp< from-timestamp
 					 (local-time:timestamp- (local-time:now) 1 :day))
 	      (push-to-log (format nil "Using minute rates from ~a to ~a to validate trade."
 				   from-timestamp
 				   (local-time:timestamp+ from-timestamp 3 :day)))
-	      (let* ((instrument (make-keyword (access trade :instrument)))
+	      (let* ((instrument (make-keyword (assoccess trade :instrument)))
 		     (timeframe :M1)
 		     (to (* (local-time:timestamp-to-unix (local-time:timestamp+ from-timestamp 3 :day)) 1000000))
 		     (rates (get-rates-range instrument timeframe from to :provider :oanda :type :fx))
-		     (result (get-trade-result (access trade :entry-price)
-					       (access trade :tp)
-					       (access trade :sl)
+		     (result (get-trade-result (assoccess trade :entry-price)
+					       (assoccess trade :tp)
+					       (assoccess trade :sl)
 					       rates)))
 		(push-to-log (format nil "Result obtained for trade: ~a." result))
 		(when result
 		  (conn
-		   (let ((dao (get-dao 'trade (access trade :id))))
-		    (setf (access dao :result) result)
+		   (let ((dao (get-dao 'trade (assoccess trade :id))))
+		    (setf (slot-value dao 'result) result)
 		    (update-dao dao))))
 		(sleep 1)))))))
 ;; (validate-trades)
@@ -439,9 +459,17 @@
 	summing (* j (->delta-close rates (+ i offset))))
      (* n (1+ n) 1/2)))
 
-(defun ->ema-close (rates offset n)
-  (let ((smoothing (/ 2 (1+ n))))
-    ))
+(defun ->close (rates offset)
+  (let* ((lrates (length rates)))
+    (rate-close (nth (- lrates offset 1) rates))))
+;; (->close *rates* 0)
+
+(defun ->ema-close (rates offset n-sma n-ema)
+  (let ((smoothing (/ 2 (1+ n-ema)))
+	(ema (->sma-close rates (+ offset n-ema) n-sma)))
+    (loop for i from (1- n-ema) downto 1
+       do (setf ema (+ ema (* smoothing (- (->delta-close rates (+ i offset)) ema)))))
+    ema))
 
 ;; (describe-trades 1000)
 
@@ -501,6 +529,7 @@
 (defenum perceptions
     (->sma-close
      ->wma-close
+     ->ema-close
      ->rsi-close
      ;; ->delta-close
      ;; ->high-height
@@ -518,6 +547,12 @@
 	(n (random-int *rand-gen* 3 14)))
     (values `#(,->wma-close ,offset ,n)
 	    (+ offset n))))
+(defun random->ema-close ()
+  (let ((offset (random-int *rand-gen* 0 9))
+	(n-sma (random-int *rand-gen* 3 14))
+	(n-ema (random-int *rand-gen* 3 14)))
+    (values `#(,->ema-close ,offset ,n-sma ,n-ema)
+	    (+ offset n-sma n-ema))))
 (defun random->rsi-close ()
   (let ((offset (random-int *rand-gen* 0 9))
 	(n (random-int *rand-gen* 10 14)))
@@ -543,6 +578,7 @@
 (defun gen-random-beliefs (fns-count)
   (let ((fns-bag `(,#'random->sma-close
 		   ,#'random->wma-close
+		   ,#'random->ema-close
 		   ,#'random->rsi-close
 		   ;; ,#'random->high-height
 		   ;; ,#'random->low-height
@@ -570,7 +606,7 @@
 		      rates (coerce (subseq fn 1) 'list)))))
 
 ;; (let ((fn '((:fn . ->sma-close) (:offset . 0) (:n . 20))))
-;;   (apply #'funcall (access fn :fn) *rates* (flatten (rest fn))))
+;;   (apply #'funcall (assoccess fn :fn) *rates* (flatten (rest fn))))
 
 ;; (time (loop repeat 1000 do (funcall (gen-perception-fn #(#(0 0 10) #(0 1 10) #(1 0))) *rates*)))
 
@@ -722,12 +758,12 @@
 	      (when (< delta-low max-neg)
 		(setf max-neg delta-low)))))
     `((:tp . ,(if (>= max-pos (abs max-neg)) max-pos max-neg))
-      (:sl . ,(if (>= max-pos (abs max-neg)) (* max-pos -0.5) (* max-neg -0.5)))
-      ;; (:sl . ,(if (>= (abs max-neg) max-pos) max-pos max-neg))
+      ;; (:sl . ,(if (>= max-pos (abs max-neg)) (* max-pos -1.0) (* max-neg -1.0)))
+      (:sl . ,(if (>= (abs max-neg) max-pos) max-pos max-neg))
       )))
 ;; (time (get-tp-sl (get-input-dataset *rates* 400)))
 
-;; (funcall (access *perception-fn* :perception-fn) (subseq *rates* 10 20))
+;; (funcall (assoccess *perception-fn* :perception-fn) (subseq *rates* 10 20))
 
 (defun get-same-direction-outputs-idxs (rates count &key (lookahead-count 10) (lookbehind-count 10) direction-fn)
   (let* ((r (random-float *rand-gen* 0 1))
@@ -738,8 +774,8 @@
     (loop for idx in idxs
        do (let ((tp-sl (get-tp-sl (subseq rates idx) lookahead-count)))
 	    (when (and (< (length result) count)
-		       (funcall pred (access tp-sl :tp))
-		       (/= (access tp-sl :sl) 0))
+		       (funcall pred (assoccess tp-sl :tp))
+		       (/= (assoccess tp-sl :sl) 0))
 	      (push idx result))))
     (if (> (length result) 1)
 	result
@@ -763,9 +799,9 @@
 (defun eq-line-two-points (a b)
   "Calculates the slope `M` and constant `B` of a line equation
 `Y = MX + B`, given two points `A` and `B` in a plane."
-  (let* ((m (/ (- (access b :y) (access a :y))
-	       (- (access b :x) (access a :x))))
-	 (b (- (access a :y) (* m (access a :x)))))
+  (let* ((m (/ (- (assoccess b :y) (assoccess a :y))
+	       (- (assoccess b :x) (assoccess a :x))))
+	 (b (- (assoccess a :y) (* m (assoccess a :x)))))
     `((:m . ,m) (:b . ,b))))
 ;; (eq-line-two-points '(:x 3 :y 7) '(:x 5 :y 11))
 
@@ -795,21 +831,21 @@
 
 (defun gen-agent (num-rules rates perception-fns lookahead-count lookbehind-count)
   (let ((agent (make-instance 'agent)))
-    (setf (access agent :creation-begin-time) (read-from-string (access (first rates) :time)))
-    (setf (access agent :creation-end-time) (read-from-string (access (last-elt rates) :time)))
-    (setf (access agent :perception-fns) (format nil "~s" perception-fns))
-    (setf (access agent :lookahead-count) lookahead-count)
-    (setf (access agent :lookbehind-count) lookbehind-count)
+    (setf (slot-value agent 'creation-begin-time) (read-from-string (assoccess (first rates) :time)))
+    (setf (slot-value agent 'creation-end-time) (read-from-string (assoccess (last-elt rates) :time)))
+    (setf (slot-value agent 'perception-fns) (format nil "~s" perception-fns))
+    (setf (slot-value agent 'lookahead-count) lookahead-count)
+    (setf (slot-value agent 'lookbehind-count) lookbehind-count)
     (multiple-value-bind (antecedents consequents)
     	(make-ifis agent num-rules rates)
-      (setf (access agent :antecedents) (format nil "~s" antecedents))
-      (setf (access agent :consequents) (format nil "~s" consequents)))
+      (setf (slot-value agent 'antecedents) (format nil "~s" antecedents))
+      (setf (slot-value agent 'consequents) (format nil "~s" consequents)))
     agent))
 ;; (gen-agent 3 *rates* (gen-random-beliefs 2) 10 55)
 
 (defun gen-agents (num-agents num-rules rates perception-fns lookahead-count lookbehind-count)
   (loop repeat num-agents collect (gen-agent num-rules rates perception-fns lookahead-count lookbehind-count)))
-;; (gen-agents 2 3 *rates* (access *beliefs* :perception-fns) 10 55)
+;; (gen-agents 2 3 *rates* (assoccess *beliefs* :perception-fns) 10 55)
 
 (defun evaluate-trade (tp sl rates)
   "Refactorize this."
@@ -830,7 +866,7 @@
 		(high (if (plusp tp)
 			  (rate-high-bid rate)
 			  (rate-high-ask rate)))
-		(time (access rate :time)))
+		(time (assoccess rate :time)))
 	    (when (or (= tp 0) (= sl 0))
 	      ;; We move to the next price.
 	      (setf finish-idx 1)
@@ -913,12 +949,12 @@
 (defun describe-trades (&optional limit)
   (let* ((trades (get-trades limit))
 	 (trades-won (loop for trade in trades
-			summing (access trade :test-trades-won)))
+			summing (assoccess trade :test-trades-won)))
 	 (trades-lost (loop for trade in trades
-			 summing (access trade :test-trades-lost)))
+			 summing (assoccess trade :test-trades-lost)))
 	 (total-revenue (loop for trade in trades
-			   summing (to-pips (access trade :instrument)
-					    (access trade :test-total-revenue)))))
+			   summing (to-pips (assoccess trade :instrument)
+					    (assoccess trade :test-total-revenue)))))
     (format t "Total trades won: ~a. Total trades lost: ~a. Total trades: ~a. Total revenue: ~a. Avg revenue: ~a.~%~%"
 	    trades-won
 	    trades-lost
@@ -927,16 +963,15 @@
 	    (/ total-revenue (+ trades-won trades-lost)))
     (loop for trade in trades
        do (format t "market: ~a, train-total-revenue: ~5$, train-trades-won: ~a, train-trades-lost: ~a,    test-total-revenue: ~5$, test-trades-won: ~a, test-trades-lost: ~a~%"
-		  (access trade :instrument)
-		  (to-pips (access trade :instrument)
-			   (access trade :train-total-revenue))
-		  (access trade :train-trades-won)
-		  (access trade :train-trades-lost)
-		  (to-pips (access trade :instrument)
-			   (access trade :test-total-revenue))
-		  (access trade :test-trades-won)
-		  (access trade :test-trades-lost)))
-    ))
+		  (assoccess trade :instrument)
+		  (to-pips (assoccess trade :instrument)
+			   (assoccess trade :train-total-revenue))
+		  (assoccess trade :train-trades-won)
+		  (assoccess trade :train-trades-lost)
+		  (to-pips (assoccess trade :instrument)
+			   (assoccess trade :test-total-revenue))
+		  (assoccess trade :test-trades-won)
+		  (assoccess trade :test-trades-lost)))))
 ;; (get-global-revenue)
 ;; (describe-agents)
 ;; (describe-trades 1000)
@@ -945,14 +980,14 @@
 ;; TODO: when removing an agent in update-pareto-frontier, also remove agent-pattern
 
 (defun get-perception-fn (agent)
-  (gen-perception-fn (read-from-string (access agent :perception-fns))))
+  (gen-perception-fn (read-from-string (slot-value agent 'perception-fns))))
 ;; (fare-memoization:memoize 'get-perception-fn)
 
 (defun eval-agent (agent rates)
   (let ((perception-fn (get-perception-fn agent)))
     (eval-ifis (funcall perception-fn rates)
-	       (read-from-string (access agent :antecedents))
-	       (read-from-string (access agent :consequents)))))
+	       (read-from-string (slot-value agent 'antecedents))
+	       (read-from-string (slot-value agent 'consequents)))))
 
 (defun eval-agents (instrument timeframe types rates &key (count 1) (limit 1000))
   (let (tps sls activations ids)
@@ -964,7 +999,8 @@
 		    (push tp tps)
 		    (push sl sls)
 		    (push activation activations)
-		    (push (access agent :id) ids)))))
+		    (push (slot-value agent 'id) ids)
+		    ))))
     (let ((idxs (sorted-indexes activations #'>))
 	  (tp 0)
 	  (sl 0)
@@ -996,7 +1032,7 @@
       ;; 	      ))
       (values (/ tp 1)
 	      (/ sl 1)
-	      ids))))
+	      (list (nth (position 0 idxs) ids))))))
 
 (defun -evaluate-agents (&key instrument timeframe types rates agent idx)
   "Used for EVALUATE-AGENT and EVALUATE-AGENTS."
@@ -1022,11 +1058,11 @@
 		    (eval-agent agent input-dataset)
 		    (eval-agents instrument timeframe types input-dataset))
 	      (let* ((trade (evaluate-trade tp sl output-dataset))
-		     (revenue (access trade :revenue))
-		     (max-pos (access trade :max-pos))
-		     (max-neg (access trade :max-neg))
-		     (exit-time (access trade :exit-time))
-		     (finish-idx (access trade :finish-idx)))
+		     (revenue (assoccess trade :revenue))
+		     (max-pos (assoccess trade :max-pos))
+		     (max-neg (assoccess trade :max-neg))
+		     (exit-time (assoccess trade :exit-time))
+		     (finish-idx (assoccess trade :finish-idx)))
 		(if (or (= revenue 0)
 			(> (abs sl) (abs tp))
 			(> (* tp sl) 0)
@@ -1044,7 +1080,7 @@
 			  (incf trades-lost))
 		      (push tp tps)
 		      (push sl sls)
-		      (push (read-from-string (access (nth idx rates) :time)) entry-times)
+		      (push (read-from-string (assoccess (nth idx rates) :time)) entry-times)
 		      (push (read-from-string exit-time) exit-times)
 		      (push (if (plusp tp)
 				(rate-close-ask (nth idx rates))
@@ -1059,8 +1095,8 @@
 		      (push revenue revenues)))
 		(incf idx finish-idx)))))
     (push-to-log "<br/>Agents evaluated successfully.")
-    `((:begin-time . ,(read-from-string (access (first rates) :time)))
-      (:end-time . ,(read-from-string (access (last-elt rates) :time)))
+    `((:begin-time . ,(read-from-string (assoccess (first rates) :time)))
+      (:end-time . ,(read-from-string (assoccess (last-elt rates) :time)))
       (:dataset-size . ,(length rates))
       (:avg-revenue . ,(if (> (length revenues) 0) (mean revenues) 0))
       (:stdev-revenue . ,(if (> (length revenues) 0) (standard-deviation revenues) 0))
@@ -1094,9 +1130,11 @@
 ;; (room)
 
 (defun evaluate-agent (agent rates)
-  (let ((fitnesses (-evaluate-agents :agent agent :rates rates :idx (access agent :lookbehind-count))))
+  (let ((fitnesses (-evaluate-agents :agent agent :rates rates :idx (slot-value agent 'lookbehind-count))))
     (loop for fitness in fitnesses
-       do (setf (access agent (car fitness))
+       ;; TODO: We should be returning symbols (not kws) from -evaluate-agents.
+	 ;;; and then remove this format + read-from-string.
+       do (setf (slot-value agent (read-from-string (format nil "~a" (car fitness))))
 		(if (listp (cdr fitness)) (apply #'vector (cdr fitness)) (cdr fitness))))
     agent))
 ;; (evaluate-agent (gen-agent 3 *rates* (access *beliefs* :perception-fns) 10 55) (subseq *rates* 0 200))
@@ -1114,9 +1152,9 @@
   agents)
 
 ;; (let ((agents (get-agents :EUR_USD :H1 '(:BULLISH) :limit -1)))
-;;   (print (access (first agents) :test-avg-revenue))
+;;   (print (slot-value (first agents) :test-avg-revenue))
 ;;   (update-agents-fitnesses agents (subseq *rates* 0 300))
-;;   (print (access (first agents) :test-avg-revenue))
+;;   (print (slot-value (first agents) :test-avg-revenue))
 ;;   nil
 ;;   )
 
@@ -1132,42 +1170,35 @@
   (read-from-string (format nil ":~a-~a" kw1 kw2)))
 ;; (merge-keywords :hello :moto)
 
-(defun is-agent-dominated? (agent agents instrument timeframe types)
-  (let* ((avg-revenue-0 (access agent :avg-revenue))
-	 (trades-won-0 (access agent :trades-won))
-	 (trades-lost-0 (access agent :trades-lost))
-	 ;; (stdev-revenue-0 (access agent :stdev-revenue))
+(defun is-agent-dominated? (agent agents)
+  (let* ((avg-revenue-0 (slot-value agent 'avg-revenue))
+	 (trades-won-0 (slot-value agent 'trades-won))
+	 (trades-lost-0 (slot-value agent 'trades-lost))
+	 ;; (stdev-revenue-0 (slot-value agent 'stdev-revenue))
 	 (is-dominated? nil))
     ;; (format t "~a, ~a, ~a~%~%" avg-revenue-0 trades-won-0 trades-lost-0)
     (loop for agent in agents
-       do (let* ((avg-revenue (access agent :avg-revenue))
-		 (trades-won (access agent :trades-won))
-		 (trades-lost (access agent :trades-lost))
-		 ;; (stdev-revenue (access agent :stdev-revenue))
+       do (let* ((avg-revenue (slot-value agent 'avg-revenue))
+		 (trades-won (slot-value agent 'trades-won))
+		 (trades-lost (slot-value agent 'trades-lost))
+		 ;; (stdev-revenue (slot-value agent 'stdev-revenue))
 		 )
 	    ;; Fitnesses currently being used.
-	    (if (and (> avg-revenue avg-revenue-0)
-		     ;; (< stdev-revenue stdev-revenue-0)
-		     (> trades-won trades-won-0)
-		     (< trades-lost trades-lost-0))
-		;; Candidate agent was dominated.
-		(progn (setf is-dominated? t)
-		       (return))
-		(when (and (<= avg-revenue avg-revenue-0)
-			   ;; (>= stdev-revenue stdev-revenue-0)
-			   (<= trades-won trades-won-0)
-			   (>= trades-lost trades-lost-0))
-		  ;; Candidate agent dominated another agent. Remove it.
-		  (push-to-log (format nil "Removing agent with ID: ~a" (access agent :id)))
-		  (delete-agent agent instrument timeframe types)))))
+	    (when (and (>= avg-revenue avg-revenue-0)
+		       ;; (< stdev-revenue stdev-revenue-0)
+		       (>= trades-won trades-won-0)
+		       (<= trades-lost trades-lost-0))
+	      ;; Candidate agent was dominated.
+	      (setf is-dominated? t)
+	      (return))))
     is-dominated?))
 
 (defun plotly-candlestick (rates)
-  (let ((x (loop for rate in rates collect (/ (read-from-string (access rate :time)) 1000000)))
-	(open (loop for rate in rates collect (access rate :open-bid)))
-	(high (loop for rate in rates collect (access rate :high-bid)))
-	(low (loop for rate in rates collect (access rate :low-bid)))
-	(close (loop for rate in rates collect (access rate :close-bid))))
+  (let ((x (loop for rate in rates collect (/ (read-from-string (assoccess rate :time)) 1000000)))
+	(open (loop for rate in rates collect (assoccess rate :open-bid)))
+	(high (loop for rate in rates collect (assoccess rate :high-bid)))
+	(low (loop for rate in rates collect (assoccess rate :low-bid)))
+	(close (loop for rate in rates collect (assoccess rate :close-bid))))
     `((:type . "candlestick")
       (:xaxis . "x")
       (:yaxis . "y")
@@ -1200,39 +1231,48 @@
 
 (defun report (agents rates)
   (let ((r (evaluate-agents agents rates)))
-    (push (list (access r :avg-revenue)
-		(access r :trades-won)
-		(access r :trades-lost))
+    (push (list (slot-value r 'avg-revenue)
+		(slot-value r 'trades-won)
+		(slot-value r 'trades-lost))
 	  *results*)
     (format t "#Agents: ~4a ~tAvg. Revenue: ~5$ ~tTrades Won: ~4a ~tTrades Lost: ~4a~%"
 	    (length agents)
-	    (access r :avg-revenue)
-	    (access r :trades-won)
-	    (access r :trades-lost))))
+	    (slot-value r 'avg-revenue)
+	    (slot-value r 'trades-won)
+	    (slot-value r 'trades-lost))))
 
 (defun optimization (instrument timeframe types gen-agent-fn rates seconds &key report-fn)
   ;; Checking if we need to initialize the agents collection.
   (let ((agents (if-let ((agents (get-agents instrument timeframe types :limit -1)))
 		  (update-agents-fitnesses agents rates)
-		  (list (evaluate-agent (funcall gen-agent-fn) rates)))))
+		  (list (evaluate-agent (funcall gen-agent-fn) rates))))
+	(purged-agents))
     (push-to-log (format nil "~a agents retrieved to start optimization." (length agents)))
     (push-to-log (format nil "Performing optimization for ~a seconds." seconds))
     (loop with until-timestamp = (local-time:timestamp+ (local-time:now) seconds :sec)
        do (if (local-time:timestamp> (local-time:now) until-timestamp)
 	      (progn
-		;; Inserting new agents in Pareto Frontier.
-		(push-to-log (format nil "Updating Pareto frontier with ~a agents." (length agents)))
-		(conn (loop for agent in agents
-			 do (unless (get-dao 'agent (access agent :id))
-			      (push-to-log (format nil "Inserting new agent with ID: ~a" (access agent :id)))
-			      (insert-agent agent instrument timeframe types))))
-		(push-to-log "Pareto frontier updated successfully.")
+		(when purged-agents
+		  ;; Inserting new agents in Pareto Frontier.
+		  (push-to-log (format nil "Updating Pareto frontier with ~a agents." (length purged-agents)))
+		  (conn (loop for agent in purged-agents
+			   do (unless (get-dao 'agent (slot-value agent 'id))
+				(push-to-log (format nil "Inserting new agent with ID: ~a" (slot-value agent 'id)))
+				(insert-agent agent instrument timeframe types))))
+		  (push-to-log "Pareto frontier updated successfully."))
 		(return))
-	      (let* ((agent (evaluate-agent (funcall gen-agent-fn) rates))
-		     (is-dominated? (is-agent-dominated? agent agents instrument timeframe types)))
+	      (let* ((challenger (list (evaluate-agent (funcall gen-agent-fn) rates)))
+		     (is-dominated? (is-agent-dominated? (car challenger) agents)))
 		(unless is-dominated?
-		  (push agent agents))
-		;; (push-to-log (format nil "Inserting new agent with ID: ~a" (access agent :id)))
+		  ;; Purging agents.
+		  (loop for in-trial in agents
+		     do (if (is-agent-dominated? in-trial challenger)
+			    (progn
+			      (push-to-log (format nil "Removing agent with ID: ~a" (slot-value in-trial 'id)))
+			      (delete-agent in-trial instrument timeframe types))
+			    (push in-trial purged-agents)))
+		  (push (first challenger) purged-agents))
+		;; (push-to-log (format nil "Inserting new agent with ID: ~a" (slot-value agent 'id)))
 		;; (insert-agent agent instrument timeframe types)
 		(when report-fn
 		  (funcall report-fn (get-agents instrument timeframe types :limit -1) rates)))))))
@@ -1253,7 +1293,7 @@
 
 (defun get-agent-ids-from-patterns (instrument timeframe types)
   (let ((patterns (get-patterns instrument timeframe types)))
-    (conn (query (:select 'agent-id :from 'agents-patterns :where (:in 'pattern-id (:set (loop for pattern in patterns collect (access pattern :id))))) :column))))
+    (conn (query (:select 'agent-id :from 'agents-patterns :where (:in 'pattern-id (:set (loop for pattern in patterns collect (assoccess pattern :id))))) :column))))
 
 (defun get-agents (instrument timeframe types &key (limit 1) (offset 0))
   (let* ((agent-ids (get-agent-ids-from-patterns instrument timeframe types))
@@ -1267,7 +1307,7 @@
     agents))
 ;; (length (get-agents :EUR_USD :H1 '(:BULLISH) :limit 10))
 ;; (length (get-agents :EUR_USD :H1 '(:BULLISH) :limit -1))
-;; (access (car (get-agents :EUR_USD :H1 '(:BULLISH) :limit 1)) :avg-revenue)
+;; (slot-value (car (get-agents :EUR_USD :H1 '(:BULLISH) :limit 1)) 'avg-revenue)
 
 ;; (conn (query (:select '* :from 'agents)))
 
@@ -1278,11 +1318,11 @@
 	   do (let* ((agents (get-agents instrument timeframe))
 		     (observations (loop for agent in agents
 				      ;; Fitnesses currently being used.
-				      collect (let* ((fitnesses (access agent :fitnesses))
-						     (avg-revenue (access fitnesses :avg-revenue))
-						     (stdev-revenue (access fitnesses :stdev-revenue))
-						     (trades-won (access fitnesses :trades-won))
-						     (trades-lost (access fitnesses :trades-lost)))
+				      collect (let* ((fitnesses (slot-value agent 'fitnesses))
+						     (avg-revenue (slot-value fitnesses 'avg-revenue))
+						     (stdev-revenue (slot-value fitnesses 'stdev-revenue))
+						     (trades-won (slot-value fitnesses 'trades-won))
+						     (trades-lost (slot-value fitnesses 'trades-lost)))
 						(list avg-revenue stdev-revenue trades-won trades-lost)))))
 		;; (when agents
 		;;   (insert-agents filtered-agents instrument timeframe))
@@ -1307,7 +1347,7 @@
 
 (defun describe-agent-fitnesses (market)
   (loop for agent in (get-agents market :H1)
-     do (let* ((fit (access agent :fitnesses))
+     do (let* ((fit (slot-value agent 'fitnesses))
 	       (tps (access fit :tps))
 	       (sls (access fit :sls)))
 	  (when (and tps sls)
@@ -1334,20 +1374,20 @@
 		      rr2))))))
 
 (defun insert-agent (agent instrument timeframe types)
-  (let ((agent-id (access agent :id))
+  (let ((agent-id (slot-value agent 'id))
 	(patterns (get-patterns instrument timeframe types)))
     (conn (insert-dao agent)
 	  (loop for pattern in patterns
-	     do (make-dao 'agent-pattern :agent-id agent-id :pattern-id (access pattern :id))))
+	     do (make-dao 'agent-pattern :agent-id agent-id :pattern-id (assoccess pattern :id))))
     agent))
 
 (defun delete-agent (agent instrument timeframe types)
-  (let ((agent-id (access agent :id))
+  (let ((agent-id (slot-value agent 'id))
 	(patterns (get-patterns instrument timeframe types)))
     (conn
      ;; First we remove agent-pattern.
      (loop for pattern in patterns
-	do (delete-dao (make-instance 'agent-pattern :agent-id agent-id :pattern-id (access pattern :id))))
+	do (delete-dao (make-instance 'agent-pattern :agent-id agent-id :pattern-id (assoccess pattern :id))))
      ;; Then we delete the agent only if there are no agent-patterns related to this agent.
      (unless (query (:select 'agent-id :from 'agents-patterns :where (:= 'agent-id agent-id)))
        (delete-dao agent)))))
@@ -1391,66 +1431,66 @@
 						 "SELL"))
 			       :tp tp
 			       :sl sl
-			       :entry-price (access (last-elt rates) :close-bid)
-			       :train-begin-time (access train-fitnesses :begin-time)
-			       :test-begin-time (access test-fitnesses :begin-time)
-			       :train-end-time (access train-fitnesses :end-time)
-			       :test-end-time (access test-fitnesses :end-time)
-			       :train-dataset-size (access train-fitnesses :dataset-size)
-			       :test-dataset-size (access test-fitnesses :dataset-size)
-			       :train-avg-revenue (access train-fitnesses :avg-revenue)
-			       :test-avg-revenue (access test-fitnesses :avg-revenue)
-			       :train-stdev-revenue (access train-fitnesses :stdev-revenue)
-			       :test-stdev-revenue (access test-fitnesses :stdev-revenue)
-			       :train-total-revenue (access train-fitnesses :total-revenue)
-			       :test-total-revenue (access test-fitnesses :total-revenue)
-			       :train-avg-max-pos (access train-fitnesses :avg-max-pos)
-			       :test-avg-max-pos (access test-fitnesses :avg-max-pos)
-			       :train-stdev-max-pos (access train-fitnesses :stdev-max-pos)
-			       :test-stdev-max-pos (access test-fitnesses :stdev-max-pos)
-			       :train-avg-max-neg (access train-fitnesses :avg-max-neg)
-			       :test-avg-max-neg (access test-fitnesses :avg-max-neg)
-			       :train-stdev-max-neg (access train-fitnesses :stdev-max-neg)
-			       :test-stdev-max-neg (access test-fitnesses :stdev-max-neg)
-			       :train-avg-tp (access train-fitnesses :avg-tp)
-			       :test-avg-tp (access test-fitnesses :avg-tp)
-			       :train-stdev-tp (access train-fitnesses :stdev-tp)
-			       :test-stdev-tp (access test-fitnesses :stdev-tp)
-			       :train-avg-sl (access train-fitnesses :avg-sl)
-			       :test-avg-sl (access test-fitnesses :avg-sl)
-			       :train-stdev-sl (access train-fitnesses :stdev-sl)
-			       :test-stdev-sl (access test-fitnesses :stdev-sl)
-			       :train-max-tp (access train-fitnesses :max-tp)
-			       :test-max-tp (access test-fitnesses :max-tp)
-			       :train-min-tp (access train-fitnesses :min-tp)
-			       :test-min-tp (access test-fitnesses :min-tp)
-			       :train-max-sl (access train-fitnesses :max-sl)
-			       :test-max-sl (access test-fitnesses :max-sl)
-			       :train-min-sl (access train-fitnesses :min-sl)
-			       :test-min-sl (access test-fitnesses :min-sl)
-			       :train-trades-won (access train-fitnesses :trades-won)
-			       :test-trades-won (access test-fitnesses :trades-won)
-			       :train-trades-lost (access train-fitnesses :trades-lost)
-			       :test-trades-lost (access test-fitnesses :trades-lost)
-			       :train-revenues (apply #'vector (access train-fitnesses :revenues))
-			       :test-revenues (apply #'vector (access test-fitnesses :revenues))
-			       :train-entry-times (apply #'vector (access train-fitnesses :entry-times))
-			       :test-entry-times (apply #'vector (access test-fitnesses :entry-times))
-			       :train-exit-times (apply #'vector (access train-fitnesses :exit-times))
-			       :test-exit-times (apply #'vector (access test-fitnesses :exit-times))
-			       :train-entry-prices (apply #'vector (access train-fitnesses :entry-prices))
-			       :test-entry-prices (apply #'vector (access test-fitnesses :entry-prices))
-			       :train-exit-prices (apply #'vector (access train-fitnesses :exit-prices))
-			       :test-exit-prices (apply #'vector (access test-fitnesses :exit-prices))
-			       :train-tps (apply #'vector (access train-fitnesses :tps))
-			       :test-tps (apply #'vector (access test-fitnesses :tps))
-			       :train-sls (apply #'vector (access train-fitnesses :sls))
-			       :test-sls (apply #'vector (access test-fitnesses :sls))
+			       :entry-price (assoccess (last-elt rates) :close-bid)
+			       :train-begin-time (assoccess train-fitnesses :begin-time)
+			       :test-begin-time (assoccess test-fitnesses :begin-time)
+			       :train-end-time (assoccess train-fitnesses :end-time)
+			       :test-end-time (assoccess test-fitnesses :end-time)
+			       :train-dataset-size (assoccess train-fitnesses :dataset-size)
+			       :test-dataset-size (assoccess test-fitnesses :dataset-size)
+			       :train-avg-revenue (assoccess train-fitnesses :avg-revenue)
+			       :test-avg-revenue (assoccess test-fitnesses :avg-revenue)
+			       :train-stdev-revenue (assoccess train-fitnesses :stdev-revenue)
+			       :test-stdev-revenue (assoccess test-fitnesses :stdev-revenue)
+			       :train-total-revenue (assoccess train-fitnesses :total-revenue)
+			       :test-total-revenue (assoccess test-fitnesses :total-revenue)
+			       :train-avg-max-pos (assoccess train-fitnesses :avg-max-pos)
+			       :test-avg-max-pos (assoccess test-fitnesses :avg-max-pos)
+			       :train-stdev-max-pos (assoccess train-fitnesses :stdev-max-pos)
+			       :test-stdev-max-pos (assoccess test-fitnesses :stdev-max-pos)
+			       :train-avg-max-neg (assoccess train-fitnesses :avg-max-neg)
+			       :test-avg-max-neg (assoccess test-fitnesses :avg-max-neg)
+			       :train-stdev-max-neg (assoccess train-fitnesses :stdev-max-neg)
+			       :test-stdev-max-neg (assoccess test-fitnesses :stdev-max-neg)
+			       :train-avg-tp (assoccess train-fitnesses :avg-tp)
+			       :test-avg-tp (assoccess test-fitnesses :avg-tp)
+			       :train-stdev-tp (assoccess train-fitnesses :stdev-tp)
+			       :test-stdev-tp (assoccess test-fitnesses :stdev-tp)
+			       :train-avg-sl (assoccess train-fitnesses :avg-sl)
+			       :test-avg-sl (assoccess test-fitnesses :avg-sl)
+			       :train-stdev-sl (assoccess train-fitnesses :stdev-sl)
+			       :test-stdev-sl (assoccess test-fitnesses :stdev-sl)
+			       :train-max-tp (assoccess train-fitnesses :max-tp)
+			       :test-max-tp (assoccess test-fitnesses :max-tp)
+			       :train-min-tp (assoccess train-fitnesses :min-tp)
+			       :test-min-tp (assoccess test-fitnesses :min-tp)
+			       :train-max-sl (assoccess train-fitnesses :max-sl)
+			       :test-max-sl (assoccess test-fitnesses :max-sl)
+			       :train-min-sl (assoccess train-fitnesses :min-sl)
+			       :test-min-sl (assoccess test-fitnesses :min-sl)
+			       :train-trades-won (assoccess train-fitnesses :trades-won)
+			       :test-trades-won (assoccess test-fitnesses :trades-won)
+			       :train-trades-lost (assoccess train-fitnesses :trades-lost)
+			       :test-trades-lost (assoccess test-fitnesses :trades-lost)
+			       :train-revenues (apply #'vector (assoccess train-fitnesses :revenues))
+			       :test-revenues (apply #'vector (assoccess test-fitnesses :revenues))
+			       :train-entry-times (apply #'vector (assoccess train-fitnesses :entry-times))
+			       :test-entry-times (apply #'vector (assoccess test-fitnesses :entry-times))
+			       :train-exit-times (apply #'vector (assoccess train-fitnesses :exit-times))
+			       :test-exit-times (apply #'vector (assoccess test-fitnesses :exit-times))
+			       :train-entry-prices (apply #'vector (assoccess train-fitnesses :entry-prices))
+			       :test-entry-prices (apply #'vector (assoccess test-fitnesses :entry-prices))
+			       :train-exit-prices (apply #'vector (assoccess train-fitnesses :exit-prices))
+			       :test-exit-prices (apply #'vector (assoccess test-fitnesses :exit-prices))
+			       :train-tps (apply #'vector (assoccess train-fitnesses :tps))
+			       :test-tps (apply #'vector (assoccess test-fitnesses :tps))
+			       :train-sls (apply #'vector (assoccess train-fitnesses :sls))
+			       :test-sls (apply #'vector (assoccess test-fitnesses :sls))
 			       )))
 	  (loop for pattern in patterns
 	     do (make-dao 'pattern-trade
-			  :pattern-id (access pattern :id)
-			  :trade-id (access trade :id)))
+			  :pattern-id (assoccess pattern :id)
+			  :trade-id (slot-value trade 'id)))
 	  )))
 
 ;; (require 'sb-sprof)
@@ -1471,15 +1511,15 @@
 	(push-to-log "Testing process successful."))
       (push-to-log (format nil "Prediction. TP: ~a, SL: ~a." tp sl))
       (when (and (/= tp 0)
-		 ;; (if (not (eq instrument :USD_CNH)) (< (access prediction :tp) 100) t)
+		 ;; (if (not (eq instrument :USD_CNH)) (< (assoccess prediction :tp) 100) t)
 		 (> (abs tp) (abs sl))
 		 (/= sl 0)
 		 (< (* tp sl) 0)
 		 (> (abs (to-pips instrument sl)) 3)
 		 ;; (< (to-pips instrument (abs sl)) 20)
-		 (/= (access test-fitnesses :trades-won) 0)
-		 (/= (+ (access test-fitnesses :trades-won)
-			(access test-fitnesses :trades-lost))
+		 (/= (assoccess test-fitnesses :trades-won) 0)
+		 (/= (+ (assoccess test-fitnesses :trades-won)
+			(assoccess test-fitnesses :trades-lost))
 		     0))
 	(push-to-log (format nil "Trying to create trade. Agents IDs: ~a" agent-ids))
 	(insert-trade (first agent-ids) instrument timeframe types train-fitnesses test-fitnesses tp sl rates)
@@ -1517,26 +1557,34 @@
 				      (+ max-creation-dataset-size max-training-dataset-size max-testing-dataset-size)
 				      :provider :oanda :type :fx)))
 	  (push-to-log "Retrieved rates successfully.")
-	  (multiple-value-bind (testing-dataset types)
+	  (multiple-value-bind (types)
 	      (winning-type-output-dataset rates type-groups
 					   :max-dataset-size max-testing-dataset-size)
-	    (push-to-log (format nil "Testing dataset created successfully. Size: ~s. Dataset from ~a to ~a."
-				 (length testing-dataset)
-				 (local-time:unix-to-timestamp (/ (read-from-string (access (first testing-dataset) :time)) 1000000))
-				 (local-time:unix-to-timestamp (/ (read-from-string (access (last-elt testing-dataset) :time)) 1000000))))
 	    (let* ((dataset-size (length rates))
-		   (testing-dataset-size (length testing-dataset))
+		   (testing-dataset (let ((dataset (subseq rates
+							   (- dataset-size
+							      max-testing-dataset-size))))
+				      (multiple-value-bind (from)
+					  (get-rates-chunk-of-types dataset types
+								    :min-chunk-size 200
+								    :max-chunk-size max-creation-dataset-size)
+					(subseq dataset from))))
 		   (training-dataset (let ((dataset (subseq rates
-							    (- dataset-size testing-dataset-size max-training-dataset-size)
-							    (- dataset-size testing-dataset-size))))
+							    (- dataset-size
+							       max-testing-dataset-size
+							       max-training-dataset-size)
+							    (- dataset-size
+							       max-testing-dataset-size))))
 				       (multiple-value-bind (from to)
 					   (get-rates-chunk-of-types dataset types
 								     :min-chunk-size 200
 								     :max-chunk-size max-creation-dataset-size)
 					 (subseq dataset from to))))
 		   (creation-dataset (let ((dataset (subseq rates
-							    (- dataset-size testing-dataset-size (length training-dataset) max-creation-dataset-size)
-							    (- dataset-size testing-dataset-size (length training-dataset)))))
+							    0
+							    (- dataset-size
+							       max-testing-dataset-size
+							       max-training-dataset-size))))
 				       (multiple-value-bind (from to)
 					   (get-rates-chunk-of-types dataset types
 								     :min-chunk-size 200
@@ -1545,13 +1593,17 @@
 		   (agents-count (get-agents-count instrument timeframe types)))
 	      (push-to-log (format nil "Creation dataset created successfully. Size: ~s. Dataset from ~a to ~a."
 				   (length creation-dataset)
-				   (local-time:unix-to-timestamp (/ (read-from-string (access (first creation-dataset) :time)) 1000000))
-				   (local-time:unix-to-timestamp (/ (read-from-string (access (last-elt creation-dataset) :time)) 1000000))))
+				   (local-time:unix-to-timestamp (/ (read-from-string (assoccess (first creation-dataset) :time)) 1000000))
+				   (local-time:unix-to-timestamp (/ (read-from-string (assoccess (last-elt creation-dataset) :time)) 1000000))))
 	      (push-to-log (format nil "Training dataset created successfully. Size: ~s. Dataset from ~a to ~a."
 				   (length training-dataset)
-				   (local-time:unix-to-timestamp (/ (read-from-string (access (first training-dataset) :time)) 1000000))
-				   (local-time:unix-to-timestamp (/ (read-from-string (access (last-elt training-dataset) :time)) 1000000))
+				   (local-time:unix-to-timestamp (/ (read-from-string (assoccess (first training-dataset) :time)) 1000000))
+				   (local-time:unix-to-timestamp (/ (read-from-string (assoccess (last-elt training-dataset) :time)) 1000000))
 				   ))
+	      (push-to-log (format nil "Testing dataset created successfully. Size: ~s. Dataset from ~a to ~a."
+				 (length testing-dataset)
+				 (local-time:unix-to-timestamp (/ (read-from-string (assoccess (first testing-dataset) :time)) 1000000))
+				 (local-time:unix-to-timestamp (/ (read-from-string (assoccess (last-elt testing-dataset) :time)) 1000000))))
 	      (push-to-log (format nil "~a agents retrieved for pattern ~s." agents-count types))
 	      (let ()
 		(push-to-log "<b>SIGNAL.</b><hr/>")
@@ -1562,9 +1614,9 @@
 		(optimization instrument timeframe types
 			      (lambda () (let ((beliefs (gen-random-beliefs num-inputs)))
 					   (gen-agent num-rules creation-dataset
-						      (access beliefs :perception-fns)
-						      (access beliefs :lookahead-count)
-						      (access beliefs :lookbehind-count))))
+						      (assoccess beliefs :perception-fns)
+						      (assoccess beliefs :lookahead-count)
+						      (assoccess beliefs :lookbehind-count))))
 			      training-dataset
 			      seconds
 			      :report-fn report-fn)
@@ -1575,7 +1627,8 @@
 		(push-to-log "Optimization process completed.")
 		(push-to-log "<b>VALIDATION.</b><hr/>")
 		(push-to-log "Validating trades older than 24 hours.")
-		(validate-trades)))))))))
+		(validate-trades)
+		))))))))
 
 (defun loop-optimize-test ()
   (clear-log)
@@ -1598,7 +1651,7 @@
 
 (defun pentropy (rates &optional (dimension 3) (rho 1))
   (let* (;; (rates (loop for rate in rates by (lambda (sublist) (nthcdr rho sublist)) collect rate))
-	 (rates (loop for rate in rates by (lambda (sublist) (nthcdr rho sublist)) collect (access rate :close-bid)))
+	 (rates (loop for rate in rates by (lambda (sublist) (nthcdr rho sublist)) collect (assoccess rate :close-bid)))
 	 (tsize (- (length rates) (1- dimension)))
 	 (partitions (mapcar #'sorted-indexes
 			     (loop for rate on rates
@@ -1671,7 +1724,7 @@
 ;; (loop for i from (- (length *rates*) 100) downto 0
 ;;    collect (pentropy (get-output-dataset *rates* i) 5 20))
 
-;; (loop for rate in *rates* by (lambda (sublist) (nthcdr 10 sublist)) collect (access rate :close-bid))
+;; (loop for rate in *rates* by (lambda (sublist) (nthcdr 10 sublist)) collect (assoccess rate :close-bid))
 
 ;; (loop for rate in '(1 2 3 4 5 6 7 8 9 10) by (lambda (sublist) (nthcdr 4 sublist)) collect rate)
 
@@ -1699,9 +1752,9 @@
 (defun score-rates (rates &key (lookahead 10) (stagnation-threshold 0.5))
   (let* ((results (loop for i from 0 below (- (length rates) lookahead)
 		     collect (get-tp-sl (get-output-dataset rates i) lookahead)))
-	 (rrs (loop for result in results collect (* (/ (access result :sl)
-							(access result :tp))
-						     (if (plusp (access result :tp))
+	 (rrs (loop for result in results collect (* (/ (assoccess result :sl)
+							(assoccess result :tp))
+						     (if (plusp (assoccess result :tp))
 							 -1
 							 1))))
 	 (stagnated (count-if (lambda (elt) (>= (abs elt) stagnation-threshold)) rrs))
@@ -1734,17 +1787,17 @@
 ;; (get-rates-chunk-of-types (subseq *rates* 0 500) '(:bullish))
 ;; (get-rates-chunk-of-types *rates* '(:bullish))
 ;; (loop for rate in (subseq *rates* 140 240)
-;;    do (print (access rate :close-bid)))
+;;    do (print (assoccess rate :close-bid)))
 ;; (loop for rate in (subseq *rates* 340 440)
-;;    do (print (access rate :close-bid)))
+;;    do (print (assoccess rate :close-bid)))
 ;; (loop for rate in (subseq *rates* 120 220)
-;;    do (print (access rate :close-bid)))
+;;    do (print (assoccess rate :close-bid)))
 
 (defun get-winning-type (scored-rates)
   (caar (sort scored-rates #'< :key #'cdr)))
 
 (defun get-types-score (scored-rates types)
-  (loop for type in types sum (access scored-rates type)))
+  (loop for type in types sum (assoccess scored-rates type)))
 
 ;; (get-balance-score (score-rates *rates*))
 
@@ -1766,13 +1819,13 @@
 		      (setf score s)
 		      (setf winner-chunk-size chunk-size)
 		      (setf winner-types types))))))
-    (values (last rates winner-chunk-size) winner-types)))
+    winner-types))
 
 
 
 
 ;; RENEWAL
-;; (defparameter *rates* (get-rates-count :EUR_JPY :H1 1500 :provider :oanda :type :fx))
+;; (defparameter *rates* (get-rates-count :EUR_USD :H1 1500 :provider :oanda :type :fx))
 ;; (gen-random-beliefs 2)
 
 (defun con (y x0 x1)
@@ -1831,12 +1884,12 @@
     (/ activation (length inputs))
     ))
 
-;; (let* ((agent (gen-agent 3 *rates* (access (gen-random-beliefs 15) :perception-fns) 10 30))
+;; (let* ((agent (gen-agent 3 *rates* (assoccess (gen-random-beliefs 15) :perception-fns) 10 30))
 ;;        (perception-fn (get-perception-fn agent))
-;;        (antecedents (read-from-string (access agent :antecedents))))
+;;        (antecedents (read-from-string (assoccess agent :antecedents))))
 ;;   (time (loop repeat 10
 ;; 	   do (print (eval-activation (funcall perception-fn *rates*)
-;; 				      (read-from-string (access agent :antecedents)))))))
+;; 				      (read-from-string (assoccess agent :antecedents)))))))
 
 (defun eval-ifis (inputs input-antecedents input-consequents)
   (let ((tp 0)
@@ -1907,14 +1960,14 @@
 (defun make-ifis (agent num-rules rates)
   "Analytical version."
   (let* ((perception-fn (get-perception-fn agent))
-	 (lookahead-count (access agent :lookahead-count))
-	 (lookbehind-count (access agent :lookbehind-count))
+	 (lookahead-count (slot-value agent 'lookahead-count))
+	 (lookbehind-count (slot-value agent 'lookbehind-count))
 	 (idxs (get-same-direction-outputs-idxs rates num-rules :lookahead-count lookahead-count :lookbehind-count lookbehind-count))
 	 (chosen-inputs (loop for idx in idxs collect (funcall perception-fn (get-input-dataset rates idx))))
 	 (chosen-outputs (loop for idx in idxs collect (get-tp-sl (get-output-dataset rates idx) lookahead-count)))
 	 ;; (inp-sd (mapcar (lambda (inp) (standard-deviation inp)) (apply #'mapcar #'list chosen-inputs)))
-	 ;; (tps (loop for output in chosen-outputs collect (access output :tp)))
-	 ;; (sls (loop for output in chosen-outputs collect (access output :sl)))
+	 ;; (tps (loop for output in chosen-outputs collect (assoccess output :tp)))
+	 ;; (sls (loop for output in chosen-outputs collect (assoccess output :sl)))
 	 ;; (tp-sd (standard-deviation tps))
 	 ;; (sl-sd (standard-deviation sls))
 	 ;; (mn-inp (- (apply #'min (flatten chosen-inputs)) (apply #'max inp-sd)))
@@ -1953,8 +2006,8 @@
        (make-array (length v) :initial-contents v))
      (let* ((one-set-outputs
 	     (flatten (loop for output in chosen-outputs
-			 collect (let* ((tp (access output :tp))
-					(sl (access output :sl))
+			 collect (let* ((tp (assoccess output :tp))
+					(sl (assoccess output :sl))
 					;; (mn-tp (- tp tp-sd))
 					;; (mx-tp (+ tp tp-sd))
 					;; (mn-sl (- sl sl-sd))
@@ -1993,19 +2046,19 @@
 	    (v (loop repeat (length (first chosen-inputs))
 		  collect one-set-outputs-v)))
        (make-array (length v) :initial-contents v)))))
-;; (make-ifis (gen-agent 3 *rates* (access (gen-random-beliefs 2) :perception-fns) 10 10) 3 *rates*)
-;; (access (gen-agent 2 *rates* (access (gen-random-beliefs 2) :perception-fns) 10 10) :perception-fns)
+;; (make-ifis (gen-agent 3 *rates* (assoccess (gen-random-beliefs 2) :perception-fns) 10 10) 3 *rates*)
+;; (slot-value (gen-agent 2 *rates* (assoccess (gen-random-beliefs 2) :perception-fns) 10 10) 'perception-fns)
 
-;; (insert-agent (gen-agent 2 *rates* (access (gen-random-beliefs 2) :perception-fns) 10 16) :EUR_USD :H1 '(:BULLISH))
+;; (insert-agent (gen-agent 2 *rates* (assoccess (gen-random-beliefs 2) :perception-fns) 10 16) :EUR_USD :H1 '(:BULLISH))
 
-;; (let* ((agent (gen-agent 30 *rates* (access (gen-random-beliefs 10) :perception-fns) 10 16))
-;;        (perception-fn (gen-perception-fn (access agent :perception-fns)))
-;;        (antecedents (access agent :antecedents))
-;;        (consequents (access agent :consequents)))
+;; (let* ((agent (gen-agent 30 *rates* (assoccess (gen-random-beliefs 10) :perception-fns) 10 16))
+;;        (perception-fn (gen-perception-fn (slot-value agent 'perception-fns)))
+;;        (antecedents (slot-value agent 'antecedents))
+;;        (consequents (slot-value agent 'consequents)))
 ;;   (time (loop repeat 1000
 ;; 	   do (eval-ifis (funcall perception-fn *rates*)
-;; 			 (access agent :antecedents)
-;; 			 (access agent :consequents)))))
+;; 			 (slot-value agent 'antecedents)
+;; 			 (slot-value agent 'consequents)))))
 
 ;; (time (let ((inputs '(10 10))
 ;; 	    (input-antecedents #(#(#(0 4)
@@ -2036,14 +2089,14 @@
 ;; (get-rates-chunk-of-types (subseq *rates* 0 900) '(:bearish))
 
 ;; (loop for rate in (get-output-dataset *rates* 0)
-;;    do (print (access rate :close-bid)))
+;;    do (print (assoccess rate :close-bid)))
 ;; (loop for rate in (subseq *rates* 900 1020)
-;;    do (print (access rate :close-bid)))
+;;    do (print (assoccess rate :close-bid)))
 ;; (loop for rate in (subseq *rates* 500 600)
-;;    do (print (access rate :close-bid)))
+;;    do (print (assoccess rate :close-bid)))
 
 ;; (loop for rate in (get-output-dataset *rates* (ideal-output-dataset-idx *rates* '(:stagnated) :max-dataset-size 1500))
-;;    do (print (access rate :close-bid)))
+;;    do (print (assoccess rate :close-bid)))
 
 ;; (defparameter *rates* (get-rates-count :EUR_JPY :H1 1500 :provider :oanda :type :fx))
 ;; (let* ((testing-idx (ideal-output-dataset-idx *rates*))
@@ -2119,17 +2172,17 @@
 ;; 			  (let ((result (ignore-errors
 ;; 					  (evaluate-agents (gen-agents 20 3 input-dataset) output-dataset))))
 ;; 			    (if result
-;; 				(let ((revenues (access result :revenues))
-;; 				      (total-revenue (access result :total-revenue))
-;; 				      (avg-revenue (access result :avg-revenue))
-;; 				      (trades-won (access result :trades-won))
-;; 				      (trades-lost (access result :trades-lost))
-;; 				      (entry-times (mapcar #'time-to-unix (access result :entry-times)))
-;; 				      (exit-times (mapcar #'time-to-unix (access result :exit-times)))
-;; 				      (entry-prices (access result :entry-prices))
-;; 				      (exit-prices (access result :exit-prices))
-;; 				      (tps (access result :tps))
-;; 				      (sls (access result :sls)))
+;; 				(let ((revenues (assoccess result :revenues))
+;; 				      (total-revenue (assoccess result :total-revenue))
+;; 				      (avg-revenue (assoccess result :avg-revenue))
+;; 				      (trades-won (assoccess result :trades-won))
+;; 				      (trades-lost (assoccess result :trades-lost))
+;; 				      (entry-times (mapcar #'time-to-unix (assoccess result :entry-times)))
+;; 				      (exit-times (mapcar #'time-to-unix (assoccess result :exit-times)))
+;; 				      (entry-prices (assoccess result :entry-prices))
+;; 				      (exit-prices (assoccess result :exit-prices))
+;; 				      (tps (assoccess result :tps))
+;; 				      (sls (assoccess result :sls)))
 ;; 				  (format t "Total Revenue: ~a~%" total-revenue)
 ;; 				  (format t "Average Revenue: ~a~%~%" avg-revenue)
 ;; 				  (format t "Trades Won: ~a~%~%" trades-won)

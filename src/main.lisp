@@ -1252,14 +1252,13 @@
     (loop with until-timestamp = (local-time:timestamp+ (local-time:now) seconds :sec)
        do (if (local-time:timestamp> (local-time:now) until-timestamp)
 	      (progn
-		(when purged-agents
-		  ;; Inserting new agents in Pareto Frontier.
-		  (push-to-log (format nil "Updating Pareto frontier with ~a agents." (length purged-agents)))
-		  (conn (loop for agent in purged-agents
-			   do (unless (get-dao 'agent (slot-value agent 'id))
-				(push-to-log (format nil "Inserting new agent with ID: ~a" (slot-value agent 'id)))
-				(insert-agent agent instrument timeframe types))))
-		  (push-to-log "Pareto frontier updated successfully."))
+		;; Inserting new agents in Pareto Frontier.
+		(push-to-log (format nil "Updating Pareto frontier with ~a agents." (length agents)))
+		(conn (loop for agent in agents
+			 do (unless (get-dao 'agent (slot-value agent 'id))
+			      (push-to-log (format nil "Inserting new agent with ID: ~a" (slot-value agent 'id)))
+			      (insert-agent agent instrument timeframe types))))
+		(push-to-log "Pareto frontier updated successfully.")
 		(return))
 	      (let* ((challenger (list (evaluate-agent (funcall gen-agent-fn) rates)))
 		     (is-dominated? (is-agent-dominated? (car challenger) agents)))
@@ -1271,7 +1270,10 @@
 			      (push-to-log (format nil "Removing agent with ID: ~a" (slot-value in-trial 'id)))
 			      (delete-agent in-trial instrument timeframe types))
 			    (push in-trial purged-agents)))
-		  (push (first challenger) purged-agents))
+		  (push (first challenger) purged-agents)
+		  (setf agents purged-agents)
+		  (setf purged-agents nil)
+		  )
 		;; (push-to-log (format nil "Inserting new agent with ID: ~a" (slot-value agent 'id)))
 		;; (insert-agent agent instrument timeframe types)
 		(when report-fn

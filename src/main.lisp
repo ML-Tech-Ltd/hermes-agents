@@ -486,20 +486,6 @@
 	(let ((rs (/ (/ gain n) (/ loss n))))
 	  (- 100 (/ 100 (1+ rs)))))))
 
-(defun exponential-moving-average (period sequence)
-  "This function calculates the exponential moving average (EMA) of a sequence."
-  ;;; XXX: This is too slow!
-  (let ((smoothing-factor (/ 2 (1+ period)))) ; This is alpha.
-    (loop for end from period to (length sequence) collect
-          ;; This should actually be divided by 1+(1-a)+(1-a)**2+... as an
-          ;; infinite summation, but this approaches 1/a.
-          (* smoothing-factor
-             (sum (mapcar #'*
-                          ;; These are the weights.
-                          (loop for e from 0 to (length sequence) collect
-                                (expt (1- smoothing-factor) e))
-                          (subseq sequence (- end period) end)))))))
-
 (defun ->high-height (rates offset)
   (let* ((lrates (length rates))
 	 (last-candle (nth (- lrates offset 1) rates)))
@@ -538,40 +524,40 @@
      ))
 
 (defun random->sma-close ()
-  (let ((offset (random-int *rand-gen* 0 9))
-	(n (random-int *rand-gen* 3 14)))
+  (let ((offset (random-int *rand-gen* 0 50))
+	(n (random-int *rand-gen* 3 50)))
     (values `#(,->sma-close ,offset ,n)
 	    (+ offset n))))
 (defun random->wma-close ()
-  (let ((offset (random-int *rand-gen* 0 9))
-	(n (random-int *rand-gen* 3 14)))
+  (let ((offset (random-int *rand-gen* 0 50))
+	(n (random-int *rand-gen* 3 50)))
     (values `#(,->wma-close ,offset ,n)
 	    (+ offset n))))
 (defun random->ema-close ()
-  (let ((offset (random-int *rand-gen* 0 9))
-	(n-sma (random-int *rand-gen* 3 14))
-	(n-ema (random-int *rand-gen* 3 14)))
+  (let ((offset (random-int *rand-gen* 0 50))
+	(n-sma (random-int *rand-gen* 3 25))
+	(n-ema (random-int *rand-gen* 3 25)))
     (values `#(,->ema-close ,offset ,n-sma ,n-ema)
 	    (+ offset n-sma n-ema))))
 (defun random->rsi-close ()
-  (let ((offset (random-int *rand-gen* 0 9))
-	(n (random-int *rand-gen* 10 14)))
+  (let ((offset (random-int *rand-gen* 0 50))
+	(n (random-int *rand-gen* 10 20)))
     (values `#(,->rsi-close ,offset ,n)
 	    (+ offset n))))
 (defun random->high-height ()
-  (let ((offset (random-int *rand-gen* 0 24)))
+  (let ((offset (random-int *rand-gen* 0 50)))
     (values `#(,->high-height ,offset)
 	    offset)))
 (defun random->low-height ()
-  (let ((offset (random-int *rand-gen* 0 24)))
+  (let ((offset (random-int *rand-gen* 0 50)))
     (values `#(,->low-height ,offset)
 	    offset)))
 (defun random->candle-height ()
-  (let ((offset (random-int *rand-gen* 0 24)))
+  (let ((offset (random-int *rand-gen* 0 50)))
     (values `#(,->candle-height ,offset)
 	    offset)))
 (defun random->delta-close ()
-  (let ((offset (random-int *rand-gen* 0 24)))
+  (let ((offset (random-int *rand-gen* 0 50)))
     (values `#(,->delta-close ,offset)
 	    offset)))
 
@@ -989,7 +975,7 @@
 	       (read-from-string (slot-value agent 'antecedents))
 	       (read-from-string (slot-value agent 'consequents)))))
 
-(defun eval-agents (instrument timeframe types rates &key (count 1) (limit 1000))
+(defun eval-agents (instrument timeframe types rates &key (count 20) (limit 10))
   (let (tps sls activations ids)
     (loop for offset from 0 below (get-agents-count instrument timeframe types) by limit
        do (let ((agents (get-agents instrument timeframe types :limit limit :offset offset)))
@@ -1001,35 +987,36 @@
 		    (push activation activations)
 		    (push (slot-value agent 'id) ids)
 		    ))))
+    ;; (format t "~a, ~a~%" (apply #'min activations) (apply #'max activations))
     (let ((idxs (sorted-indexes activations #'>))
 	  (tp 0)
 	  (sl 0)
 	  (len (min count (length activations))))
       (setf tp (nth (position 0 idxs) tps))
       (setf sl (nth (position 0 idxs) sls))
-      ;; (loop for idx from 1 below len
-      ;; 	 do (let* ((pos (position idx idxs))
-      ;; 		   (nth-tp (nth pos tps))
-      ;; 		   (nth-sl (nth pos sls)))
-      ;; 	      (when (< (* nth-tp tp) 0)
-      ;; 	      	(setf tp 0)
-      ;; 	      	(setf sl 0)
-      ;; 	      	(return))
-      ;; 	      (when (< (* nth-sl sl) 0)
-      ;; 	      	(setf tp 0)
-      ;; 	      	(setf sl 0)
-      ;; 	      	(return))
-      ;; 	      ;; (when (or (= tp 0) (< (abs nth-tp) (abs tp)))
-      ;; 	      ;; 	(setf tp nth-tp))
-      ;; 	      ;; (when (or (= sl 0) (< (abs nth-sl) (abs sl)))
-      ;; 	      ;; 	(setf sl nth-sl))
-      ;; 	      ;; (when (or (= tp 0) (< (abs nth-tp) (abs tp)))
-      ;; 	      ;; 	(setf tp nth-tp))
-      ;; 	      ;; (when (or (= sl 0) (< (abs nth-sl) (abs sl)))
-      ;; 	      ;; 	(setf sl nth-sl))
-      ;; 	      ;; (incf tp nth-tp)
-      ;; 	      ;; (incf sl nth-sl)
-      ;; 	      ))
+      (loop for idx from 1 below len
+      	 do (let* ((pos (position idx idxs))
+      		   (nth-tp (nth pos tps))
+      		   (nth-sl (nth pos sls)))
+      	      (when (< (* nth-tp tp) 0)
+      	      	(setf tp 0)
+      	      	(setf sl 0)
+      	      	(return))
+      	      (when (< (* nth-sl sl) 0)
+      	      	(setf tp 0)
+      	      	(setf sl 0)
+      	      	(return))
+      	      ;; (when (or (= tp 0) (< (abs nth-tp) (abs tp)))
+      	      ;; 	(setf tp nth-tp))
+      	      ;; (when (or (= sl 0) (< (abs nth-sl) (abs sl)))
+      	      ;; 	(setf sl nth-sl))
+      	      ;; (when (or (= tp 0) (< (abs nth-tp) (abs tp)))
+      	      ;; 	(setf tp nth-tp))
+      	      ;; (when (or (= sl 0) (< (abs nth-sl) (abs sl)))
+      	      ;; 	(setf sl nth-sl))
+      	      ;; (incf tp nth-tp)
+      	      ;; (incf sl nth-sl)
+      	      ))
       (values (/ tp 1)
 	      (/ sl 1)
 	      (list (nth (position 0 idxs) ids))))))
@@ -1093,7 +1080,9 @@
 		      (push max-pos max-poses)
 		      (push max-neg max-negses)
 		      (push revenue revenues)))
-		(incf idx finish-idx)))))
+		;; (incf idx finish-idx)
+		(incf idx)
+		))))
     (push-to-log "<br/>Agents evaluated successfully.")
     `((:begin-time . ,(read-from-string (assoccess (first rates) :time)))
       (:end-time . ,(read-from-string (assoccess (last-elt rates) :time)))
@@ -1170,11 +1159,16 @@
   (read-from-string (format nil ":~a-~a" kw1 kw2)))
 ;; (merge-keywords :hello :moto)
 
+(defun vector-1-similarity (vec1 vec2)
+  (loop for v across vec1 do (when (position v vec2) (return t))))
+;; (vector-1-similarity #(1 2 3) #(10 20 30))
+
 (defun is-agent-dominated? (agent agents)
   (let* ((avg-revenue-0 (slot-value agent 'avg-revenue))
 	 (trades-won-0 (slot-value agent 'trades-won))
 	 (trades-lost-0 (slot-value agent 'trades-lost))
 	 ;; (stdev-revenue-0 (slot-value agent 'stdev-revenue))
+	 (entry-times-0 (slot-value agent 'entry-times))
 	 (is-dominated? nil))
     ;; (format t "~a, ~a, ~a~%~%" avg-revenue-0 trades-won-0 trades-lost-0)
     (loop for agent in agents
@@ -1182,12 +1176,18 @@
 		 (trades-won (slot-value agent 'trades-won))
 		 (trades-lost (slot-value agent 'trades-lost))
 		 ;; (stdev-revenue (slot-value agent 'stdev-revenue))
+		 (entry-times (slot-value agent 'entry-times))
 		 )
 	    ;; Fitnesses currently being used.
 	    (when (and (>= avg-revenue avg-revenue-0)
 		       ;; (< stdev-revenue stdev-revenue-0)
 		       (>= trades-won trades-won-0)
-		       (<= trades-lost trades-lost-0))
+		       (<= trades-lost trades-lost-0)
+		       ;; (>= (/ trades-won
+		       ;; 	      (+ trades-won trades-lost))
+		       ;; 	   (/ trades-won-0
+		       ;; 	      (+ trades-won-0 trades-lost-0)))
+		       (vector-1-similarity entry-times entry-times-0))
 	      ;; Candidate agent was dominated.
 	      (setf is-dominated? t)
 	      (return))))
@@ -1297,7 +1297,7 @@
   (let ((patterns (get-patterns instrument timeframe types)))
     (conn (query (:select 'agent-id :from 'agents-patterns :where (:in 'pattern-id (:set (loop for pattern in patterns collect (assoccess pattern :id))))) :column))))
 
-(defun get-agents (instrument timeframe types &key (limit 1) (offset 0))
+(defun get-agents (instrument timeframe types &key (limit 5) (offset 0))
   (let* ((agent-ids (get-agent-ids-from-patterns instrument timeframe types))
 	 (agents (if (minusp limit)
 		     (conn (query (:select '* :from 'agents :where (:in 'id (:set agent-ids)))
@@ -1307,6 +1307,7 @@
 					  '$1 '$2)
 				  limit offset (:dao agent))))))
     agents))
+
 ;; (length (get-agents :EUR_USD :H1 '(:BULLISH) :limit 10))
 ;; (length (get-agents :EUR_USD :H1 '(:BULLISH) :limit -1))
 ;; (slot-value (car (get-agents :EUR_USD :H1 '(:BULLISH) :limit 1)) 'avg-revenue)
@@ -1398,7 +1399,15 @@
 ;; (conn (query (:select 'agent-id :from 'agents-patterns :where (:= 'agent-id "C3FE332F-82E7-41A6-89CA-E36550D1D687"))))
 
 
-;; (insert-agent (gen-agent 3 *rates* (access *beliefs* :perception-fns) 10 55) :EUR_USD :H1 '(:BULLISH))
+;; (insert-agent (gen-agent 3 *rates* (assoccess (gen-random-beliefs 2) :perception-fns) 10 55) :EUR_USD :H1 '(:BEARISH))
+;; (get-agents-count :EUR_USD :H1 '(:STAGNATED :BULLISH :BEARISH))
+;; (get-agents :EUR_USD :H1 '(:STAGNATED :BULLISH :BEARISH) :limit 2)
+;; (get-agents :EUR_USD :H1 '(:STAGNATED))
+;; (get-agents :EUR_USD :H1 '(:BULLISH))
+;; (get-agents :EUR_USD :H1 '(:BEARISH))
+
+(loop for agent in (get-agents :EUR_USD :H1 '(:STAGNATED :BULLISH :BEARISH) :limit 2 :offset 1)
+     do (print (access agent :perception-fns)))
 
 (defun is-market-close ()
   (let ((day-of-week (local-time:timestamp-day-of-week (local-time:now) :timezone local-time:+utc-zone+))
@@ -1537,7 +1546,8 @@
   (defun read-log ()
     (format nil "~a<b>LOG.</b><hr/><br/>~{~a~%~}"
 	    (describe-agents)
-	    (reverse log)))
+	    (reverse log)
+	    ))
   (defun clear-log ()
     (setf log nil)))
 ;; (push-to-log (random 10) :size 10)
@@ -1549,18 +1559,19 @@
      (swank:create-server :port 4444))))
 (init)
 
-(defun -loop-optimize-test (&key (seconds 300) (max-creation-dataset-size 500) (max-training-dataset-size 500) (max-testing-dataset-size 500)
+(defun -loop-optimize-test (&key (seconds 10) (max-creation-dataset-size 1000) (max-training-dataset-size 1000) (max-testing-dataset-size 200)
 			      (num-rules 100) (num-inputs 5) (report-fn nil) (type-groups '((:bullish) (:bearish) (:stagnated))) (instruments ominp:*forex*) (timeframes ominp:*shortterm*))
   (dolist (instrument instruments)
     (dolist (timeframe timeframes)
       (unless (is-market-close)
 	(push-to-log (format nil "<br/><b>STARTING ~s ~s.</b><hr/>" instrument timeframe))
-	(let ((rates (get-rates-count instrument timeframe
+	(let ((rates (get-random-rates-count instrument timeframe
 				      (+ max-creation-dataset-size max-training-dataset-size max-testing-dataset-size)
 				      :provider :oanda :type :fx)))
 	  (push-to-log "Retrieved rates successfully.")
 	  (multiple-value-bind (types)
 	      (winning-type-output-dataset rates type-groups
+					   :min-dataset-size max-testing-dataset-size
 					   :max-dataset-size max-testing-dataset-size)
 	    (let* ((dataset-size (length rates))
 		   (testing-dataset (let ((dataset (subseq rates
@@ -1568,7 +1579,7 @@
 							      max-testing-dataset-size))))
 				      (multiple-value-bind (from)
 					  (get-rates-chunk-of-types dataset types
-								    :min-chunk-size 200
+								    :min-chunk-size max-creation-dataset-size
 								    :max-chunk-size max-creation-dataset-size)
 					(subseq dataset from))))
 		   (training-dataset (let ((dataset (subseq rates
@@ -1579,7 +1590,7 @@
 							       max-testing-dataset-size))))
 				       (multiple-value-bind (from to)
 					   (get-rates-chunk-of-types dataset types
-								     :min-chunk-size 200
+								     :min-chunk-size 300
 								     :max-chunk-size max-creation-dataset-size)
 					 (subseq dataset from to))))
 		   (creation-dataset (let ((dataset (subseq rates
@@ -1589,7 +1600,7 @@
 							       max-training-dataset-size))))
 				       (multiple-value-bind (from to)
 					   (get-rates-chunk-of-types dataset types
-								     :min-chunk-size 200
+								     :min-chunk-size 300
 								     :max-chunk-size max-creation-dataset-size)
 					 (subseq dataset from to))))
 		   (agents-count (get-agents-count instrument timeframe types)))
@@ -1610,8 +1621,8 @@
 	      (let ()
 		(push-to-log "<b>SIGNAL.</b><hr/>")
 		(push-to-log (format nil "Trying to create signal with ~a agents." agents-count))
-		(when (> agents-count 0)
-		  (test-agents instrument timeframe types rates training-dataset testing-dataset))
+		;; (when (> agents-count 0)
+		;;   (test-agents instrument timeframe types rates training-dataset testing-dataset))
 		(push-to-log "<b>OPTIMIZATION.</b><hr/>")
 		(optimization instrument timeframe types
 			      (lambda () (let ((beliefs (gen-random-beliefs num-inputs)))
@@ -1622,15 +1633,16 @@
 			      training-dataset
 			      seconds
 			      :report-fn report-fn)
-		;; (test-agents instrument timeframe types rates training-dataset testing-dataset)
-		;; (conn (query (:delete-from 'agents :where (:= 1 1)))
-		;;       (query (:delete-from 'agents-patterns :where (:= 1 1)))
-		;;       (query (:delete-from 'agents-patterns :where (:= 1 1))))
+		(test-agents instrument timeframe types rates training-dataset testing-dataset)
+		
 		(push-to-log "Optimization process completed.")
 		(push-to-log "<b>VALIDATION.</b><hr/>")
 		(push-to-log "Validating trades older than 24 hours.")
-		(validate-trades)
-		))))))))
+		;; (validate-trades)
+		)))))))
+  ;; (conn (query (:delete-from 'agents :where (:= 1 1)))
+  ;; 	(query (:delete-from 'agents-patterns :where (:= 1 1))))
+  )
 
 (defun loop-optimize-test ()
   (clear-log)
@@ -1770,7 +1782,7 @@
       `((:bullish . ,(/ uptrend lrates))
     	(:bearish . ,(/ downtrend lrates))
     	(:stagnated . ,(/ stagnated lrates))))))
-;; (time (score-rates (get-input-dataset *rates* 1500)))
+;; (time (score-rates (get-input-dataset *rates* 20)))
 
 (defun get-rates-chunk-of-types (rates types &key (min-chunk-size 100) (max-chunk-size 500)
 					       (chunk-step 20) (slide-step 20) (lookahead 10) (stagnation-threshold 0.5))

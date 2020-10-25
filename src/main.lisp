@@ -1632,13 +1632,12 @@
 			      (report-fn nil)
 			      (type-groups '((:bullish) (:bearish) (:stagnated)))
 			      (instruments ominp:*forex*)
-			      (timeframes ominp:*shortterm*)
-			      (is-live-testing nil))
+			      (timeframes ominp:*shortterm*))
   (dolist (instrument instruments)
     (dolist (timeframe timeframes)
       (unless (is-market-close)
 	(push-to-log (format nil "<br/><b>STARTING ~s ~s.</b><hr/>" instrument timeframe))
-	(let* ((rates (if is-live-testing
+	(let* ((rates (if *is-production*
 			  (get-rates-count instrument timeframe
 					   (+ max-creation-dataset-size max-training-dataset-size max-testing-dataset-size)
 					   :provider :oanda :type :fx)
@@ -1667,7 +1666,7 @@
 							(local-time:unix-to-timestamp (/ (read-from-string (assoccess (last-elt dataset) :time)) 1000000))))
 				   dataset))
 		(agents-count (get-agents-count instrument timeframe (flatten type-groups))))
-	    (if (and is-live-testing (> agents-count 0))
+	    (if (and *is-production* (> agents-count 0))
 		(progn
 		  (push-to-log "<b>SIGNAL.</b><hr/>")
 		  (push-to-log (format nil "Trying to create signal with ~a agents." agents-count))
@@ -1711,17 +1710,17 @@
 				  seconds
 				  :report-fn report-fn)
 		    (push-to-log "Optimization process completed.")
-		    (when (not is-live-testing)
+		    (when (not *is-production*)
 		      (push-to-log "<b>SIGNAL.</b><hr/>")
 		      (push-to-log (format nil "Trying to create signal with ~a agents." agents-count))
 		      (test-agents instrument timeframe (flatten type-groups) rates full-training-dataset testing-dataset)
 		      (push-to-log "Not enough agents to create a signal."))
-		    (when is-live-testing
+		    (when *is-production*
 		      (push-to-log "<b>VALIDATION.</b><hr/>")
 		      (push-to-log "Validating trades older than 24 hours.")
 		      (validate-trades))
 		    )))))))
-  (unless is-live-testing
+  (unless *is-production*
     (conn (query (:delete-from 'agents :where (:= 1 1)))
 	  (query (:delete-from 'agents-patterns :where (:= 1 1))))))
 

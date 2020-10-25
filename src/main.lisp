@@ -347,33 +347,48 @@
 ;; (to-pips :USD_CZK 0.010)
 
 (defun get-global-revenue (&key from to)
-  (let ((trades (conn (query (:select 'trades.result 'trades.decision 'patterns.*
-				      :from 'trades
-				      :inner-join 'patterns-trades
-				      :on (:= 'trades.id 'patterns-trades.trade-id)
-				      :inner-join 'patterns
-				      :on (:= 'patterns.id 'patterns-trades.pattern-id)
-				      :where (:and (:not (:is-null 'trades.result))
-						   (:>= 'creation-time from)
-						   ;; (:not (:= 'patterns.instrument "USD_CNH"))
-						   ;; (:not (:= 'patterns.type "STAGNATED"))
-						   ;; (:= 'patterns.type "STAGNATED")
-						   ;; (:= 'patterns.instrument "USD_CNH")
-						   (:<= 'creation-time to)
-						   ))
+  (let ((trades (conn (query (:order-by (:select '*
+					  :from (:as (:order-by (:select
+								    'trades.result
+								  'trades.decision
+								  'trades.creation-time
+								  'patterns.*
+								  :distinct-on 'trades.id
+								  :from 'trades
+								  :inner-join 'patterns-trades
+								  :on (:= 'trades.id 'patterns-trades.trade-id)
+								  :inner-join 'patterns
+								  :on (:= 'patterns.id 'patterns-trades.pattern-id)
+								  :where (:and (:not (:is-null 'trades.result))
+									       (:>= 'creation-time from)
+									       ;; (:not (:= 'patterns.instrument "USD_CNH"))
+									       ;; (:not (:= 'patterns.type "STAGNATED"))
+									       ;; (:= 'patterns.type "STAGNATED")
+									       ;; (:= 'patterns.instrument "USD_CNH")
+									       (:<= 'creation-time to)
+									       ))
+								'trades.id)
+						     'results))
+					(:desc 'creation-time))
 			     :alists))))
     (loop for trade in trades
-       summing (let ((instrument (make-keyword (assoccess trade :instrument))))
-		 (if (or (and (string= (assoccess trade :decision) "SELL")
-			      (string= (assoccess trade :type) "BEARISH"))
-			 (and (string= (assoccess trade :decision) "BUY")
-			      (string= (assoccess trade :type) "BULLISH")))
-		     (to-pips instrument (assoccess trade :result))
-		     0)))))
+	  summing (let ((instrument (make-keyword (assoccess trade :instrument))))
+		    ;; (if (or (and (string= (assoccess trade :decision) "SELL")
+		    ;; 		 (string= (assoccess trade :type) "BEARISH"))
+		    ;; 	    (and (string= (assoccess trade :decision) "BUY")
+		    ;; 		 (string= (assoccess trade :type) "BULLISH")))
+		    ;; 	(to-pips instrument (assoccess trade :result))
+		    ;; 	0)
+		    (to-pips instrument (assoccess trade :result))))))
 
-;; (get-global-revenue :to (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 1 :day)) :from (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 5 :day)))
+;; (get-global-revenue :to (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 3 :day)) :from (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 3 :day)))
+;; (get-global-revenue :to (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 0 :day)) :from (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 4 :day)))
 
-;; (loop for i from 23 below 72 do (format t "~a: ~a~%" i (get-global-revenue :to (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 0 :day)) :from (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) i :hour)))))
+;; Running hours.
+;; (loop for i from 0 below 72 do (format t "~a: ~a~%" i (get-global-revenue :to (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 0 :day)) :from (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) i :hour)))))
+
+;; Per day.
+;; (loop for i from 0 below 10 do (format t "~a: ~a~%" i (get-global-revenue :to (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) i :day)) :from (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) (1+ i) :day)))))
 
 (defun debug-trade ()
   (let* ((trade (nth 5 (conn (query (:select 'trades.* 'patterns.*
@@ -404,39 +419,48 @@
 	  (loop for rate in rates do (print (assoccess rate :high-bid)))))))
 
 (defun validate-trades ()
-  (let ((trades (conn (query (:select 'trades.* 'patterns.*
-				      :from 'trades
-				      :inner-join 'patterns-trades
-				      :on (:= 'trades.id 'patterns-trades.trade-id)
-				      :inner-join 'patterns
-				      :on (:= 'patterns.id 'patterns-trades.pattern-id)
-				      :where (:is-null 'trades.result)) :alists))))
+  (let ((trades (conn (query (:order-by (:select '*
+					 :from (:as (:order-by (:select 'trades.* 'patterns.*
+									:distinct-on 'trades.id
+									:from 'trades
+									:inner-join 'patterns-trades
+									:on (:= 'trades.id 'patterns-trades.trade-id)
+									:inner-join 'patterns
+									:on (:= 'patterns.id 'patterns-trades.pattern-id)
+									;; :where (:not (:is-null 'trades.result))
+									:where (:is-null 'trades.result)
+									)
+							       'trades.id
+							       )
+						    'results))
+					(:desc 'creation-time))
+			     :alists))
+		))
     (push-to-log (format nil "Trying to validate ~a trades." (length trades)))
-    (loop for trade in trades
-       do (let* ((from (* (assoccess trade :creation-time) 1000000))
-		 (from-timestamp (local-time:unix-to-timestamp (/ from 1000000))))
-	    ;; (print (make-keyword (assoccess trade :instrument)))
-	    ;; (print (local-time:unix-to-timestamp (/ from 1000000)))
-	    (when (local-time:timestamp< from-timestamp
-					 (local-time:timestamp- (local-time:now) 1 :day))
-	      (push-to-log (format nil "Using minute rates from ~a to ~a to validate trade."
-				   from-timestamp
-				   (local-time:timestamp+ from-timestamp 3 :day)))
-	      (let* ((instrument (make-keyword (assoccess trade :instrument)))
-		     (timeframe :M1)
-		     (to (* (local-time:timestamp-to-unix (local-time:timestamp+ from-timestamp 3 :day)) 1000000))
-		     (rates (get-rates-range instrument timeframe from to :provider :oanda :type :fx))
-		     (result (get-trade-result (assoccess trade :entry-price)
-					       (assoccess trade :tp)
-					       (assoccess trade :sl)
-					       rates)))
-		(push-to-log (format nil "Result obtained for trade: ~a." result))
-		(when result
-		  (conn
-		   (let ((dao (get-dao 'trade (assoccess trade :id))))
-		    (setf (slot-value dao 'result) result)
-		    (update-dao dao))))
-		(sleep 1)))))))
+    (loop for trade in trades 
+	  do (let* ((from (* (assoccess trade :creation-time) 1000000))
+		    (from-timestamp (local-time:unix-to-timestamp (/ from 1000000))))
+	       (when (local-time:timestamp< from-timestamp
+					    (local-time:timestamp- (local-time:now) 1 :day))
+		 (push-to-log (format nil "Using minute rates from ~a to ~a to validate trade."
+				      from-timestamp
+				      (local-time:timestamp+ from-timestamp 3 :day)))
+		 (let* ((instrument (make-keyword (assoccess trade :instrument)))
+			(timeframe :M1)
+			;; (to (* (local-time:timestamp-to-unix (local-time:timestamp+ from-timestamp 3 :day)) 1000000))
+			;; (rates (get-rates-range instrument timeframe from to :provider :oanda :type :fx))
+			(rates (get-rates-count-from instrument timeframe 5000 from :provider :oanda :type :fx))
+			(result (get-trade-result (assoccess trade :entry-price)
+						  (assoccess trade :tp)
+						  (assoccess trade :sl)
+						  rates)))
+		   (push-to-log (format nil "Result obtained for trade: ~a." result))
+		   (when result
+		     (conn
+		      (let ((dao (get-dao 'trade (assoccess trade :id))))
+			(setf (slot-value dao 'result) result)
+			(update-dao dao))))
+		   (sleep 1)))))))
 ;; (validate-trades)
 
 (defun ->delta-close (rates offset)
@@ -928,23 +952,62 @@
 
 (defun get-trades (&optional limit)
   (if limit
-      (conn (query (:select '* :from
-			    (:as (:select 'trades.* 'patterns.*
-					  (:as (:over (:row-number)
-						      (:partition-by 'patterns.instrument 'patterns.timeframe
-								     :order-by (:desc 'trades.creation-time)))
-					       :idx)
-					  :from 'trades
-					  :inner-join 'patterns-trades
-					  :on (:= 'trades.id 'patterns-trades.trade-id)
-					  :inner-join 'patterns
-					  :on (:= 'patterns-trades.pattern-id 'patterns.id))
-				 'results)
-			    :where (:<= 'idx '$1))
+      (conn (query (:select 
+		       '*
+		     :from
+		     (:as (:select '*
+			    (:as (:over (:row-number)
+			    		(:partition-by 'instrument 'timeframe
+			    			       :order-by (:desc 'creation-time)))
+			     :idx)
+			    :from
+			    (:as (:select 'patterns.instrument
+				   'patterns.timeframe
+				   'patterns.type
+				   'trades.id
+				   'trades.creation-time
+				   'trades.test-trades-won
+				   'trades.test-trades-lost
+				   'trades.test-avg-revenue
+				   'trades.tp
+				   'trades.sl
+				   'trades.decision
+				   'trades.entry-price
+				   :distinct-on 'trades.id
+				   :from 'trades
+				   :inner-join 'patterns-trades
+				   :on (:= 'trades.id 'patterns-trades.trade-id)
+				   :inner-join 'patterns
+				   :on (:= 'patterns-trades.pattern-id 'patterns.id))
+				 'full-results))
+			  'idx-results)
+		     :where (:<= 'idx '$1))
 		   limit
 		   :alists))
-      (conn (query (:order-by (:select 'trades.* 'patterns.* :from 'trades :inner-join 'patterns-trades :on (:= 'trades.id 'patterns-trades.trade-id) :inner-join 'patterns :on (:= 'patterns-trades.pattern-id 'patterns.id)) (:desc 'trades.creation-time)) :alists))))
-;; (get-trades 1)
+      (conn (query (:order-by (:select 'patterns.instrument
+				'patterns.timeframe
+				'patterns.type
+				'trades.creation-time
+				'trades.test-trades-won
+				'trades.test-trades-lost
+				'trades.test-avg-revenue
+				'trades.tp
+				'trades.sl
+				'trades.decision
+				'trades.result
+				'trades.entry-price
+				:distinct-on 'trades.id
+				:from 'trades
+				:inner-join 'patterns-trades
+				:on (:= 'trades.id 'patterns-trades.trade-id)
+				:inner-join 'patterns
+				:on (:= 'patterns-trades.pattern-id 'patterns.id))
+			      'trades.id
+			      (:desc 'trades.creation-time))
+		   :alists))))
+;; (get-trades 3)
+
+;; (conn (query (:limit (:order-by (:select '* :from 'trades) (:desc 'trades.creation-time)) 2) :alists))
 
 (defun describe-trades (&optional limit)
   (let* ((trades (get-trades limit))
@@ -989,7 +1052,7 @@
 	       (read-from-string (slot-value agent 'antecedents))
 	       (read-from-string (slot-value agent 'consequents)))))
 
-(defun eval-agents (instrument timeframe types rates &key (count 1) (limit 1000))
+(defun eval-agents (instrument timeframe types rates &key (count 1) (limit 10))
   (let (tps sls activations ids)
     (loop for offset from 0 below (get-agents-count instrument timeframe types) by limit
        do (let ((agents (get-agents instrument timeframe types :limit limit :offset offset)))
@@ -1093,7 +1156,9 @@
 		      (push max-pos max-poses)
 		      (push max-neg max-negses)
 		      (push revenue revenues)))
-		(incf idx finish-idx)))))
+		;; (incf idx finish-idx)
+		(incf idx)
+		))))
     (push-to-log "<br/>Agents evaluated successfully.")
     `((:begin-time . ,(read-from-string (assoccess (first rates) :time)))
       (:end-time . ,(read-from-string (assoccess (last-elt rates) :time)))
@@ -1394,6 +1459,9 @@
      (unless (query (:select 'agent-id :from 'agents-patterns :where (:= 'agent-id agent-id)))
        (delete-dao agent)))))
 
+;; (loop for agent in (get-agents :EUR_JPY :H1 '(:BULLISH) :limit 100000)
+;;       do (delete-agent agent :EUR_JPY :H1 '(:BULLISH)))
+
 ;; (conn (query (:select 'id :from 'agents) :alist))
 ;; (conn (query (:select 'agent-id :from 'agents-patterns :where (:= 'agent-id "C3FE332F-82E7-41A6-89CA-E36550D1D687"))))
 
@@ -1549,88 +1617,87 @@
      (swank:create-server :port 4444))))
 (init)
 
-(defun -loop-optimize-test (&key (seconds 300) (max-creation-dataset-size 500) (max-training-dataset-size 500) (max-testing-dataset-size 500)
+(defun -loop-optimize-test (&key (seconds 100) (max-creation-dataset-size 1000) (max-training-dataset-size 1000) (max-testing-dataset-size 200)
 			      (num-rules 100) (num-inputs 5) (report-fn nil) (type-groups '((:bullish) (:bearish) (:stagnated))) (instruments ominp:*forex*) (timeframes ominp:*shortterm*))
   (dolist (instrument instruments)
     (dolist (timeframe timeframes)
       (unless (is-market-close)
 	(push-to-log (format nil "<br/><b>STARTING ~s ~s.</b><hr/>" instrument timeframe))
-	(let ((rates (get-rates-count instrument timeframe
-				      (+ max-creation-dataset-size max-training-dataset-size max-testing-dataset-size)
-				      :provider :oanda :type :fx)))
+	(let* ((rates (get-rates-count instrument timeframe
+				       (+ max-creation-dataset-size max-training-dataset-size max-testing-dataset-size)
+				       :provider :oanda :type :fx))
+	       (dataset-size (length rates)))
 	  (push-to-log "Retrieved rates successfully.")
-	  (multiple-value-bind (types)
-	      (winning-type-output-dataset rates type-groups
-					   :max-dataset-size max-testing-dataset-size)
-	    (let* ((dataset-size (length rates))
-		   (testing-dataset (let ((dataset (subseq rates
-							   (- dataset-size
-							      max-testing-dataset-size))))
-				      (multiple-value-bind (from)
-					  (get-rates-chunk-of-types dataset types
-								    :min-chunk-size 200
-								    :max-chunk-size max-creation-dataset-size)
-					(subseq dataset from))))
-		   (training-dataset (let ((dataset (subseq rates
-							    (- dataset-size
-							       max-testing-dataset-size
-							       max-training-dataset-size)
-							    (- dataset-size
-							       max-testing-dataset-size))))
-				       (multiple-value-bind (from to)
-					   (get-rates-chunk-of-types dataset types
-								     :min-chunk-size 200
-								     :max-chunk-size max-creation-dataset-size)
-					 (subseq dataset from to))))
-		   (creation-dataset (let ((dataset (subseq rates
-							    0
-							    (- dataset-size
-							       max-testing-dataset-size
-							       max-training-dataset-size))))
-				       (multiple-value-bind (from to)
-					   (get-rates-chunk-of-types dataset types
-								     :min-chunk-size 200
-								     :max-chunk-size max-creation-dataset-size)
-					 (subseq dataset from to))))
-		   (agents-count (get-agents-count instrument timeframe types)))
-	      (push-to-log (format nil "Creation dataset created successfully. Size: ~s. Dataset from ~a to ~a."
-				   (length creation-dataset)
-				   (local-time:unix-to-timestamp (/ (read-from-string (assoccess (first creation-dataset) :time)) 1000000))
-				   (local-time:unix-to-timestamp (/ (read-from-string (assoccess (last-elt creation-dataset) :time)) 1000000))))
-	      (push-to-log (format nil "Training dataset created successfully. Size: ~s. Dataset from ~a to ~a."
-				   (length training-dataset)
-				   (local-time:unix-to-timestamp (/ (read-from-string (assoccess (first training-dataset) :time)) 1000000))
-				   (local-time:unix-to-timestamp (/ (read-from-string (assoccess (last-elt training-dataset) :time)) 1000000))
-				   ))
-	      (push-to-log (format nil "Testing dataset created successfully. Size: ~s. Dataset from ~a to ~a."
-				 (length testing-dataset)
-				 (local-time:unix-to-timestamp (/ (read-from-string (assoccess (first testing-dataset) :time)) 1000000))
-				 (local-time:unix-to-timestamp (/ (read-from-string (assoccess (last-elt testing-dataset) :time)) 1000000))))
-	      (push-to-log (format nil "~a agents retrieved for pattern ~s." agents-count types))
-	      (let ()
-		(push-to-log "<b>SIGNAL.</b><hr/>")
-		(push-to-log (format nil "Trying to create signal with ~a agents." agents-count))
-		(when (> agents-count 0)
-		  (test-agents instrument timeframe types rates training-dataset testing-dataset))
-		(push-to-log "<b>OPTIMIZATION.</b><hr/>")
-		(optimization instrument timeframe types
-			      (lambda () (let ((beliefs (gen-random-beliefs num-inputs)))
-					   (gen-agent num-rules creation-dataset
-						      (assoccess beliefs :perception-fns)
-						      (assoccess beliefs :lookahead-count)
-						      (assoccess beliefs :lookbehind-count))))
-			      training-dataset
-			      seconds
-			      :report-fn report-fn)
-		;; (test-agents instrument timeframe types rates training-dataset testing-dataset)
-		;; (conn (query (:delete-from 'agents :where (:= 1 1)))
-		;;       (query (:delete-from 'agents-patterns :where (:= 1 1)))
-		;;       (query (:delete-from 'agents-patterns :where (:= 1 1))))
-		(push-to-log "Optimization process completed.")
-		(push-to-log "<b>VALIDATION.</b><hr/>")
-		(push-to-log "Validating trades older than 24 hours.")
-		(validate-trades)
-		))))))))
+	  (let ((full-training-dataset (subseq rates
+					       (- dataset-size
+						  max-testing-dataset-size
+						  max-training-dataset-size)
+					       (- dataset-size
+						  max-testing-dataset-size)))
+		(full-creation-dataset (subseq rates
+					       0
+					       (- dataset-size
+						  max-testing-dataset-size
+						  max-training-dataset-size)))
+		(testing-dataset (let ((dataset (subseq rates
+							(- dataset-size
+							   max-testing-dataset-size))))
+				   (push-to-log (format nil "Testing dataset created successfully. Size: ~s. Dataset from ~a to ~a."
+							(length dataset)
+							(local-time:unix-to-timestamp (/ (read-from-string (assoccess (first dataset) :time)) 1000000))
+							(local-time:unix-to-timestamp (/ (read-from-string (assoccess (last-elt dataset) :time)) 1000000))))
+				   dataset))
+		(agents-count (get-agents-count instrument timeframe (flatten type-groups))))
+	    (push-to-log "<b>SIGNAL.</b><hr/>")
+	    (push-to-log (format nil "Trying to create signal with ~a agents." agents-count))
+	    (if (> agents-count 0)
+		(test-agents instrument timeframe (flatten type-groups) rates full-training-dataset testing-dataset)
+		(push-to-log "Not enough agents to create a signal."))
+	    (loop for types in type-groups
+		  ;; (multiple-value-bind (types)
+		  ;;     (winning-type-output-dataset rates type-groups
+		  ;;    :min-dataset-size max-testing-dataset-size
+		  ;;    :max-dataset-size max-testing-dataset-size)
+		  do (let* ((training-dataset (multiple-value-bind (from to)
+						  (get-rates-chunk-of-types full-training-dataset types
+									    :min-chunk-size 300
+									    :max-chunk-size max-creation-dataset-size)
+						(let ((dataset (subseq full-training-dataset from to)))
+						  (push-to-log (format nil "Training dataset created successfully. Size: ~s. Dataset from ~a to ~a."
+								       (length dataset)
+								       (local-time:unix-to-timestamp (/ (read-from-string (assoccess (first dataset) :time)) 1000000))
+								       (local-time:unix-to-timestamp (/ (read-from-string (assoccess (last-elt dataset) :time)) 1000000))
+								       ))
+						  dataset)))
+			    (creation-dataset (multiple-value-bind (from to)
+						  (get-rates-chunk-of-types full-creation-dataset types
+									    :min-chunk-size 300
+									    :max-chunk-size max-creation-dataset-size)
+						(let ((dataset (subseq full-creation-dataset from to)))
+						  (push-to-log (format nil "Creation dataset created successfully. Size: ~s. Dataset from ~a to ~a."
+								       (length dataset)
+								       (local-time:unix-to-timestamp (/ (read-from-string (assoccess (first dataset) :time)) 1000000))
+								       (local-time:unix-to-timestamp (/ (read-from-string (assoccess (last-elt dataset) :time)) 1000000))))
+						  dataset))))
+		       (push-to-log "<b>OPTIMIZATION.</b><hr/>")
+		       (push-to-log (format nil "~a agents retrieved for pattern ~s." agents-count types))
+		       (optimization instrument timeframe types
+				     (lambda () (let ((beliefs (gen-random-beliefs num-inputs)))
+						  (gen-agent num-rules creation-dataset
+							     (assoccess beliefs :perception-fns)
+							     (assoccess beliefs :lookahead-count)
+							     (assoccess beliefs :lookbehind-count))))
+				     training-dataset
+				     seconds
+				     :report-fn report-fn)
+		       (push-to-log "Optimization process completed.")
+		       (push-to-log "<b>VALIDATION.</b><hr/>")
+		       (push-to-log "Validating trades older than 24 hours.")
+		       (validate-trades)
+		       )))))))
+  ;; (conn (query (:delete-from 'agents :where (:= 1 1)))
+  ;; (query (:delete-from 'agents-patterns :where (:= 1 1))))
+  )
 
 (defun loop-optimize-test ()
   (clear-log)

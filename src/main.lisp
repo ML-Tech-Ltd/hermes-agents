@@ -933,13 +933,6 @@
   (length (get-agent-ids-from-patterns instrument timeframe types)))
 
 (defun describe-agents ()
-  (format nil "<b>AGENTS POOL.</b><br/><hr/><br/>~{~a<br/>~}<br/>"
-	  (flatten (loop for instrument in ominp:*forex*
-		      collect (loop for types in '((:bullish) (:bearish) (:stagnated))
-				 collect (format nil "~a, ~a, ~a" instrument types (get-agents-count instrument :H1 types)))))))
-;; (describe-agents)
-
-(defun describe-agents ()
   (with-open-stream (s (make-string-output-stream))
     (format s "<h3>AGENTS POOL</h3><hr/>")
     (loop for instrument in ominp:*forex*
@@ -1976,17 +1969,8 @@
 ;;                                       ((ps:@ *json* parse) (ps:lisp json-layout)))))))
 ;;     (open-plot plot-code width height)))
 
-(defun describe-agent (agent)
-  (let* ((beliefs (beliefs agent))
-	 (rules (rules agent))
-	 (fitnesses (fitnesses agent))
-	 (fuzzy-rules (-> rules :rules)))
-    fuzzy-rules
 
-    
-    ))
-;; (defun describe-agents (agents)
-;;   )
+
 
 ;; (describe-agent (gen-agent 4 *rates*))
 

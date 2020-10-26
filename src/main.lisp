@@ -1466,6 +1466,12 @@
 		(conn (loop for agent in agents
 			 do (unless (get-dao 'agent (slot-value agent 'id))
 			      (push-to-log (format nil "Inserting new agent with ID ~a" (slot-value agent 'id)))
+			      (let ((metric-labels '("AVG-REVENUE" "TRADES-WON" "TRADES-LOST")))
+				(with-open-stream (s (make-string-output-stream))
+				(format s "<pre><b>(OMEGA) </b>Agent ID ~a~%" (slot-value agent 'id))
+				(format-table s `((,(format nil "~6$" (slot-value agent 'avg-revenue)) ,(slot-value agent 'trades-won) ,(slot-value agent 'trades-lost))) :column-label metric-labels)
+				(format s "</pre><hr/>")
+				(push-to-agents-log (get-output-stream-string s))))
 			      (insert-agent agent instrument timeframe types))))
 		(push-to-log "Pareto frontier updated successfully.")
 		(return))

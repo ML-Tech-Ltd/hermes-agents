@@ -1800,7 +1800,7 @@
 (init)
 
 (defun -loop-optimize-test (&key
-			      (seconds 20)
+			      (seconds 100)
 			      (max-creation-dataset-size 1000)
 			      (max-training-dataset-size 1000)
 			      (max-testing-dataset-size 200)

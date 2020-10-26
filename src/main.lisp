@@ -19,6 +19,7 @@
         :computable-reals
 	:random-state
 	:defenum
+	:fare-mop
 	:overmind-code
 	:overmind-input
 	:overmind-perception
@@ -30,7 +31,8 @@
 	)
   (:export :get-trades
 	   :loop-optimize-test
-	   :read-log)
+	   :read-log
+	   :read-agents-log)
   (:nicknames :omage))
 (in-package :overmind-agents)
 
@@ -931,10 +933,135 @@
   (length (get-agent-ids-from-patterns instrument timeframe types)))
 
 (defun describe-agents ()
-  (format nil "<b>AGENTS POOL.</b><br/><hr/><br/>~{~a<br/>~}<br/>" (flatten (loop for instrument in ominp:*forex*
-									       collect (loop for types in '((:bullish) (:bearish) (:stagnated))
-											  collect (format nil "~a, ~a, ~a" instrument types (get-agents-count instrument :H1 types)))))))
+  (format nil "<b>AGENTS POOL.</b><br/><hr/><br/>~{~a<br/>~}<br/>"
+	  (flatten (loop for instrument in ominp:*forex*
+		      collect (loop for types in '((:bullish) (:bearish) (:stagnated))
+				 collect (format nil "~a, ~a, ~a" instrument types (get-agents-count instrument :H1 types)))))))
 ;; (describe-agents)
+
+(defun describe-agents ()
+  (with-open-stream (s (make-string-output-stream))
+    (format s "<h3>AGENTS POOL</h3><hr/>")
+    (loop for instrument in ominp:*forex*
+       do (loop for types in '((:bullish) (:bearish) (:stagnated))
+	     do (let* ((agents-props (prepare-agents-properties (get-agents instrument :H1 types :limit -1)))
+		       (agents-count (get-agents-count instrument :H1 types))
+		       (vals (loop for agent-props in agents-props
+				collect (let ((avg-tp (read-from-string (assoccess agent-props :test-avg-tp)))
+					      (avg-sl (read-from-string (assoccess agent-props :test-avg-sl))))
+					  (append (alist-values agent-props)
+						  (list (format-rr avg-tp avg-sl)))))))
+		  (when (> (length agents-props) 0)
+		    (format s "<h4>~a (~a, ~a)</h4>" instrument (car types) agents-count)
+		    (format s "<pre>")
+		    (format-table s vals :column-label (append (mapcar #'symbol-name (alist-keys (car agents-props)))
+							       '("R/R")))
+		    (format s "</pre><hr/>")))))
+    (get-output-stream-string s)))
+;; (describe-agents)
+
+(defun unix-from-nano (unix-nano &optional (is-string? nil))
+  (if is-string?
+      (/ (read-from-string unix-nano) 1000000)
+      (/ unix-nano 1000000)))
+
+(defun unix-to-nano (unix &optional (is-string? nil))
+  (if is-string?
+      (* (read-from-string unix) 1000000)
+      (* unix 1000000)))
+
+(defparameter +CELL-FORMATS+ '(:left   "~vA"
+                              :center "~v:@<~A~>"
+                              :right  "~v@A"))
+
+(defun format-table (stream data &key (column-label (loop for i from 1 to (length (car data))
+						       collect (format nil "COL~D" i)))
+				   (column-align (loop for i from 1 to (length (car data))
+						    collect :left)))
+  (let* ((col-count (length column-label))
+	 (strtable  (cons column-label	; table header
+                          (loop for row in data ; table body with all cells as strings
+			     collect (loop for cell in row
+					collect (if (stringp cell)
+						    cell
+					;else
+						    (format nil "~A" cell))))))
+	 (col-widths (loop with widths = (make-array col-count :initial-element 0)
+			for row in strtable
+			do (loop for cell in row
+			      for i from 0
+			      do (setf (aref widths i)
+				       (max (aref widths i) (length cell))))
+			finally (return widths))))
+					;------------------------------------------------------------------------------------
+					; splice in the header separator
+    (setq strtable
+	  (nconc (list (car strtable)		       ; table header
+		       (loop for align in column-align ; generate separator
+			  for width across col-widths
+			  collect (case align
+				    (:left   (format nil ":~v@{~A~:*~}"
+						     (1- width)  "-"))
+				    (:right  (format nil "~v@{~A~:*~}:"
+						     (1- width)  "-"))
+				    (:center (format nil ":~v@{~A~:*~}:"
+						     (- width 2) "-")))))
+		 (cdr strtable)))	; table body
+					;------------------------------------------------------------------------------------
+					; Generate the formatted table
+    (let ((row-fmt (format nil "| ~{~A~^ | ~} |~~%" ; compile the row format
+                           (loop for align in column-align
+			      collect (getf +CELL-FORMATS+ align))))
+	  (widths  (loop for w across col-widths collect w)))
+					; write each line to the given stream
+      (dolist (row strtable)
+	(apply #'format stream row-fmt (mapcan #'list widths row))))))
+
+(defun prepare-agents-properties (agents)
+  (loop for agent in agents
+     collect (loop for (key value) on (collect-slots agent) by #'cddr
+		unless (or (string= key "CREATION-BEGIN-TIME")
+			   (string= key "CREATION-END-TIME")
+			   (string= key "TRAIN-BEGIN-TIME")
+			   (string= key "TRAIN-END-TIME")
+			   (string= key "BEGIN-TIME")
+			   (string= key "END-TIME")
+			   (string= key "TEST-STDEV-MAX-POS")
+			   (string= key "TEST-AVG-MAX-POS")
+			   (string= key "TEST-STDEV-MAX-NEG")
+			   (string= key "TEST-AVG-MAX-NEG")
+
+			   (string= key "PERCEPTION-FNS")
+			   (string= key "LOOKAHEAD-COUNT")
+			   (string= key "LOOKBEHIND-COUNT")
+			   (string= key "ANTECEDENTS")
+			   (string= key "CONSEQUENTS")
+			   (string= key "TEST-REVENUES")
+			   (string= key "TEST-ENTRY-TIMES")
+			   (string= key "TEST-EXIT-TIMES")
+			   (string= key "TEST-ENTRY-PRICES")
+			   (string= key "TEST-EXIT-PRICES")
+			   (string= key "TEST-TPS")
+			   (string= key "TEST-SLS"))
+		collect (let ((value (cond ((or (string= key "CREATION-BEGIN-TIME")
+						(string= key "CREATION-END-TIME")
+						(string= key "BEGIN-TIME")
+						(string= key "END-TIME")
+						(string= key "TRAIN-BEGIN-TIME")
+						(string= key "TRAIN-END-TIME"))
+					    (local-time:unix-to-timestamp
+					     (unix-from-nano value)))
+					   ((floatp value) (format nil "~6$" value))
+					   (t value))))
+			  ;; (format nil "~a: ~a~%" key value)
+			  `(,key . ,value)))))
+
+(defun alist-keys (alist)
+  (loop for item in alist collect (car item)))
+(defun alist-values (alist)
+  (loop for item in alist collect (cdr item)))
+;; (alist-keys (car (prepare-agents-properties (get-agents :EUR_USD :H1 '(:bullish)))))
+;; (alist-values (car (prepare-agents-properties (get-agents :EUR_USD :H1 '(:bullish)))))
 
 (defun get-trades (&optional limit)
   (if limit
@@ -1038,7 +1165,7 @@
 	       (read-from-string (slot-value agent 'antecedents))
 	       (read-from-string (slot-value agent 'consequents)))))
 
-(defun eval-agents (instrument timeframe types rates &key (count 2) (limit 10))
+(defun eval-agents (instrument timeframe types rates &key (count 1) (limit 10))
   (let (tps sls activations ids)
     (loop for offset from 0 below (get-agents-count instrument timeframe types) by limit
        do (let ((agents (get-agents instrument timeframe types :limit limit :offset offset)))
@@ -1057,29 +1184,29 @@
 	  (len (min count (length activations))))
       (setf tp (nth (position 0 idxs) tps))
       (setf sl (nth (position 0 idxs) sls))
-      (loop for idx from 1 below len
-      	 do (let* ((pos (position idx idxs))
-      		   (nth-tp (nth pos tps))
-      		   (nth-sl (nth pos sls)))
-      	      (when (< (* nth-tp tp) 0)
-      	      	(setf tp 0)
-      	      	(setf sl 0)
-      	      	(return))
-      	      (when (< (* nth-sl sl) 0)
-      	      	(setf tp 0)
-      	      	(setf sl 0)
-      	      	(return))
-      	      ;; (when (or (= tp 0) (< (abs nth-tp) (abs tp)))
-      	      ;; 	(setf tp nth-tp))
-      	      ;; (when (or (= sl 0) (< (abs nth-sl) (abs sl)))
-      	      ;; 	(setf sl nth-sl))
-      	      ;; (when (or (= tp 0) (< (abs nth-tp) (abs tp)))
-      	      ;; 	(setf tp nth-tp))
-      	      ;; (when (or (= sl 0) (< (abs nth-sl) (abs sl)))
-      	      ;; 	(setf sl nth-sl))
-      	      ;; (incf tp nth-tp)
-      	      ;; (incf sl nth-sl)
-      	      ))
+      ;; (loop for idx from 1 below len
+      ;; 	 do (let* ((pos (position idx idxs))
+      ;; 		   (nth-tp (nth pos tps))
+      ;; 		   (nth-sl (nth pos sls)))
+      ;; 	      (when (< (* nth-tp tp) 0)
+      ;; 	      	(setf tp 0)
+      ;; 	      	(setf sl 0)
+      ;; 	      	(return))
+      ;; 	      (when (< (* nth-sl sl) 0)
+      ;; 	      	(setf tp 0)
+      ;; 	      	(setf sl 0)
+      ;; 	      	(return))
+      ;; 	      ;; (when (or (= tp 0) (< (abs nth-tp) (abs tp)))
+      ;; 	      ;; 	(setf tp nth-tp))
+      ;; 	      ;; (when (or (= sl 0) (< (abs nth-sl) (abs sl)))
+      ;; 	      ;; 	(setf sl nth-sl))
+      ;; 	      ;; (when (or (= tp 0) (< (abs nth-tp) (abs tp)))
+      ;; 	      ;; 	(setf tp nth-tp))
+      ;; 	      ;; (when (or (= sl 0) (< (abs nth-sl) (abs sl)))
+      ;; 	      ;; 	(setf sl nth-sl))
+      ;; 	      ;; (incf tp nth-tp)
+      ;; 	      ;; (incf sl nth-sl)
+      ;; 	      ))
       (values (/ tp 1)
 	      (/ sl 1)
 	      (list (nth (position 0 idxs) ids))))))
@@ -1227,7 +1354,8 @@
 ;; (vector-1-similarity #(1 2 3) #(10 20 30))
 
 (defun is-agent-dominated? (agent agents)
-  (let* ((avg-revenue-0 (slot-value agent 'avg-revenue))
+  (let* ((agent-id-0 (slot-value agent 'id))
+	 (avg-revenue-0 (slot-value agent 'avg-revenue))
 	 (trades-won-0 (slot-value agent 'trades-won))
 	 (trades-lost-0 (slot-value agent 'trades-lost))
 	 ;; (stdev-revenue-0 (slot-value agent 'stdev-revenue))
@@ -1235,7 +1363,8 @@
 	 (is-dominated? nil))
     ;; (format t "~a, ~a, ~a~%~%" avg-revenue-0 trades-won-0 trades-lost-0)
     (loop for agent in agents
-       do (let* ((avg-revenue (slot-value agent 'avg-revenue))
+       do (let* ((agent-id (slot-value agent 'id))
+		 (avg-revenue (slot-value agent 'avg-revenue))
 		 (trades-won (slot-value agent 'trades-won))
 		 (trades-lost (slot-value agent 'trades-lost))
 		 ;; (stdev-revenue (slot-value agent 'stdev-revenue))
@@ -1252,6 +1381,29 @@
 		       ;; 	      (+ trades-won-0 trades-lost-0)))
 		       (vector-1-similarity entry-times entry-times-0))
 	      ;; Candidate agent was dominated.
+	      (let ((metric-labels '("AVG-REVENUE" "TRADES-WON" "TRADES-LOST")))
+		(with-open-stream (s (make-string-output-stream))
+		  ;; (push-to-agents-log )
+		  (format s "<pre><b>(BETA) </b>Agent ID ~a~%" agent-id-0)
+		  (format-table s `((,(format nil "~6$" avg-revenue-0) ,trades-won-0 ,trades-lost-0)) :column-label metric-labels)
+		  (format s "</pre>")
+
+		  (format s "<pre><b>(ALPHA) </b>Agent ID ~a~%" agent-id)
+		  (format-table s `((,(format nil "~6$" avg-revenue) ,trades-won ,trades-lost)) :column-label metric-labels)
+		  (format s "</pre><hr/>")
+		
+		  ;; (format s "Fitnesses <b>~a</b>:<br/>~a: ~a<br/>~a: ~a<br/>~a: ~a"
+		  ;; 	agent-id-0
+		  ;; 	(symbol-name 'avg-revenue) avg-revenue-0
+		  ;; 	(symbol-name 'trades-won) trades-won-0
+		  ;; 	(symbol-name 'trades-lost) trades-lost-0)
+		  ;; (format s "Fitnesses (~a):<br/>~a: ~a<br/>~a: ~a<br/>~a: ~a<hr />"
+		  ;; 	agent-id
+		  ;; 	(symbol-name 'avg-revenue) avg-revenue
+		  ;; 	(symbol-name 'trades-won) trades-won
+		  ;; 	(symbol-name 'trades-lost) trades-lost)
+		  (push-to-agents-log (get-output-stream-string s))))
+	      
 	      (setf is-dominated? t)
 	      (return))))
     is-dominated?))
@@ -1312,6 +1464,7 @@
 	(purged-agents))
     (push-to-log (format nil "~a agents retrieved to start optimization." (length agents)))
     (push-to-log (format nil "Performing optimization for ~a seconds." seconds))
+    (push-to-agents-log (format nil "<h4>~a (~a, ~a)</h4>~%" instrument (car types) (length agents)))
     (loop with until-timestamp = (local-time:timestamp+ (local-time:now) seconds :sec)
        do (if (local-time:timestamp> (local-time:now) until-timestamp)
 	      (progn
@@ -1319,7 +1472,7 @@
 		(push-to-log (format nil "Updating Pareto frontier with ~a agents." (length agents)))
 		(conn (loop for agent in agents
 			 do (unless (get-dao 'agent (slot-value agent 'id))
-			      (push-to-log (format nil "Inserting new agent with ID: ~a" (slot-value agent 'id)))
+			      (push-to-log (format nil "Inserting new agent with ID ~a" (slot-value agent 'id)))
 			      (insert-agent agent instrument timeframe types))))
 		(push-to-log "Pareto frontier updated successfully.")
 		(return))
@@ -1330,14 +1483,15 @@
 		  (loop for in-trial in agents
 		     do (if (is-agent-dominated? in-trial challenger)
 			    (progn
-			      (push-to-log (format nil "Removing agent with ID: ~a" (slot-value in-trial 'id)))
+			      (push-to-log (format nil "Removing agent with ID ~a" (slot-value in-trial 'id)))
+			      (push-to-agents-log (format nil "Removing agent with ID ~a" (slot-value in-trial 'id)))
 			      (delete-agent in-trial instrument timeframe types))
 			    (push in-trial purged-agents)))
 		  (push (first challenger) purged-agents)
 		  (setf agents purged-agents)
 		  (setf purged-agents nil)
 		  )
-		;; (push-to-log (format nil "Inserting new agent with ID: ~a" (slot-value agent 'id)))
+		;; (push-to-log (format nil "Inserting new agent with ID ~a" (slot-value agent 'id)))
 		;; (insert-agent agent instrument timeframe types)
 		(when report-fn
 		  (funcall report-fn (get-agents instrument timeframe types :limit -1) rates)))))))
@@ -1411,6 +1565,13 @@
 ;; (loop for market in ominp:*forex*
 ;;    do (print (length (get-agents market :H1))))
 
+(defun format-rr (risk reward)
+  (format nil "~a / ~2$"
+	  (/ (* 10000 (abs risk))
+	     (* 10000 (abs risk)))
+	  (/ (* 10000 (abs risk))
+	     (* 10000 (abs reward)))))
+
 (defun describe-agent-fitnesses (market)
   (loop for agent in (get-agents market :H1)
      do (let* ((fit (slot-value agent 'fitnesses))
@@ -1425,11 +1586,7 @@
 		   (rr `(:rr . ,(format nil "~2$ / ~2$"
 					(* 10000 (abs (mean sls)))
 					(* 10000 (abs (mean tps))))))
-		   (rr2 `(:rr2 . ,(format nil "~a / ~2$"
-					  (/ (* 10000 (abs (mean sls)))
-					     (* 10000 (abs (mean sls))))
-					  (/ (* 10000 (abs (mean tps)))
-					     (* 10000 (abs (mean sls))))))))
+		   (rr2 `(:rr2 . ,(format-rr (mean sls) (mean tps)))))
 	      (format t "AVG-REVENUE: ~t ~a~%AVG-TP: ~t ~a~%AVG-SL: ~t ~a~%TRADES-WON: ~t ~a~%TRADES-LOST: ~t ~a~%RR: ~t ~a~%RR2: ~t ~a~%~%"
 		      avg-revenue
 		      avg-tp
@@ -1599,6 +1756,7 @@
 	(insert-trade (first agent-ids) instrument timeframe types train-fitnesses test-fitnesses tp sl rates)
 	(push-to-log "Trade created successfully.")))))
 
+;; General log.
 (let (log)
   (defun push-to-log (msg &key (add-newline? t) (size 100000))
     (if add-newline?
@@ -1607,14 +1765,33 @@
     (when (> (length log) size)
       (setf log (butlast log))))
   (defun read-log ()
-    (format nil "~a<b>LOG.</b><hr/><br/>~{~a~%~}"
-	    (describe-agents)
+    (format nil "<h3>LOG.</h3><hr/><br/>~{~a~%~}"
 	    (reverse log)
 	    ))
   (defun clear-log ()
     (setf log nil)))
 ;; (push-to-log (random 10) :size 10)
 ;; (read-log)
+
+;; Agents log.
+(let (log)
+  (defun push-to-agents-log (msg &key (add-newline? t) (size 100000))
+    (if add-newline?
+	(push (format nil "~a<br/>" msg) log)
+	(push (format nil "~a" msg) log))
+    (when (> (length log) size)
+      (setf log (butlast log))))
+  (defun read-agents-log ()
+    (format nil "~a<h3>AGENTS LOG.</h3><hr/><br/>~{~a~%~}"
+	    (describe-agents)
+	    (reverse log)
+	    ))
+  (defun clear-agents-log ()
+    (setf log nil)))
+
+(defun clear-logs ()
+  (clear-log)
+  (clear-agents-log))
 
 (defun init ()
   (bt:make-thread
@@ -1725,7 +1902,7 @@
 	  (query (:delete-from 'agents-patterns :where (:= 1 1))))))
 
 (defun loop-optimize-test ()
-  (clear-log)
+  (clear-logs)
   (loop (unless (is-market-close))
      (-loop-optimize-test)))
 
@@ -1798,7 +1975,6 @@
 ;;                         (*plotly.plot div ((ps:@ *json* parse) (ps:lisp json-traces))
 ;;                                       ((ps:@ *json* parse) (ps:lisp json-layout)))))))
 ;;     (open-plot plot-code width height)))
-
 
 (defun describe-agent (agent)
   (let* ((beliefs (beliefs agent))

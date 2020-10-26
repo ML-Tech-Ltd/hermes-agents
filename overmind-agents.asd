@@ -26,6 +26,7 @@
 	       :cl-cpus
 	       :bordeaux-threads
 	       :defenum
+	       :fare-mop
 
 	       :swank
 

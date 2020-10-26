@@ -14,7 +14,8 @@
            :appenv
            :developmentp
            :productionp
-	   :*db-path*))
+	   :*db-path*
+	   :*is-production*))
 (in-package :overmind-agents.config)
 
 (defparameter *is-production* t)

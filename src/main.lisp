@@ -934,7 +934,7 @@
 
 (defun describe-agents ()
   (with-open-stream (s (make-string-output-stream))
-    (format s "<h3>AGENTS POOL</h3><hr/>")
+    (format s "<h3>AGENTS POOL.</h3><hr/>")
     (loop for instrument in ominp:*forex*
        do (loop for types in '((:bullish) (:bearish) (:stagnated))
 	     do (let* ((agents-props (prepare-agents-properties (get-agents instrument :H1 types :limit -1)))
@@ -1351,54 +1351,60 @@
 	 (avg-revenue-0 (slot-value agent 'avg-revenue))
 	 (trades-won-0 (slot-value agent 'trades-won))
 	 (trades-lost-0 (slot-value agent 'trades-lost))
+	 (agent-direction-0 (aref (slot-value agent 'tps) 0))
+	 (agent-directions (slot-value agent 'tps))
 	 ;; (stdev-revenue-0 (slot-value agent 'stdev-revenue))
-	 (entry-times-0 (slot-value agent 'entry-times))
+	 ;; (entry-times-0 (slot-value agent 'entry-times))
 	 (is-dominated? nil))
     ;; (format t "~a, ~a, ~a~%~%" avg-revenue-0 trades-won-0 trades-lost-0)
     (loop for agent in agents
-       do (let* ((agent-id (slot-value agent 'id))
-		 (avg-revenue (slot-value agent 'avg-revenue))
-		 (trades-won (slot-value agent 'trades-won))
-		 (trades-lost (slot-value agent 'trades-lost))
-		 ;; (stdev-revenue (slot-value agent 'stdev-revenue))
-		 (entry-times (slot-value agent 'entry-times))
-		 )
-	    ;; Fitnesses currently being used.
-	    (when (and (>= avg-revenue avg-revenue-0)
-		       ;; (< stdev-revenue stdev-revenue-0)
-		       (>= trades-won trades-won-0)
-		       (<= trades-lost trades-lost-0)
-		       ;; (>= (/ trades-won
-		       ;; 	      (+ trades-won trades-lost))
-		       ;; 	   (/ trades-won-0
-		       ;; 	      (+ trades-won-0 trades-lost-0)))
-		       (vector-1-similarity entry-times entry-times-0))
-	      ;; Candidate agent was dominated.
-	      (let ((metric-labels '("AVG-REVENUE" "TRADES-WON" "TRADES-LOST")))
-		(with-open-stream (s (make-string-output-stream))
-		  ;; (push-to-agents-log )
-		  (format s "<pre><b>(BETA) </b>Agent ID ~a~%" agent-id-0)
-		  (format-table s `((,(format nil "~6$" avg-revenue-0) ,trades-won-0 ,trades-lost-0)) :column-label metric-labels)
-		  (format s "</pre>")
+	  do (let* ((agent-id (slot-value agent 'id))
+		    (avg-revenue (slot-value agent 'avg-revenue))
+		    (trades-won (slot-value agent 'trades-won))
+		    (trades-lost (slot-value agent 'trades-lost))
+		    (agent-direction (aref (slot-value agent 'tps) 0))
+		    (agent-directions (slot-value agent 'tps))
+		    ;; (stdev-revenue (slot-value agent 'stdev-revenue))
+		    ;; (entry-times (slot-value agent 'entry-times))
+		    )
+	       ;; Fitnesses currently being used.
+	       (when (and (print (> (* agent-direction-0 agent-direction) 0))
+			  (>= avg-revenue avg-revenue-0)
+			  ;; (< stdev-revenue stdev-revenue-0)
+			  (>= trades-won trades-won-0)
+			  (<= trades-lost trades-lost-0)
+			  ;; (>= (/ trades-won
+			  ;; 	      (+ trades-won trades-lost))
+			  ;; 	   (/ trades-won-0
+			  ;; 	      (+ trades-won-0 trades-lost-0)))
+			  ;; (vector-1-similarity entry-times entry-times-0)
+			  )
+		 ;; Candidate agent was dominated.
+		 (let ((metric-labels '("AVG-REVENUE" "TRADES-WON" "TRADES-LOST")))
+		   (with-open-stream (s (make-string-output-stream))
+		     ;; (push-to-agents-log )
+		     (format s "<pre><b>(BETA) </b>Agent ID ~a~%" agent-id-0)
+		     (format-table s `((,(format nil "~6$" avg-revenue-0) ,trades-won-0 ,trades-lost-0)) :column-label metric-labels)
+		     (format s "</pre>")
 
-		  (format s "<pre><b>(ALPHA) </b>Agent ID ~a~%" agent-id)
-		  (format-table s `((,(format nil "~6$" avg-revenue) ,trades-won ,trades-lost)) :column-label metric-labels)
-		  (format s "</pre><hr/>")
+		     (format s "<pre><b>(ALPHA) </b>Agent ID ~a~%" agent-id)
+		     (format-table s `((,(format nil "~6$" avg-revenue) ,trades-won ,trades-lost)) :column-label metric-labels)
+		     (format s "</pre><hr/>")
 		
-		  ;; (format s "Fitnesses <b>~a</b>:<br/>~a: ~a<br/>~a: ~a<br/>~a: ~a"
-		  ;; 	agent-id-0
-		  ;; 	(symbol-name 'avg-revenue) avg-revenue-0
-		  ;; 	(symbol-name 'trades-won) trades-won-0
-		  ;; 	(symbol-name 'trades-lost) trades-lost-0)
-		  ;; (format s "Fitnesses (~a):<br/>~a: ~a<br/>~a: ~a<br/>~a: ~a<hr />"
-		  ;; 	agent-id
-		  ;; 	(symbol-name 'avg-revenue) avg-revenue
-		  ;; 	(symbol-name 'trades-won) trades-won
-		  ;; 	(symbol-name 'trades-lost) trades-lost)
-		  (push-to-agents-log (get-output-stream-string s))))
+		     ;; (format s "Fitnesses <b>~a</b>:<br/>~a: ~a<br/>~a: ~a<br/>~a: ~a"
+		     ;; 	agent-id-0
+		     ;; 	(symbol-name 'avg-revenue) avg-revenue-0
+		     ;; 	(symbol-name 'trades-won) trades-won-0
+		     ;; 	(symbol-name 'trades-lost) trades-lost-0)
+		     ;; (format s "Fitnesses (~a):<br/>~a: ~a<br/>~a: ~a<br/>~a: ~a<hr />"
+		     ;; 	agent-id
+		     ;; 	(symbol-name 'avg-revenue) avg-revenue
+		     ;; 	(symbol-name 'trades-won) trades-won
+		     ;; 	(symbol-name 'trades-lost) trades-lost)
+		     (push-to-agents-log (get-output-stream-string s))))
 	      
-	      (setf is-dominated? t)
-	      (return))))
+		 (setf is-dominated? t)
+		 (return))))
     is-dominated?))
 
 (defun plotly-candlestick (rates)
@@ -1631,15 +1637,16 @@
 (defun is-market-close ()
   (let ((day-of-week (local-time:timestamp-day-of-week (local-time:now) :timezone local-time:+utc-zone+))
 	(hour (local-time:timestamp-hour (local-time:now) :timezone local-time:+utc-zone+)))
-    (or
-     ;; Friday
-     (and (= day-of-week 5)
-	  (>= hour 20))
-     ;; Saturday
-     (= day-of-week 6)
-     ;; Sunday
-     (and (= day-of-week 0)
-	  (< hour 21)))))
+    (and *is-production*
+	 (or
+	  ;; Friday
+	  (and (= day-of-week 5)
+	       (>= hour 20))
+	  ;; Saturday
+	  (= day-of-week 6)
+	  ;; Sunday
+	  (and (= day-of-week 0)
+	       (< hour 21))))))
 ;; (is-market-close)
 
 ;; (time (get-last-tests ominp:*forex* ominp:*timeframes* 3))

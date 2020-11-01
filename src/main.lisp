@@ -170,12 +170,63 @@
 
 ;; (local-time:unix-to-timestamp )
 
+(defun insert-rates (instrument timeframe rates)
+  (conn
+   (loop for rate in rates
+	 ;; Inserting only if complete.
+	 do (when (assoccess rate :complete)
+	      (let ((time (assoccess rate :time))
+		    (instrument (format nil "~a" instrument))
+		    (timeframe (format nil "~a" timeframe)))
+		(unless (get-dao 'rate time instrument timeframe)
+		  (make-dao 'rate
+			    :time time
+			    :instrument instrument
+			    :timeframe timeframe
+			    :open-bid (assoccess rate :open-bid)
+			    :open-ask (assoccess rate :open-ask)
+			    :high-bid (assoccess rate :high-bid)
+			    :high-ask (assoccess rate :high-ask)
+			    :low-bid (assoccess rate :low-bid)
+			    :low-ask (assoccess rate :low-ask)
+			    :close-bid (assoccess rate :close-bid)
+			    :close-ask (assoccess rate :close-ask)
+			    :volume (assoccess rate :volume)
+			    )))))))
+
+(defun init-rates (howmany-batches)
+  (let ((instruments ominp:*forex*)
+	(timeframes '(:H1 :M1)))
+    (loop for instrument in instruments
+	  do (loop for timeframe in timeframes
+		   do (let ((rates (get-rates-batches instrument timeframe howmany-batches)))
+			(insert-rates instrument timeframe rates))))))
+
+;; (init-rates 10)
+
+;; (let ((instrument :EUR_USD)
+;;       (timeframe :H1)
+;;       )
+;;   (get-rates-batches :EUR_USD :M1 1))
+
+;; (length (get-rates-batches :EUR_USD :D 5))
+
+;; (loop for rate in (get-rates-batches :EUR_USD :M1 2)
+;;       do (print (local-time:unix-to-timestamp (/ (read-from-string (assoccess rate :time)) 1000000))))
+
+;; (time (insert-rates :EUR_JPY :H1 *rates*))
+;; (length *rates*)
+;; (:AUD_USD :EUR_GBP :EUR_JPY :EUR_USD :GBP_USD :USD_CAD :USD_CHF :USD_CNH
+;;  :USD_JPY)
+;; (length (conn (query (:select 'time :from 'rates :where (:and (:= 'instrument "USD_JPY")
+;; 							      (:= 'timeframe "M1"))) :alists)))
+
 (defun init-database ()
   "Creates all the necessary tables for Overmind Agents."
   (conn
    (unless (table-exists-p 'rates)
      (query (:create-table 'rates
-			   ((time :type (or db-null int8))
+			   ((time :type string)
 			    (instrument :type string)
 			    (timeframe :type string)
 			    (open-bid :type double-float)
@@ -186,7 +237,7 @@
 			    (low-ask :type double-float)
 			    (close-bid :type double-float)
 			    (close-ask :type double-float)
-			    (volume :type double-float))
+			    (volume :type int))
 			   (:primary-key time instrument timeframe))))
    (unless (table-exists-p 'agents)
      (query (:create-table 'agents
@@ -624,6 +675,23 @@
 
 ;; (let ((perc-fn (gen-perception-fn #(#(0 0 10) #(0 1 10) #(0 1 10) #(0 1 10) #(0 1 10) #(0 1 10) #(0 1 10) #(0 1 10) #(0 1 10) #(1 0)))))
 ;;   (time (loop repeat 1000 do (funcall perc-fn *rates*))))
+
+(defclass rate ()
+  ((time :col-type string :initarg :time)
+   (instrument :col-type string :initarg :instrument)
+   (timeframe :col-type string :initarg :timeframe)
+   (open-bid :col-type double-float :initarg :open-bid)
+   (open-ask :col-type double-float :initarg :open-ask)
+   (high-bid :col-type double-float :initarg :high-bid)
+   (high-ask :col-type double-float :initarg :high-ask)
+   (low-bid :col-type double-float :initarg :low-bid)
+   (low-ask :col-type double-float :initarg :low-ask)
+   (close-bid :col-type double-float :initarg :close-bid)
+   (close-ask :col-type double-float :initarg :close-ask)
+   (volume :col-type int :initarg :volume))
+  (:metaclass dao-class)
+  (:table-name rates)
+  (:keys time instrument timeframe))
 
 (defclass agent ()
   ((id :col-type string :initform (format nil "~a" (uuid:make-v4-uuid)) :initarg :id)

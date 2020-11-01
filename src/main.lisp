@@ -1714,7 +1714,7 @@
 	  (= day-of-week 6)
 	  ;; Sunday
 	  (and (= day-of-week 0)
-	       (< hour 21))))))
+	       (< hour 22))))))
 ;; (is-market-close)
 
 ;; (time (get-last-tests ominp:*forex* ominp:*timeframes* 3))

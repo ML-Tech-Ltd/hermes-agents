@@ -15,10 +15,12 @@
            :developmentp
            :productionp
 	   :*db-path*
-	   :*is-production*))
+	   :*is-production*
+	   :*is-log*))
 (in-package :overmind-agents.config)
 
 (defparameter *is-production* t)
+(defparameter *is-log* t)
 (defparameter *rand-gen* (make-generator :mersenne-twister-32))
 
 (setf (config-env-var) "APP_ENV")

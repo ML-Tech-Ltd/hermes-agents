@@ -27,6 +27,7 @@
 	       :bordeaux-threads
 	       :defenum
 	       :fare-mop
+	       :fare-memoization
 
 	       :swank
 

@@ -23,3 +23,11 @@
   (declare (ignore opts))
   `(let ((json:*boolean-handler* #'json-bool-handler))
      ,@body))
+
+;; (define-alien-variable ("dynamic_space_size" dynamic-space-size-bytes)
+;; unsigned-long)
+;; (defun heap-n-bytes ()
+;;   (+ dynamic-space-size-bytes
+;;      (- sb-vm::read-only-space-end sb-vm::read-only-space-start)
+;;      (- sb-vm::static-space-end sb-vm::static-space-start)))
+;; (heap-n-bytes)

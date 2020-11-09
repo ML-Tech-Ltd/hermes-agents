@@ -2068,8 +2068,8 @@
 			 (push-to-log "<b>VALIDATION.</b><hr/>")
 			 (push-to-log "Validating trades older than 24 hours.")
 			 (validate-trades))
-		       )))))))
-  (sync-agents)
+		       )))))
+      (sync-agents)))
   (unless *is-production*
     (wipe-agents)))
 

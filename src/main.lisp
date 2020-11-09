@@ -1624,13 +1624,16 @@
 
 (defparameter *agents-cache* (make-hash-table :test 'equal))
 
+(defun wipe-agents (instrument timeframe types)
+  (conn (query (:delete-from 'agents :where (:= 1 1)))
+	(query (:delete-from 'agents-patterns :where (:= 1 1)))))
+;; (wipe-agents)
+
 (defun sync-agents ()
   (wipe-agents)
   (loop for key being each hash-key of *agents-cache*
 	do (loop for agent in (apply #'get-agents key)
 		 do (apply #'insert-agent agent key))))
-
-
 
 (defun get-agents (instrument timeframe types)
   (flatten
@@ -1969,6 +1972,11 @@
 ;; (get-random-rates-count-big :AUD_USD :H1
 ;; 				    6200)
 
+(defun refresh-memory ()
+  (fare-memoization:unmemoize 'read-string)
+  (sb-ext:gc :full t)
+  (fare-memoization:memoize 'read-string))
+
 (defun -loop-optimize-test (&key
 			      (seconds 100)
 			      (max-creation-dataset-size 3000)
@@ -2069,14 +2077,10 @@
 			 (push-to-log "Validating trades older than 24 hours.")
 			 (validate-trades))
 		       )))))
+      (refresh-memory)
       (sync-agents)))
   (unless *is-production*
     (wipe-agents)))
-
-(defun wipe-agents ()
-  (conn (query (:delete-from 'agents :where (:= 1 1)))
-	(query (:delete-from 'agents-patterns :where (:= 1 1)))))
-;; (wipe-agents)
 
 (defun loop-optimize-test ()
   (clear-logs)

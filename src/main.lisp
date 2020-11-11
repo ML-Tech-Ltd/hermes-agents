@@ -1624,7 +1624,7 @@
 
 (defparameter *agents-cache* (make-hash-table :test 'equal))
 
-(defun wipe-agents (instrument timeframe types)
+(defun wipe-agents ()
   (conn (query (:delete-from 'agents :where (:= 1 1)))
 	(query (:delete-from 'agents-patterns :where (:= 1 1)))))
 ;; (wipe-agents)
@@ -1978,7 +1978,7 @@
   (fare-memoization:memoize 'read-string))
 
 (defun -loop-optimize-test (&key
-			      (seconds 100)
+			      (seconds 10)
 			      (max-creation-dataset-size 3000)
 			      (max-training-dataset-size 3000)
 			      (max-testing-dataset-size 200)

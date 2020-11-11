@@ -1605,11 +1605,12 @@
 ;; (conn (query (:select '* :from 'patterns) :alists))
 
 (defun get-patterns (instrument timeframe types)
-  (conn (query (:select '* :from 'patterns :where (:and (:= 'instrument (format nil "~a" instrument))
-							(:= 'timeframe (format nil "~a" timeframe))
-							(:in 'type (:set (loop for type in types collect (format nil "~a" type))))))
-	       :alists)))
-;; (get-patterns :EUR_USD :H1 '(:BULLISH :BEARISH))
+  (let* ((types (flatten types)))
+    (conn (query (:select '* :from 'patterns :where (:and (:= 'instrument (format nil "~a" instrument))
+							  (:= 'timeframe (format nil "~a" timeframe))
+							  (:in 'type (:set (loop for type in types collect (format nil "~a" type))))))
+		 :alists))))
+;; (get-patterns :EUR_USD :H1 '(:BULLISH (:BEARISH) :STAGNATED))
 
 (defun get-agent-ids-from-patterns (instrument timeframe types)
   (let* ((types (flatten types))
@@ -1777,6 +1778,8 @@
 
 ;; (get-last-tests '(:EUR_USD :GBP_USD) '(:H1 :D) 3)
 ;; (get-last-tests '(:GBP_USD) '(:H1))
+
+;; (get-patterns :EUR_USD :H1 '((:bullish)))
 
 (defun insert-trade (agent-id instrument timeframe types train-fitnesses test-fitnesses tp sl rates)
   (conn (let ((patterns (get-patterns instrument timeframe types))
@@ -1977,8 +1980,10 @@
   (sb-ext:gc :full t)
   (fare-memoization:memoize 'read-string))
 
+;; (get-agents-count :EUR_USD :H1 '((:bullish) (:bearish) ((:stagnated))))
+
 (defun -loop-optimize-test (&key
-			      (seconds 10)
+			      (seconds 100)
 			      (max-creation-dataset-size 3000)
 			      (max-training-dataset-size 3000)
 			      (max-testing-dataset-size 200)

@@ -11,29 +11,33 @@
 ;; (drop-tests)
 
 (defpackage overmind-agents
-  (:use :cl
-   :access
- 	:lparallel
-   :postmodern
-	:alexandria
-   :computable-reals
-	:random-state
-   :defenum
-	:fare-mop
-   :overmind-code
-	:overmind-input
-   :overmind-perception
-	:overmind-intuition
-   :overmind-agents.config
-	:overmind-agents.db
-   :overmind-agents.km
-	:overmind-agents.utilities
-	)
-  (:export :get-trades
-   :loop-optimize-test
-	   :read-log
-   :read-agents-log)
-  (:nicknames :omage))
+  (:use #:cl
+	#:local-time
+	#:access
+	#:lparallel
+	#:postmodern
+	#:alexandria
+	#:computable-reals
+	#:random-state
+	#:defenum
+	#:fare-mop
+	#:overmind-code
+	#:overmind-input
+	#:overmind-perception
+	#:overmind-intuition
+	#:overmind-agents.config
+	#:overmind-agents.db
+	#:overmind-agents.km
+	#:overmind-agents.utilities)
+  (:export #:get-trades
+	   #:loop-optimize-test
+	   #:read-log
+	   #:read-agents-log
+	   #:unix-to-nano
+	   #:unix-from-nano
+	   #:get-rates-range-big
+	   #:get-all-agents)
+  (:nicknames #:omage))
 (in-package :overmind-agents)
 
 (setf lparallel:*kernel* (lparallel:make-kernel
@@ -202,7 +206,7 @@
 		   do (let ((rates (get-rates-batches instrument timeframe howmany-batches)))
 			(insert-rates instrument timeframe rates))))))
 
-;; (init-rates 10)
+;; (init-rates 1)
 
 ;; (let ((instrument :EUR_USD)
 ;;       (timeframe :H1)
@@ -700,7 +704,7 @@
    (creation-begin-time :col-type (or db-null int8) :initarg :creation-begin-time :initform :null)
    (creation-end-time :col-type (or db-null int8) :initarg :creation-end-time :initform :null)
    (begin-time :col-type (or db-null int8) :initarg :begin-time :initform :null)
-   (end-time :col-type (or db-null int8) :initarg :train-end-time :initform :null)
+   (end-time :col-type (or db-null int8) :initarg :end-time :initform :null)
    (dataset-size :col-type (or db-null integer) :initarg :test-dataset-size :initform :null)
    (avg-revenue :col-type (or db-null double-float) :initarg :test-avg-revenue :initform :null)
    (stdev-revenue :col-type (or db-null double-float) :initarg :test-stdev-revenue :initform :null)
@@ -1018,6 +1022,27 @@
     (get-output-stream-string s)))
 ;; (describe-agents)
 
+(defun get-all-agents ()
+  (let ((markets (make-hash-table)))
+    (loop for instrument in ominp:*forex*
+	  do (let ((agents (make-hash-table)))
+	       (loop for types in '(:bullish :bearish :stagnated)
+		     do (let ((values (let* ((agents-props (prepare-agents-properties (get-agents instrument :H1 (list types))))
+					     (vals (loop for agent-props in agents-props
+							 collect (let ((avg-tp (read-from-string (assoccess agent-props :test-avg-tp)))
+								       (avg-sl (read-from-string (assoccess agent-props :test-avg-sl))))
+								   (append agent-props
+									   `((:r/r . ,(format-rr avg-tp avg-sl))))))))
+					(when (> (length agents-props) 0)
+					  vals))))
+			  (when values
+			    (setf (gethash types agents) values))
+			  ))
+	       (setf (gethash instrument markets) agents)
+	       ))
+    markets))
+;; (time (get-all-agents))
+
 (defun unix-from-nano (unix-nano &optional (is-string? nil))
   (if is-string?
       (/ (read-from-string unix-nano) 1000000)
@@ -1078,16 +1103,19 @@
 (defun prepare-agents-properties (agents)
   (loop for agent in agents
 	collect (loop for (key value) on (collect-slots agent) by #'cddr
-		      unless (or (string= key "CREATION-BEGIN-TIME")
-				 (string= key "CREATION-END-TIME")
-				 (string= key "TRAIN-BEGIN-TIME")
-				 (string= key "TRAIN-END-TIME")
-				 (string= key "BEGIN-TIME")
-				 (string= key "END-TIME")
-				 (string= key "TEST-STDEV-MAX-POS")
+		      unless (or (string= key "TEST-STDEV-MAX-POS")
 				 (string= key "TEST-AVG-MAX-POS")
 				 (string= key "TEST-STDEV-MAX-NEG")
 				 (string= key "TEST-AVG-MAX-NEG")
+				 ;; (string= key "CREATION-BEGIN-TIME")
+				 ;; (string= key "CREATION-END-TIME")
+				 ;; (string= key "BEGIN-TIME")
+				 ;; 	 (string= key "END-TIME")
+
+				 (string= key "TEST-MIN-TP")
+				 (string= key "TEST-MIN-SL")
+				 (string= key "TEST-MAX-TP")
+				 (string= key "TEST-MAX-SL")
 
 				 (string= key "PERCEPTION-FNS")
 				 (string= key "LOOKAHEAD-COUNT")
@@ -1107,8 +1135,7 @@
 							(string= key "END-TIME")
 							(string= key "TRAIN-BEGIN-TIME")
 							(string= key "TRAIN-END-TIME"))
-						    (local-time:unix-to-timestamp
-						     (unix-from-nano value)))
+						    (unix-from-nano value))
 						   ((floatp value) (format nil "~6$" value))
 						   (t value))))
 				  ;; (format nil "~a: ~a~%" key value)
@@ -1118,7 +1145,7 @@
   (loop for item in alist collect (car item)))
 (defun alist-values (alist)
   (loop for item in alist collect (cdr item)))
-;; (alist-keys (car (prepare-agents-properties (get-agents :EUR_USD :H1 '(:bullish)))))
+;; (alist-keys (car (prepare-agents-properties (get-agents :AUD_USD :H1 '(:bullish)))))
 ;; (alist-values (car (prepare-agents-properties (get-agents :EUR_USD :H1 '(:bullish)))))
 
 (defun get-trades (&optional limit)
@@ -1215,7 +1242,7 @@
 
 (defun read-string (str)
   (read-from-string str))
-(fare-memoization:memoize 'read-string)
+;; (fare-memoization:memoize 'read-string)
 
 (defun get-perception-fn (agent)
   (gen-perception-fn (read-string (slot-value agent 'perception-fns))))
@@ -1636,6 +1663,12 @@
 	do (loop for agent in (apply #'get-agents key)
 		 do (apply #'insert-agent agent key))))
 
+(defun init-agents-cache ()
+  (loop for instrument in ominp:*forex*
+	do (loop for types in '((:bullish) (:stagnated) (:bearish))
+		 do (get-agents instrument :H1 types))))
+;; (init-agents-cache)
+
 (defun get-agents (instrument timeframe types)
   (flatten
    (remove nil
@@ -1650,6 +1683,8 @@
 			 (setf (gethash (list instrument timeframe type) *agents-cache*) agents)
 			 agents)))))))
 ;; (fare-memoization:memoize 'get-agents)
+
+;; (get-agents :AUD_USD :H1 '(:BULLISH))
 
 ;; (length (get-agents :AUD_USD :H1 '(:BULLISH)))
 ;; (length (get-agents :EUR_USD :H1 '(:BULLISH)))
@@ -1680,8 +1715,8 @@
 		      (trades-won (access fit :trades-won))
 		      (trades-lost (access fit :trades-lost))
 		      (rr `(:rr . ,(format nil "~2$ / ~2$"
-					   (* 10000 (abs (mean sls)))
-					   (* 10000 (abs (mean tps))))))
+				    (* 10000 (abs (mean sls)))
+				    (* 10000 (abs (mean tps))))))
 		      (rr2 `(:rr2 . ,(format-rr (mean sls) (mean tps)))))
 		 (format t "AVG-REVENUE: ~t ~a~%AVG-TP: ~t ~a~%AVG-SL: ~t ~a~%TRADES-WON: ~t ~a~%TRADES-LOST: ~t ~a~%RR: ~t ~a~%RR2: ~t ~a~%~%"
 			 avg-revenue
@@ -1964,6 +1999,19 @@
 			  count offset
 			  :alists)))))
 
+(defun get-rates-range-big (instrument timeframe from to)
+  (let ((instrument (format nil "~a" instrument))
+	(timeframe (format nil "~a" timeframe))
+	(from (format nil "~a" from))
+	(to (format nil "~a" to)))
+    (reverse (conn (query (:order-by (:select '* :from 'rates :where (:and (:= 'instrument instrument)
+									   (:= 'timeframe timeframe)
+									   (:>= 'time from)
+									   (:<= 'time to)))
+				     (:desc 'rates.time))
+			  :alists)))))
+;; (get-rates-range-big :EUR_USD :H1 (unix-to-nano (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 20 :day))) (unix-to-nano (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 10 :day))))
+
 ;; (loop for rate in (get-random-rates-count-big :EUR_USD :H1 200)
 ;;       do (print (local-time:unix-to-timestamp (/ (read-from-string (assoccess rate :time)) 1000000))))
 
@@ -1983,7 +2031,7 @@
 ;; (get-agents-count :EUR_USD :H1 '((:bullish) (:bearish) ((:stagnated))))
 
 (defun -loop-optimize-test (&key
-			      (seconds 100)
+			      (seconds 10)
 			      (max-creation-dataset-size 3000)
 			      (max-training-dataset-size 3000)
 			      (max-testing-dataset-size 200)
@@ -2089,6 +2137,8 @@
 
 (defun loop-optimize-test ()
   (clear-logs)
+  (refresh-memory)
+  (init-agents-cache)
   (loop (unless (is-market-close))
 	(-loop-optimize-test)))
 

@@ -2031,7 +2031,7 @@
 ;; (get-agents-count :EUR_USD :H1 '((:bullish) (:bearish) ((:stagnated))))
 
 (defun -loop-optimize-test (&key
-			      (seconds 10)
+			      (seconds 100)
 			      (max-creation-dataset-size 3000)
 			      (max-training-dataset-size 3000)
 			      (max-testing-dataset-size 200)

@@ -16,8 +16,28 @@
            :productionp
 	   :*db-path*
 	   :*is-production*
-	   :*is-log*))
+	   :*is-log*
+
+	   ;; Algorithm Configuration ;;
+	   #:*seconds-to-optimize-per-pattern*
+	   #:*max-creation-dataset-size*
+	   #:*max-training-dataset-size*
+	   #:*max-testing-dataset-size*
+	   #:*number-of-agent-rules*
+	   #:*number-of-agent-inputs*
+	   ))
 (in-package :overmind-agents.config)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Algorithm Configuration ;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defparameter *seconds-to-optimize-per-pattern* 100)
+(defparameter *max-creation-dataset-size* 3000)
+(defparameter *max-training-dataset-size* 3000)
+(defparameter *max-testing-dataset-size* 200)
+(defparameter *number-of-agent-rules* 100)
+(defparameter *number-of-agent-inputs* 5)
 
 (defparameter *is-production* t)
 (defparameter *is-log* t)

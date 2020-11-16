@@ -1042,6 +1042,10 @@
 	       ))
     markets))
 ;; (time (get-all-agents))
+;; (loop for k being each hash-value of (get-all-agents) do (print k))
+;; (loop for k being each hash-key of *agents-cache* do (print k))
+;; (loop for k being each hash-value of *agents-cache* do (print k))
+;; (prepare-agents-properties (get-agents :AUD_USD :H1 '(:stagnated)))
 
 (defun unix-from-nano (unix-nano &optional (is-string? nil))
   (if is-string?
@@ -1240,19 +1244,19 @@
 ;; (conn (query (:select 'agent-id :from 'agents-patterns)))
 ;; TODO: when removing an agent in update-pareto-frontier, also remove agent-pattern
 
-(defun read-string (str)
+(defun read-str (str)
   (read-from-string str))
-;; (fare-memoization:memoize 'read-string)
+;; (fare-memoization:memoize 'read-str)
 
 (defun get-perception-fn (agent)
-  (gen-perception-fn (read-string (slot-value agent 'perception-fns))))
+  (gen-perception-fn (read-str (slot-value agent 'perception-fns))))
 ;; (fare-memoization:memoize 'get-perception-fn)
 
 (defun eval-agent (agent rates)
   (let ((perception-fn (get-perception-fn agent)))
     (eval-ifis (funcall perception-fn rates)
-	       (read-string (slot-value agent 'antecedents))
-	       (read-string (slot-value agent 'consequents)))))
+	       (read-str (slot-value agent 'antecedents))
+	       (read-str (slot-value agent 'consequents)))))
 ;; (ql:quickload :fare-memoization)
 ;; (fare-memoization:memoize 'eval-agent)
 
@@ -1761,9 +1765,11 @@
   "Works with database."
   (let ((agent-id (slot-value agent 'id))
 	(patterns (get-patterns instrument timeframe types)))
-    (conn (insert-dao agent)
-	  (loop for pattern in patterns
-		do (make-dao 'agent-pattern :agent-id agent-id :pattern-id (assoccess pattern :id))))
+    (conn
+     (unless (get-dao 'agent agent-id)
+       (insert-dao agent)
+       (loop for pattern in patterns
+	     do (make-dao 'agent-pattern :agent-id agent-id :pattern-id (assoccess pattern :id)))))
     agent))
 
 (defun delete-agent (agent instrument timeframe types)
@@ -2024,19 +2030,13 @@
 ;; 				    6200)
 
 (defun refresh-memory ()
-  (fare-memoization:unmemoize 'read-string)
+  (fare-memoization:unmemoize 'read-str)
   (sb-ext:gc :full t)
-  (fare-memoization:memoize 'read-string))
+  (fare-memoization:memoize 'read-str))
 
 ;; (get-agents-count :EUR_USD :H1 '((:bullish) (:bearish) ((:stagnated))))
 
 (defun -loop-optimize-test (&key
-			      (seconds 100)
-			      (max-creation-dataset-size 3000)
-			      (max-training-dataset-size 3000)
-			      (max-testing-dataset-size 200)
-			      (num-rules 100)
-			      (num-inputs 5)
 			      (report-fn nil)
 			      (type-groups '((:bullish) (:bearish) (:stagnated)))
 			      (instruments ominp:*forex*)
@@ -2049,25 +2049,25 @@
 	(push-to-log (format nil "<br/><b>STARTING ~s ~s.</b><hr/>" instrument timeframe))
 	(let* ((rates (if *is-production*
 			  (get-rates-count-big instrument timeframe
-					       (+ max-creation-dataset-size max-training-dataset-size max-testing-dataset-size))
+					       (+ *max-creation-dataset-size* *max-training-dataset-size* *max-testing-dataset-size*))
 			  (get-random-rates-count-big instrument timeframe
-						      (+ max-creation-dataset-size max-training-dataset-size max-testing-dataset-size))))
+						      (+ *max-creation-dataset-size* *max-training-dataset-size* *max-testing-dataset-size*))))
 	       (dataset-size (length rates)))
 	  (push-to-log "Retrieved rates successfully.")
 	  (let ((full-training-dataset (subseq rates
 					       (- dataset-size
-						  max-testing-dataset-size
-						  max-training-dataset-size)
+						  *max-testing-dataset-size*
+						  *max-training-dataset-size*)
 					       (- dataset-size
-						  max-testing-dataset-size)))
+						  *max-testing-dataset-size*)))
 		(full-creation-dataset (subseq rates
 					       0
 					       (- dataset-size
-						  max-testing-dataset-size
-						  max-training-dataset-size)))
+						  *max-testing-dataset-size*
+						  *max-training-dataset-size*)))
 		(testing-dataset (let ((dataset (subseq rates
 							(- dataset-size
-							   max-testing-dataset-size))))
+							   *max-testing-dataset-size*))))
 				   (push-to-log (format nil "Testing dataset created successfully. Size: ~s. Dataset from ~a to ~a."
 							(length dataset)
 							(local-time:unix-to-timestamp (/ (read-from-string (assoccess (first dataset) :time)) 1000000))
@@ -2083,8 +2083,8 @@
 	    (loop for types in type-groups
 		  ;; (multiple-value-bind (types)
 		  ;;     (winning-type-output-dataset rates type-groups
-		  ;;    :min-dataset-size max-testing-dataset-size
-		  ;;    :max-dataset-size max-testing-dataset-size)
+		  ;;    :min-dataset-size *max-testing-dataset-size*
+		  ;;    :max-dataset-size *max-testing-dataset-size*)
 		  do (let* ((training-dataset (multiple-value-bind (from to)
 						  (get-rates-chunk-of-types full-training-dataset types
 									    :slide-step 50
@@ -2111,13 +2111,13 @@
 		       (push-to-log "<b>OPTIMIZATION.</b><hr/>")
 		       (push-to-log (format nil "~a agents retrieved for pattern ~s." agents-count types))
 		       (optimization instrument timeframe types
-				     (lambda () (let ((beliefs (gen-random-beliefs num-inputs)))
-						  (gen-agent num-rules creation-dataset
+				     (lambda () (let ((beliefs (gen-random-beliefs *number-of-agent-inputs*)))
+						  (gen-agent *number-of-agent-rules* creation-dataset
 							     (assoccess beliefs :perception-fns)
 							     (assoccess beliefs :lookahead-count)
 							     (assoccess beliefs :lookbehind-count))))
 				     training-dataset
-				     seconds
+				     *seconds-to-optimize-per-pattern*
 				     :report-fn report-fn)
 		       (push-to-log "Optimization process completed.")
 		       (when (not *is-production*)
@@ -2136,9 +2136,11 @@
     (wipe-agents)))
 
 (defun loop-optimize-test ()
+  (when (is-market-close)
+    (format t "~%===============================================~%MARKET IS CLOSED~%SWITCH TO DEVELOPMENT MODE IF YOU WANT TO RUN EXPERIMENTS.~%==============================================="))
   (clear-logs)
   (refresh-memory)
-  (init-agents-cache)
+  ;; (init-agents-cache)
   (loop (unless (is-market-close))
 	(-loop-optimize-test)))
 

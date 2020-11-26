@@ -1147,7 +1147,7 @@
 							(string= key "TRAIN-END-TIME"))
 						    (unix-from-nano value))
 						   ((string= key "ACTIVATIONS")
-						    (if (and value (/= (length value) 0)) (format nil "~6$" (mean value)) "0"))
+						    (if (and value (not (eq value :null)) (/= (length value) 0)) (format nil "~6$" (mean value)) "0"))
 						   ((floatp value) (format nil "~6$" value))
 						   (t (format nil "~a" value)))))
 				  ;; (format nil "~a: ~a~%" key value)

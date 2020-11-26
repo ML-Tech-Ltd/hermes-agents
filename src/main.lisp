@@ -1,14 +1,7 @@
 ;; (ql:quickload :overmind-agents)
 ;; (ql:quickload :mlforecasting)
 ;; (mlforecasting:start :port 2001)
-;; (loop-optimize-test 1000 :instruments '(:AUD_USD))
 ;; (loop-optimize-test)
-;; (loop-optimize-test 50 :instruments-keys '(:forex) :timeframes-keys '(:all))
-;; (loop-optimize-test 50 :instruments-keys '(:all) :timeframes-keys '(:longterm))
-;; (loop-optimize-test 50 :instruments-keys '(:metals) :timeframes-keys '(:longterm))
-;; (prune-populations)
-;; (drop-populations)
-;; (drop-tests)
 
 (defpackage overmind-agents
   (:use #:cl
@@ -36,6 +29,7 @@
 	   #:unix-to-nano
 	   #:unix-from-nano
 	   #:get-rates-range-big
+	   #:get-rates-count-big
 	   #:get-all-agents)
   (:nicknames #:omage))
 (in-package :overmind-agents)
@@ -44,6 +38,8 @@
 			  (let ((ideal-cores-count (1- (cl-cpus:get-number-of-processors))))
 			    (if (/= ideal-cores-count 0)
 				ideal-cores-count 1))))
+
+(defmacro comment (&rest body))
 
 (defun assoccess (o k)
   (cdr (assoc k o)))
@@ -259,6 +255,8 @@
 		 (avg-revenue :type (or db-null double-float))
 		 (stdev-revenue :type (or db-null double-float))
 		 (total-revenue :type (or db-null double-float))
+		 (avg-return :type (or db-null double-float))
+		 (total-return :type (or db-null double-float))
 		 (avg-max-pos :type (or db-null double-float))
 		 (stdev-max-pos :type (or db-null double-float))
 		 (avg-max-neg :type (or db-null double-float))
@@ -279,7 +277,8 @@
 		 (entry-prices :type (or db-null float[]))
 		 (exit-prices :type (or db-null float[]))
 		 (tps :type (or db-null float[]))
-		 (sls :type (or db-null float[])))
+		 (sls :type (or db-null float[]))
+		 (activations :type (or db-null float[])))
 	      (:primary-key id))))
    (unless (table-exists-p 'agents-patterns)
      (query (:create-table 'agents-patterns
@@ -317,6 +316,10 @@
 		 (test-dataset-size :type integer)
 		 (train-avg-revenue :type double-float)
 		 (test-avg-revenue :type double-float)
+		 (train-avg-return :type (or db-null double-float))
+		 (test-avg-return :type (or db-null double-float))
+		 (train-total-return :type (or db-null double-float))
+		 (test-total-return :type (or db-null double-float))
 		 (train-stdev-revenue :type double-float)
 		 (test-stdev-revenue :type double-float)
 		 (train-total-revenue :type double-float)
@@ -475,15 +478,15 @@
 (defun validate-trades ()
   (let ((trades (conn (query (:order-by (:select '*
 					  :from (:as (:order-by (:select 'trades.* 'patterns.*
-									 :distinct-on 'trades.id
-									 :from 'trades
-									 :inner-join 'patterns-trades
-									 :on (:= 'trades.id 'patterns-trades.trade-id)
-									 :inner-join 'patterns
-									 :on (:= 'patterns.id 'patterns-trades.pattern-id)
-									 ;; :where (:not (:is-null 'trades.result))
-									 :where (:is-null 'trades.result)
-									 )
+								  :distinct-on 'trades.id
+								  :from 'trades
+								  :inner-join 'patterns-trades
+								  :on (:= 'trades.id 'patterns-trades.trade-id)
+								  :inner-join 'patterns
+								  :on (:= 'patterns.id 'patterns-trades.pattern-id)
+								  ;; :where (:not (:is-null 'trades.result))
+								  :where (:is-null 'trades.result)
+								  )
 								'trades.id
 								)
 						     'results))
@@ -705,31 +708,34 @@
    (creation-end-time :col-type (or db-null int8) :initarg :creation-end-time :initform :null)
    (begin-time :col-type (or db-null int8) :initarg :begin-time :initform :null)
    (end-time :col-type (or db-null int8) :initarg :end-time :initform :null)
-   (dataset-size :col-type (or db-null integer) :initarg :test-dataset-size :initform :null)
-   (avg-revenue :col-type (or db-null double-float) :initarg :test-avg-revenue :initform :null)
-   (stdev-revenue :col-type (or db-null double-float) :initarg :test-stdev-revenue :initform :null)
-   (total-revenue :col-type (or db-null double-float) :initarg :test-total-revenue :initform :null)
-   (avg-max-pos :col-type (or db-null double-float) :initarg :test-avg-max-pos :initform :null)
-   (stdev-max-pos :col-type (or db-null double-float) :initarg :test-stdev-max-pos :initform :null)
-   (avg-max-neg :col-type (or db-null double-float) :initarg :test-avg-max-neg :initform :null)
-   (stdev-max-neg :col-type (or db-null double-float) :initarg :test-stdev-max-neg :initform :null)
-   (avg-tp :col-type (or db-null double-float) :initarg :test-avg-tp :initform :null)
-   (stdev-tp :col-type (or db-null double-float) :initarg :test-stdev-tp :initform :null)
-   (avg-sl :col-type (or db-null double-float) :initarg :test-avg-sl :initform :null)
-   (stdev-sl :col-type (or db-null double-float) :initarg :test-stdev-sl :initform :null)
-   (max-tp :col-type (or db-null double-float) :initarg :test-max-tp :initform :null)
-   (min-tp :col-type (or db-null double-float) :initarg :test-min-tp :initform :null)
-   (max-sl :col-type (or db-null double-float) :initarg :test-max-sl :initform :null)
-   (min-sl :col-type (or db-null double-float) :initarg :test-min-sl :initform :null)
-   (trades-won :col-type (or db-null integer) :initarg :test-trades-won :initform :null)
-   (trades-lost :col-type (or db-null integer) :initarg :test-trades-lost :initform :null)
-   (revenues :col-type (or db-null float[]) :initarg :test-revenues :initform :null)
-   (entry-times :col-type (or db-null int8[]) :initarg :test-entry-times :initform :null)
-   (exit-times :col-type (or db-null int8[]) :initarg :test-exit-times :initform :null)
-   (entry-prices :col-type (or db-null float[]) :initarg :test-entry-prices :initform :null)
-   (exit-prices :col-type (or db-null float[]) :initarg :test-exit-prices :initform :null)
-   (tps :col-type (or db-null float[]) :initarg :test-tps :initform :null)
-   (sls :col-type (or db-null float[]) :initarg :test-sls :initform :null))
+   (dataset-size :col-type (or db-null integer) :initarg :dataset-size :initform :null)
+   (avg-revenue :col-type (or db-null double-float) :initarg :avg-revenue :initform :null)
+   (stdev-revenue :col-type (or db-null double-float) :initarg :stdev-revenue :initform :null)
+   (total-revenue :col-type (or db-null double-float) :initarg :total-revenue :initform :null)
+   (avg-return :col-type (or db-null double-float) :initarg :avg-return :initform :null)
+   (total-return :col-type (or db-null double-float) :initarg :total-return :initform :null)
+   (avg-max-pos :col-type (or db-null double-float) :initarg :avg-max-pos :initform :null)
+   (stdev-max-pos :col-type (or db-null double-float) :initarg :stdev-max-pos :initform :null)
+   (avg-max-neg :col-type (or db-null double-float) :initarg :avg-max-neg :initform :null)
+   (stdev-max-neg :col-type (or db-null double-float) :initarg :stdev-max-neg :initform :null)
+   (avg-tp :col-type (or db-null double-float) :initarg :avg-tp :initform :null)
+   (stdev-tp :col-type (or db-null double-float) :initarg :stdev-tp :initform :null)
+   (avg-sl :col-type (or db-null double-float) :initarg :avg-sl :initform :null)
+   (stdev-sl :col-type (or db-null double-float) :initarg :stdev-sl :initform :null)
+   (max-tp :col-type (or db-null double-float) :initarg :max-tp :initform :null)
+   (min-tp :col-type (or db-null double-float) :initarg :min-tp :initform :null)
+   (max-sl :col-type (or db-null double-float) :initarg :max-sl :initform :null)
+   (min-sl :col-type (or db-null double-float) :initarg :min-sl :initform :null)
+   (trades-won :col-type (or db-null integer) :initarg :trades-won :initform :null)
+   (trades-lost :col-type (or db-null integer) :initarg :trades-lost :initform :null)
+   (revenues :col-type (or db-null float[]) :initarg :revenues :initform :null)
+   (entry-times :col-type (or db-null int8[]) :initarg :entry-times :initform :null)
+   (exit-times :col-type (or db-null int8[]) :initarg :exit-times :initform :null)
+   (entry-prices :col-type (or db-null float[]) :initarg :entry-prices :initform :null)
+   (exit-prices :col-type (or db-null float[]) :initarg :exit-prices :initform :null)
+   (tps :col-type (or db-null float[]) :initarg :tps :initform :null)
+   (sls :col-type (or db-null float[]) :initarg :sls :initform :null)
+   (activations :col-type (or db-null float[]) :initarg :activations :initform :null))
   (:metaclass dao-class)
   (:table-name agents)
   (:keys id))
@@ -1009,8 +1015,8 @@
 		   do (let* ((agents-props (prepare-agents-properties (get-agents instrument :H1 types)))
 			     (agents-count (get-agents-count instrument :H1 types))
 			     (vals (loop for agent-props in agents-props
-					 collect (let ((avg-tp (read-from-string (assoccess agent-props :test-avg-tp)))
-						       (avg-sl (read-from-string (assoccess agent-props :test-avg-sl))))
+					 collect (let ((avg-tp (read-from-string (assoccess agent-props :avg-tp)))
+						       (avg-sl (read-from-string (assoccess agent-props :avg-sl))))
 						   (append (alist-values agent-props)
 							   (list (format-rr avg-tp avg-sl)))))))
 			(when (> (length agents-props) 0)
@@ -1029,8 +1035,8 @@
 	       (loop for types in '(:bullish :bearish :stagnated)
 		     do (let ((values (let* ((agents-props (prepare-agents-properties (get-agents instrument :H1 (list types))))
 					     (vals (loop for agent-props in agents-props
-							 collect (let ((avg-tp (read-from-string (assoccess agent-props :test-avg-tp)))
-								       (avg-sl (read-from-string (assoccess agent-props :test-avg-sl))))
+							 collect (let ((avg-tp (read-from-string (assoccess agent-props :avg-tp)))
+								       (avg-sl (read-from-string (assoccess agent-props :avg-sl))))
 								   (append agent-props
 									   `((:r/r . ,(format-rr avg-tp avg-sl))))))))
 					(when (> (length agents-props) 0)
@@ -1107,32 +1113,32 @@
 (defun prepare-agents-properties (agents)
   (loop for agent in agents
 	collect (loop for (key value) on (collect-slots agent) by #'cddr
-		      unless (or (string= key "TEST-STDEV-MAX-POS")
-				 (string= key "TEST-AVG-MAX-POS")
-				 (string= key "TEST-STDEV-MAX-NEG")
-				 (string= key "TEST-AVG-MAX-NEG")
+		      unless (or (string= key "STDEV-MAX-POS")
+				 (string= key "AVG-MAX-POS")
+				 (string= key "STDEV-MAX-NEG")
+				 (string= key "AVG-MAX-NEG")
 				 ;; (string= key "CREATION-BEGIN-TIME")
 				 ;; (string= key "CREATION-END-TIME")
 				 ;; (string= key "BEGIN-TIME")
 				 ;; 	 (string= key "END-TIME")
 
-				 (string= key "TEST-MIN-TP")
-				 (string= key "TEST-MIN-SL")
-				 (string= key "TEST-MAX-TP")
-				 (string= key "TEST-MAX-SL")
+				 (string= key "MIN-TP")
+				 (string= key "MIN-SL")
+				 (string= key "MAX-TP")
+				 (string= key "MAX-SL")
 
 				 (string= key "PERCEPTION-FNS")
 				 (string= key "LOOKAHEAD-COUNT")
 				 (string= key "LOOKBEHIND-COUNT")
 				 (string= key "ANTECEDENTS")
 				 (string= key "CONSEQUENTS")
-				 (string= key "TEST-REVENUES")
-				 (string= key "TEST-ENTRY-TIMES")
-				 (string= key "TEST-EXIT-TIMES")
-				 (string= key "TEST-ENTRY-PRICES")
-				 (string= key "TEST-EXIT-PRICES")
-				 (string= key "TEST-TPS")
-				 (string= key "TEST-SLS"))
+				 (string= key "REVENUES")
+				 (string= key "ENTRY-TIMES")
+				 (string= key "EXIT-TIMES")
+				 (string= key "ENTRY-PRICES")
+				 (string= key "EXIT-PRICES")
+				 (string= key "TPS")
+				 (string= key "SLS"))
 			collect (let ((value (cond ((or (string= key "CREATION-BEGIN-TIME")
 							(string= key "CREATION-END-TIME")
 							(string= key "BEGIN-TIME")
@@ -1140,8 +1146,10 @@
 							(string= key "TRAIN-BEGIN-TIME")
 							(string= key "TRAIN-END-TIME"))
 						    (unix-from-nano value))
+						   ((string= key "ACTIVATIONS")
+						    (if (and value (/= (length value) 0)) (format nil "~6$" (mean value)) "0"))
 						   ((floatp value) (format nil "~6$" value))
-						   (t value))))
+						   (t (format nil "~a" value)))))
 				  ;; (format nil "~a: ~a~%" key value)
 				  `(,key . ,value)))))
 
@@ -1260,7 +1268,12 @@
 ;; (ql:quickload :fare-memoization)
 ;; (fare-memoization:memoize 'eval-agent)
 
-(defun eval-agents (instrument timeframe types rates &key (count 1))
+;; (comment
+;;  (defparameter *consensus* nil)
+;;  (float (/ (count t *consensus*)
+;; 	   (length *consensus*))))
+
+(defun eval-agents (instrument timeframe types rates &key (count 5))
   (let (tps sls activations ids)
     (let ((agents (get-agents instrument timeframe types)))
       (loop for agent in agents
@@ -1275,34 +1288,47 @@
     (let ((idxs (sorted-indexes activations #'>))
 	  (tp 0)
 	  (sl 0)
+	  (activation 0)
+	  ;; (consensus t)
 	  (len (min count (length activations))))
       (setf tp (nth (position 0 idxs) tps))
       (setf sl (nth (position 0 idxs) sls))
-      ;; (loop for idx from 1 below len
-      ;; 	 do (let* ((pos (position idx idxs))
-      ;; 		   (nth-tp (nth pos tps))
-      ;; 		   (nth-sl (nth pos sls)))
-      ;; 	      (when (< (* nth-tp tp) 0)
-      ;; 	      	(setf tp 0)
-      ;; 	      	(setf sl 0)
-      ;; 	      	(return))
-      ;; 	      (when (< (* nth-sl sl) 0)
-      ;; 	      	(setf tp 0)
-      ;; 	      	(setf sl 0)
-      ;; 	      	(return))
-      ;; 	      ;; (when (or (= tp 0) (< (abs nth-tp) (abs tp)))
-      ;; 	      ;; 	(setf tp nth-tp))
-      ;; 	      ;; (when (or (= sl 0) (< (abs nth-sl) (abs sl)))
-      ;; 	      ;; 	(setf sl nth-sl))
-      ;; 	      ;; (when (or (= tp 0) (< (abs nth-tp) (abs tp)))
-      ;; 	      ;; 	(setf tp nth-tp))
-      ;; 	      ;; (when (or (= sl 0) (< (abs nth-sl) (abs sl)))
-      ;; 	      ;; 	(setf sl nth-sl))
-      ;; 	      ;; (incf tp nth-tp)
-      ;; 	      ;; (incf sl nth-sl)
-      ;; 	      ))
+      (setf activation (nth (position 0 idxs) activations))
+      ;; (when (> activation 0.5)
+      ;; 	(loop for idx from 1 below len
+      ;; 	      do (let* ((pos (position idx idxs))
+      ;; 			(nth-tp (nth pos tps))
+      ;; 			(nth-sl (nth pos sls)))
+
+      ;; 		   ;; ;; consensus
+      ;; 		   ;; (when (< (* nth-tp tp) 0)
+      ;; 		   ;;   (setf consensus nil)
+      ;; 		   ;;   (return))
+	      
+      ;; 		   ;; (when (< (* nth-tp tp) 0)
+      ;; 		   ;; 	(setf tp 0)
+      ;; 		   ;; 	(setf sl 0)
+      ;; 		   ;; 	(return))
+      ;; 		   ;; (when (< (* nth-sl sl) 0)
+      ;; 		   ;; 	(setf tp 0)
+      ;; 		   ;; 	(setf sl 0)
+      ;; 		   ;; 	(return))
+	      
+      ;; 		   ;; (when (or (= tp 0) (< (abs nth-tp) (abs tp)))
+      ;; 		   ;; 	(setf tp nth-tp))
+      ;; 		   ;; (when (or (= sl 0) (< (abs nth-sl) (abs sl)))
+      ;; 		   ;; 	(setf sl nth-sl))
+      ;; 		   ;; (when (or (= tp 0) (< (abs nth-tp) (abs tp)))
+      ;; 		   ;; 	(setf tp nth-tp))
+      ;; 		   ;; (when (or (= sl 0) (< (abs nth-sl) (abs sl)))
+      ;; 		   ;; 	(setf sl nth-sl))
+      ;; 		   ;; (incf tp nth-tp)
+      ;; 		   ;; (incf sl nth-sl)
+      ;; 		   )))
+      ;; (push consensus *consensus*)
       (values (/ tp 1)
 	      (/ sl 1)
+	      activation
 	      (list (nth (position 0 idxs) ids))))))
 
 (defun -evaluate-agents (&key instrument timeframe types rates agent idx test-size)
@@ -1320,6 +1346,7 @@
 	 (exit-prices)
 	 (tps)
 	 (sls)
+	 (activations)
 	 (entry-times)
 	 (exit-times)
 	 (num-datapoints 0)
@@ -1328,7 +1355,7 @@
     (loop while (< idx (length rates))
 	  do (let* ((input-dataset (get-input-dataset rates idx))
 		    (output-dataset (get-output-dataset rates idx)))
-	       (multiple-value-bind (tp sl)
+	       (multiple-value-bind (tp sl activation)
 		   (if agent
 		       (eval-agent agent input-dataset)
 		       (eval-agents instrument timeframe types input-dataset))
@@ -1358,6 +1385,7 @@
 			     (incf trades-lost))
 			 (push tp tps)
 			 (push sl sls)
+			 (push activation activations)
 			 (push (read-from-string (assoccess (nth idx rates) :time)) entry-times)
 			 (push (read-from-string exit-time) exit-times)
 			 (push (if (plusp tp)
@@ -1376,45 +1404,98 @@
 		   ))))
     (push-to-log (format nil "Traded ~a out of ~a datapoints." num-datapoints-traded num-datapoints))
     (push-to-log "<br/>Agents evaluated successfully.")
-    `((:begin-time . ,(read-from-string (assoccess (first rates) :time)))
-      (:end-time . ,(read-from-string (assoccess (last-elt rates) :time)))
-      (:dataset-size . ,(length rates))
-      (:avg-revenue . ,(if (> (length revenues) 0) (mean revenues) 0))
-      (:stdev-revenue . ,(if (> (length revenues) 0) (standard-deviation revenues) 0))
-      (:total-revenue . ,(if (> (length revenues) 0) (reduce #'+ revenues) 0))
-      (:avg-max-pos . ,(if (> (length max-poses) 0) (mean max-poses) 0))
-      (:stdev-max-pos . ,(if (> (length max-poses) 0) (standard-deviation max-poses) 0))
-      (:avg-max-neg . ,(if (> (length max-negses) 0) (mean max-negses) 0))
-      (:stdev-max-neg . ,(if (> (length max-negses) 0) (standard-deviation max-negses) 0))
-      ;; (:max-max-pos . ,(if (> (length max-poses) 0) (apply #'max max-poses) 0))
-      ;; (:max-max-neg . ,(if (> (length max-negses) 0) (apply #'max max-negses) 0))
-      (:avg-tp . ,(if (> (length tps) 0) (mean tps) 0))
-      (:stdev-tp . ,(if (> (length tps) 0) (standard-deviation tps) 0))
-      (:avg-sl . ,(if (> (length sls) 0) (mean sls) 0))
-      (:stdev-sl . ,(if (> (length sls) 0) (standard-deviation sls) 0))
-      (:max-tp . ,(if (> (length max-negses) 0) (if (> (first tps) 0) (apply #'max tps) (apply #'min tps)) 0))
-      (:min-tp . ,(if (> (length max-negses) 0) (if (> (first tps) 0) (apply #'min tps) (apply #'max tps)) 0))
-      (:max-sl . ,(if (> (length max-negses) 0) (if (> (first sls) 0) (apply #'max sls) (apply #'min sls)) 0))
-      (:min-sl . ,(if (> (length max-negses) 0) (if (> (first sls) 0) (apply #'min sls) (apply #'max sls)) 0))
-      (:trades-won . ,trades-won)
-      (:trades-lost . ,trades-lost)
-      (:revenues . ,(reverse revenues))
-      (:entry-times . ,(reverse entry-times))
-      (:exit-times . ,(reverse exit-times))
-      (:entry-prices . ,(reverse entry-prices))
-      (:exit-prices . ,(reverse exit-prices))
-      (:tps . ,(reverse tps))
-      (:sls . ,(reverse sls)))))
+    (let ((total-return (loop for revenue in revenues
+			      for tp in tps
+			      for sl in sls
+			      unless (= sl 0)
+			      summing (if (> revenue 0)
+					  (* (/ tp sl) -1) ;; to always get positive number.
+					  -1))))
+      `((:begin-time . ,(read-from-string (assoccess (first rates) :time)))
+	(:end-time . ,(read-from-string (assoccess (last-elt rates) :time)))
+	(:dataset-size . ,(length rates))
+	(:avg-revenue . ,(if (> (length revenues) 0) (mean revenues) 0))
+	(:stdev-revenue . ,(if (> (length revenues) 0) (standard-deviation revenues) 0))
+	(:total-revenue . ,(if (> (length revenues) 0) (reduce #'+ revenues) 0))
+	(:avg-max-pos . ,(if (> (length max-poses) 0) (mean max-poses) 0))
+	(:stdev-max-pos . ,(if (> (length max-poses) 0) (standard-deviation max-poses) 0))
+	(:avg-max-neg . ,(if (> (length max-negses) 0) (mean max-negses) 0))
+	(:stdev-max-neg . ,(if (> (length max-negses) 0) (standard-deviation max-negses) 0))
+	;; (:max-max-pos . ,(if (> (length max-poses) 0) (apply #'max max-poses) 0))
+	;; (:max-max-neg . ,(if (> (length max-negses) 0) (apply #'max max-negses) 0))
+	(:avg-tp . ,(if (> (length tps) 0) (mean tps) 0))
+	(:stdev-tp . ,(if (> (length tps) 0) (standard-deviation tps) 0))
+	(:avg-sl . ,(if (> (length sls) 0) (mean sls) 0))
+	(:stdev-sl . ,(if (> (length sls) 0) (standard-deviation sls) 0))
+	(:avg-return . ,(if (> (length tps) 0) (/ total-return (length tps)) 0))
+	(:total-return . ,total-return)
+	(:max-tp . ,(if (> (length max-negses) 0) (if (> (first tps) 0) (apply #'max tps) (apply #'min tps)) 0))
+	(:min-tp . ,(if (> (length max-negses) 0) (if (> (first tps) 0) (apply #'min tps) (apply #'max tps)) 0))
+	(:max-sl . ,(if (> (length max-negses) 0) (if (> (first sls) 0) (apply #'max sls) (apply #'min sls)) 0))
+	(:min-sl . ,(if (> (length max-negses) 0) (if (> (first sls) 0) (apply #'min sls) (apply #'max sls)) 0))
+	(:trades-won . ,trades-won)
+	(:trades-lost . ,trades-lost)
+	(:revenues . ,(reverse revenues))
+	(:entry-times . ,(reverse entry-times))
+	(:exit-times . ,(reverse exit-times))
+	(:entry-prices . ,(reverse entry-prices))
+	(:exit-prices . ,(reverse exit-prices))
+	(:tps . ,(reverse tps))
+	(:sls . ,(reverse sls))
+	(:activations . ,(reverse activations))))))
 
 ;; (evaluate-agents :EUR_USD :H1 '(:BULLISH) *rates*)
 
 ;; (room)
 
+;; (defparameter *activations* nil)
+;; (defparameter *tps* nil)
+;; (defparameter *sls* nil)
+;; (defparameter *revenues* nil)
+
+;; (defun coco ()
+;;   (let ((sorted (sort (loop for act in *activations*
+;; 			    for rev in *revenues*
+;; 			    collect (list act rev))
+;; 		      #'<
+;; 		      :key #'first)))
+;;     ;; (cl-mathstats:correlation
+;;     ;;  (mapcar #'second sorted)
+;;     ;;  (mapcar #'first sorted))
+;;     ;; (loop for s in sorted
+;;     ;; 	do (format t "~a ~a~%" (first s) (if (plusp (second s)) 1 -1)))
+;;     (let* ((first-half (subseq sorted 0 (round (/ (length sorted) 2))))
+;; 	   (second-half (subseq sorted (round (/ (length sorted) 2))))
+;; 	   (first-act (float (/ (length (remove-if-not #'plusp first-half :key #'second))
+;; 				(length first-half))))
+;; 	   (second-act (float (/ (length (remove-if-not #'plusp second-half :key #'second))
+;; 				 (length second-half)))))
+;;       (format t "~a ~a ~a~%"
+;; 	      (> second-act first-act)
+;; 	      first-act
+;; 	      second-act
+;; 	      ))
+;;     ))
+
+;; (cl-mathstats:correlation *activations* *revenues*)
+;; (ql:system-apropos "math")
+;; (ql:quickload :cl-mathstats)
+
+;; (mean (list ))
+
 (defun evaluate-agent (agent rates)
   (let ((fitnesses (-evaluate-agents :agent agent :rates rates :idx (slot-value agent 'lookbehind-count))))
+    ;; (when (> (assoccess fitnesses :total-revenue) 0)
+    ;;   (setf *activations* (assoccess fitnesses :activations))
+    ;;   (setf *tps* (assoccess fitnesses :tps))
+    ;;   (setf *sls* (assoccess fitnesses :sls))
+    ;;   (setf *revenues* (assoccess fitnesses :revenues))
+    ;;   (coco))
+    ;; (ignore-errors (print (cl-mathstats:correlation *activations* *revenues*)))
+    
     (loop for fitness in fitnesses
 	  ;; TODO: We should be returning symbols (not kws) from -evaluate-agents.
-	 ;;; and then remove this format + read-from-string.
+;;; and then remove this format + read-from-string.
 	  do (setf (slot-value agent (read-from-string (format nil "~a" (car fitness))))
 		   (if (listp (cdr fitness)) (apply #'vector (cdr fitness)) (cdr fitness))))
     agent))
@@ -1473,66 +1554,76 @@
 ;; (vector-1-similarity #(1 2 3) #(10 20 30))
 
 (defun is-agent-dominated? (agent agents)
-  (let* ((agent-id-0 (slot-value agent 'id))
-	 (avg-revenue-0 (slot-value agent 'avg-revenue))
-	 (trades-won-0 (slot-value agent 'trades-won))
-	 (trades-lost-0 (slot-value agent 'trades-lost))
-	 (agent-direction-0 (aref (slot-value agent 'tps) 0))
-	 ;; (agent-directions (slot-value agent 'tps))
-	 ;; (stdev-revenue-0 (slot-value agent 'stdev-revenue))
-	 ;; (entry-times-0 (slot-value agent 'entry-times))
-	 (is-dominated? nil))
-    ;; (format t "~a, ~a, ~a~%~%" avg-revenue-0 trades-won-0 trades-lost-0)
-    (loop for agent in agents
-	  do (let* ((agent-id (slot-value agent 'id))
-		    (avg-revenue (slot-value agent 'avg-revenue))
-		    (trades-won (slot-value agent 'trades-won))
-		    (trades-lost (slot-value agent 'trades-lost))
-		    (agent-direction (aref (slot-value agent 'tps) 0))
-		    ;; (agent-directions (slot-value agent 'tps))
-		    ;; (stdev-revenue (slot-value agent 'stdev-revenue))
-		    ;; (entry-times (slot-value agent 'entry-times))
-		    )
-	       ;; Fitnesses currently being used.
-	       (when (or (<= avg-revenue-0 0)
-			 (and (> (* agent-direction-0 agent-direction) 0)
-			      (>= avg-revenue avg-revenue-0)
-			      ;; (< stdev-revenue stdev-revenue-0)
-			      (>= trades-won trades-won-0)
-			      (<= trades-lost trades-lost-0)
-			      ;; (>= (/ trades-won
-			      ;; 	      (+ trades-won trades-lost))
-			      ;; 	   (/ trades-won-0
-			      ;; 	      (+ trades-won-0 trades-lost-0)))
-			      ;; (vector-1-similarity entry-times entry-times-0)
-			      ))
-		 ;; Candidate agent was dominated.
-		 (let ((metric-labels '("AVG-REVENUE" "TRADES-WON" "TRADES-LOST")))
-		   (with-open-stream (s (make-string-output-stream))
-		     ;; (push-to-agents-log )
-		     (format s "<pre><b>(BETA) </b>Agent ID ~a~%" agent-id-0)
-		     (format-table s `((,(format nil "~6$" avg-revenue-0) ,trades-won-0 ,trades-lost-0)) :column-label metric-labels)
-		     (format s "</pre>")
+  (if (= (length (slot-value agent 'tps)) 0)
+      t ;; AGENT is dominated.
+      (let* ((agent-id-0 (slot-value agent 'id))
+	     (avg-revenue-0 (slot-value agent 'avg-revenue))
+	     (trades-won-0 (slot-value agent 'trades-won))
+	     (trades-lost-0 (slot-value agent 'trades-lost))
+	     (agent-direction-0 (aref (slot-value agent 'tps) 0))
+	     (avg-return-0 (slot-value agent 'avg-return))
+	     (total-return-0 (slot-value agent 'total-return))
+	     ;; (agent-directions (slot-value agent 'tps))
+	     ;; (stdev-revenue-0 (slot-value agent 'stdev-revenue))
+	     ;; (entry-times-0 (slot-value agent 'entry-times))
+	     (is-dominated? nil))
+	;; (format t "~a, ~a, ~a~%~%" avg-revenue-0 trades-won-0 trades-lost-0)
+	(loop for agent in agents
+	      do (when (> (length (slot-value agent 'tps)) 0)
+		   (let* ((agent-id (slot-value agent 'id))
+			  (avg-revenue (slot-value agent 'avg-revenue))
+			  (trades-won (slot-value agent 'trades-won))
+			  (trades-lost (slot-value agent 'trades-lost))
+			  (agent-direction (aref (slot-value agent 'tps) 0))
+			  (avg-return (slot-value agent 'avg-return))
+			  (total-return (slot-value agent 'total-return))
+			  ;; (agent-directions (slot-value agent 'tps))
+			  ;; (stdev-revenue (slot-value agent 'stdev-revenue))
+			  ;; (entry-times (slot-value agent 'entry-times))
+			  )
+		     ;; Fitnesses currently being used.
+		     (when (or (<= total-return-0 0)
+			       (and (> (* agent-direction-0 agent-direction) 0)
+				    ;; (>= avg-revenue avg-revenue-0)
+				    ;; (< stdev-revenue stdev-revenue-0)
+				    ;; (>= trades-won trades-won-0)
+				    ;; (<= trades-lost trades-lost-0)
 
-		     (format s "<pre><b>(ALPHA) </b>Agent ID ~a~%" agent-id)
-		     (format-table s `((,(format nil "~6$" avg-revenue) ,trades-won ,trades-lost)) :column-label metric-labels)
-		     (format s "</pre><hr/>")
+				    (>= avg-return avg-return-0)
+				    (>= total-return total-return-0)
+				    ;; (>= (/ trades-won
+				    ;; 	      (+ trades-won trades-lost))
+				    ;; 	   (/ trades-won-0
+				    ;; 	      (+ trades-won-0 trades-lost-0)))
+				    ;; (vector-1-similarity entry-times entry-times-0)
+				    ))
+		       ;; Candidate agent was dominated.
+		       (let ((metric-labels '("AVG-REVENUE" "TRADES-WON" "TRADES-LOST" "AVG-RETURN" "TOTAL-RETURN")))
+			 (with-open-stream (s (make-string-output-stream))
+			   ;; (push-to-agents-log )
+			   (format s "<pre><b>(BETA) </b>Agent ID ~a~%" agent-id-0)
+			   (format-table s `((,(format nil "~6$" avg-revenue-0) ,trades-won-0 ,trades-lost-0 ,(format nil "~2$" avg-return-0) ,(format nil "~2$" total-return-0))) :column-label metric-labels)
+			   (format s "</pre>")
+
+			   (format s "<pre><b>(ALPHA) </b>Agent ID ~a~%" agent-id)
+			   (format-table s `((,(format nil "~6$" avg-revenue) ,trades-won ,trades-lost ,(format nil "~2$" avg-return) ,(format nil "~2$" total-return))) :column-label metric-labels)
+			   (format s "</pre><hr/>")
 		     
-		     ;; (format s "Fitnesses <b>~a</b>:<br/>~a: ~a<br/>~a: ~a<br/>~a: ~a"
-		     ;; 	agent-id-0
-		     ;; 	(symbol-name 'avg-revenue) avg-revenue-0
-		     ;; 	(symbol-name 'trades-won) trades-won-0
-		     ;; 	(symbol-name 'trades-lost) trades-lost-0)
-		     ;; (format s "Fitnesses (~a):<br/>~a: ~a<br/>~a: ~a<br/>~a: ~a<hr />"
-		     ;; 	agent-id
-		     ;; 	(symbol-name 'avg-revenue) avg-revenue
-		     ;; 	(symbol-name 'trades-won) trades-won
-		     ;; 	(symbol-name 'trades-lost) trades-lost)
-		     (push-to-agents-log (get-output-stream-string s))))
+			   ;; (format s "Fitnesses <b>~a</b>:<br/>~a: ~a<br/>~a: ~a<br/>~a: ~a"
+			   ;; 	agent-id-0
+			   ;; 	(symbol-name 'avg-revenue) avg-revenue-0
+			   ;; 	(symbol-name 'trades-won) trades-won-0
+			   ;; 	(symbol-name 'trades-lost) trades-lost-0)
+			   ;; (format s "Fitnesses (~a):<br/>~a: ~a<br/>~a: ~a<br/>~a: ~a<hr />"
+			   ;; 	agent-id
+			   ;; 	(symbol-name 'avg-revenue) avg-revenue
+			   ;; 	(symbol-name 'trades-won) trades-won
+			   ;; 	(symbol-name 'trades-lost) trades-lost)
+			   (push-to-agents-log (get-output-stream-string s))))
 		 
-		 (setf is-dominated? t)
-		 (return))))
-    is-dominated?))
+		       (setf is-dominated? t)
+		       (return)))))
+	is-dominated?)))
 
 (defun plotly-candlestick (rates)
   (let ((x (loop for rate in rates collect (/ (read-from-string (assoccess rate :time)) 1000000)))
@@ -1582,6 +1673,13 @@
 	    (slot-value r 'trades-won)
 	    (slot-value r 'trades-lost))))
 
+(defun get-agent (instrument timeframe types agent-id)
+  (find agent-id (gethash (list instrument timeframe types) *agents-cache*)
+	:key (lambda (agent) (slot-value agent 'id))
+	:test #'string=))
+;; (get-agent :EUR_USD :H1 '(:BULLISH) "48F3970F-36C1-4A49-9E54-95746CFEA9FE")
+;; (slot-value (first (get-agents :EUR_USD :H1 '(:BULLISH))) 'id)
+
 (defun optimization (instrument timeframe types gen-agent-fn rates seconds &key report-fn)
   ;; Checking if we need to initialize the agents collection.
   (let ((agents (if-let ((agents (get-agents instrument timeframe types)))
@@ -1597,7 +1695,7 @@
 		   ;; Inserting new agents in Pareto Frontier.
 		   (push-to-log (format nil "Updating Pareto frontier with ~a agents." (length agents)))
 		   (conn (loop for agent in agents
-			       do (unless (get-dao 'agent (slot-value agent 'id))
+			       do (unless (get-agent instrument timeframe types (slot-value agent 'id))
 				    (push-to-log (format nil "Inserting new agent with ID ~a" (slot-value agent 'id)))
 				    (let ((metric-labels '("AVG-REVENUE" "TRADES-WON" "TRADES-LOST")))
 				      (with-open-stream (s (make-string-output-stream))
@@ -1702,10 +1800,14 @@
 
 (defun format-rr (risk reward)
   (format nil "~a / ~2$"
-	  (/ (* 10000 (abs risk))
-	     (* 10000 (abs risk)))
-	  (/ (* 10000 (abs risk))
-	     (* 10000 (abs reward)))))
+	  (if (= risk 0)
+	      0
+	      (/ (* 10000 (abs risk))
+		 (* 10000 (abs risk))))
+	  (if (= reward 0)
+	      0
+	      (/ (* 10000 (abs risk))
+		 (* 10000 (abs reward))))))
 
 (defun describe-agent-fitnesses (market)
   (loop for agent in (get-agents market :H1)
@@ -1906,7 +2008,7 @@
 ;; (function-cache:purge-all-caches)
 
 (defun test-agents (instrument timeframe types rates training-dataset testing-dataset &key (test-size 50))
-  (multiple-value-bind (tp sl agent-ids)
+  (multiple-value-bind (tp sl activations agent-ids)
       (eval-agents instrument timeframe types testing-dataset)
     (let* (;; (train-fitnesses (evaluate-agents instrument timeframe types training-dataset))
 	   (test-fitnesses (evaluate-agents instrument timeframe types testing-dataset :test-size test-size)))
@@ -1966,6 +2068,9 @@
   (defun clear-agents-log ()
     (setf log nil)))
 
+;; (read-agents-log)
+;; (read-log)
+
 (defun clear-logs ()
   (clear-log)
   (clear-agents-log))
@@ -2017,6 +2122,8 @@
 				     (:desc 'rates.time))
 			  :alists)))))
 ;; (get-rates-range-big :EUR_USD :H1 (unix-to-nano (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 20 :day))) (unix-to-nano (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 10 :day))))
+
+;; (get-rates-count-big :EUR_USD :H1 100)
 
 ;; (loop for rate in (get-random-rates-count-big :EUR_USD :H1 200)
 ;;       do (print (local-time:unix-to-timestamp (/ (read-from-string (assoccess rate :time)) 1000000))))
@@ -2463,7 +2570,7 @@
   (let* ((perception-fn (get-perception-fn agent))
 	 (lookahead-count (slot-value agent 'lookahead-count))
 	 (lookbehind-count (slot-value agent 'lookbehind-count))
-	 (idxs (get-same-direction-outputs-idxs rates num-rules :lookahead-count lookahead-count :lookbehind-count lookbehind-count))
+	 (idxs (remove-duplicates (get-same-direction-outputs-idxs rates num-rules :lookahead-count lookahead-count :lookbehind-count lookbehind-count)))
 	 (chosen-inputs (loop for idx in idxs collect (funcall perception-fn (get-input-dataset rates idx))))
 	 (chosen-outputs (loop for idx in idxs collect (get-tp-sl (get-output-dataset rates idx) lookahead-count)))
 	 ;; (inp-sd (mapcar (lambda (inp) (standard-deviation inp)) (apply #'mapcar #'list chosen-inputs)))

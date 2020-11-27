@@ -10,6 +10,7 @@
                ;; :magicl
 	       :cl-csv
                :computable-reals
+	       :cl-mathstats
                ;; :sxql
 	       :cl21
 	       :uuid
@@ -39,6 +40,7 @@
 			:components
 			((:file "main" :depends-on ("config" "db" "km" "utilities"))
 			 (:file "km")
+			 (:file "plotly-utils")
 			 (:file "utilities")
 			 (:file "config")
 			 (:file "db")))

@@ -25,7 +25,10 @@
 	   #:*max-testing-dataset-size*
 	   #:*number-of-agent-rules*
 	   #:*number-of-agent-inputs*
-	   ))
+	   #:*instruments*
+	   #:*timeframes*
+	   )
+  (:nicknames #:omage.config))
 (in-package :overmind-agents.config)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -38,10 +41,12 @@
 (defparameter *max-testing-dataset-size* 200)
 (defparameter *number-of-agent-rules* 100)
 (defparameter *number-of-agent-inputs* 5)
+(defparameter *instruments* ominp:*forex*)
+;; (defparameter *instruments* '(:AUD_USD :EUR_GBP))
+(defparameter *timeframes* ominp:*shortterm*)
 
 (defparameter *is-production* t)
 (defparameter *is-log* t)
-(defparameter *rand-gen* (make-generator :mersenne-twister-32))
 
 (setf (config-env-var) "APP_ENV")
 

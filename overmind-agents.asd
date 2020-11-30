@@ -30,6 +30,9 @@
 	       :fare-mop
 	       :fare-memoization
 
+	       ;; logging
+	       :dissect
+
 	       :swank
 
 	       :overmind-intuition

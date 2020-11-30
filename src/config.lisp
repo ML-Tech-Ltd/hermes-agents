@@ -35,18 +35,21 @@
 ;; Algorithm Configuration ;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+(defparameter *is-production* t)
+(defparameter *is-log* t)
+
 (defparameter *seconds-to-optimize-per-pattern* 100)
 (defparameter *max-creation-dataset-size* 3000)
 (defparameter *max-training-dataset-size* 3000)
 (defparameter *max-testing-dataset-size* 200)
 (defparameter *number-of-agent-rules* 100)
 (defparameter *number-of-agent-inputs* 5)
-(defparameter *instruments* ominp:*forex*)
-;; (defparameter *instruments* '(:AUD_USD :EUR_GBP))
+;; (defparameter *instruments* ominp:*forex*)
 (defparameter *timeframes* ominp:*shortterm*)
-
-(defparameter *is-production* t)
-(defparameter *is-log* t)
+(defparameter *instruments* nil)
+(if *is-production*
+    (setf *instruments* ominp:*forex*)
+    (setf *instruments* '(:AUD_USD :EUR_GBP)))
 
 (setf (config-env-var) "APP_ENV")
 

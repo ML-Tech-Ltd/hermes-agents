@@ -44,6 +44,20 @@
 			    (if (/= ideal-cores-count 0)
 				ideal-cores-count 1))))
 
+(defun log-stack (c)
+  (with-open-file (str (merge-pathnames #P"omage-stack.log" #P"~/")
+		       :direction :output
+		       :if-exists :append
+		       :if-does-not-exist :create)
+    (format str "==============~%~%~a~%" (local-time:now))
+    (format str "~%~a~%~%" c)
+    (loop for obj in (cdr (dissect:stack))
+	  when (dissect:line obj)
+	    do (format str "~a:~a ~a~%"
+		       (dissect:file obj)
+		       (dissect:line obj)
+		       (dissect:call obj)))))
+
 (defmacro comment (&rest body))
 
 (defun assoccess (o k)
@@ -311,6 +325,7 @@
 		 (tp :type double-float)
 		 (sl :type double-float)
 		 (entry-price :type double-float)
+		 (entry-time :type (or db-null integer))
 		 (train-begin-time :type int8)
 		 (train-end-time :type int8)
 		 (test-begin-time :type int8)
@@ -413,30 +428,56 @@
 ;; (to-pips :USD_CZK 0.010)
 
 (defun get-global-revenue (&key from to)
-  (let ((trades (conn (query (:order-by (:select '*
-					  :from (:as (:order-by (:select
-								    'trades.result
-								  'trades.decision
-								  'trades.creation-time
-								  'patterns.*
-								  :distinct-on 'trades.id
-								  :from 'trades
-								  :inner-join 'patterns-trades
-								  :on (:= 'trades.id 'patterns-trades.trade-id)
-								  :inner-join 'patterns
-								  :on (:= 'patterns.id 'patterns-trades.pattern-id)
-								  :where (:and (:not (:is-null 'trades.result))
-									       (:>= 'creation-time from)
-									       ;; (:not (:= 'patterns.instrument "USD_CNH"))
-									       ;; (:not (:= 'patterns.type "STAGNATED"))
-									       ;; (:= 'patterns.type "STAGNATED")
-									       ;; (:= 'patterns.instrument "USD_CNH")
-									       (:<= 'creation-time to)
-									       ))
-								'trades.id)
-						     'results))
-					(:desc 'creation-time))
-			     :alists))))
+  (let ((trades (conn (if (and from to)
+			  (query (:order-by (:select '*
+					      :from (:as (:order-by (:select
+									'trades.result
+								      'trades.decision
+								      'trades.creation-time
+								      'patterns.*
+								      :distinct-on 'trades.id
+								      :from 'trades
+								      :inner-join 'patterns-trades
+								      :on (:= 'trades.id 'patterns-trades.trade-id)
+								      :inner-join 'patterns
+								      :on (:= 'patterns.id 'patterns-trades.pattern-id)
+								      :where (:and (:not (:is-null 'trades.result))
+										   (:>= 'creation-time from)
+										   ;; (:not (:= 'patterns.instrument "USD_CNH"))
+										   ;; (:not (:= 'patterns.type "STAGNATED"))
+										   ;; (:= 'patterns.type "STAGNATED")
+										   ;; (:= 'patterns.instrument "USD_CNH")
+										   (:<= 'creation-time to)
+										   ))
+								    'trades.id)
+							 'results))
+					    (:desc 'creation-time))
+				 :alists)
+			  (query (:order-by (:select '*
+					      :from (:as (:order-by (:select
+									'trades.result
+								      'trades.decision
+								      'trades.creation-time
+								      'patterns.*
+								      :distinct-on 'trades.id
+								      :from 'trades
+								      :inner-join 'patterns-trades
+								      :on (:= 'trades.id 'patterns-trades.trade-id)
+								      :inner-join 'patterns
+								      :on (:= 'patterns.id 'patterns-trades.pattern-id)
+								      :where (:and (:not (:is-null 'trades.result))
+										   ;; (:>= 'creation-time from)
+										   ;; (:not (:= 'patterns.instrument "USD_CNH"))
+										   ;; (:not (:= 'patterns.type "STAGNATED"))
+										   ;; (:= 'patterns.type "STAGNATED")
+										   ;; (:= 'patterns.instrument "USD_CNH")
+										   ;; (:<= 'creation-time to)
+										   ))
+								    'trades.id)
+							 'results))
+					    (:desc 'creation-time))
+				 :alists)
+			  ))))
     (loop for trade in trades
 	  summing (let ((instrument (make-keyword (assoccess trade :instrument))))
 		    ;; (if (or (and (string= (assoccess trade :decision) "SELL")
@@ -446,15 +487,15 @@
 		    ;; 	(to-pips instrument (assoccess trade :result))
 		    ;; 	0)
 		    (to-pips instrument (assoccess trade :result))))))
-
-;; (get-global-revenue :to (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 3 :day)) :from (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 3 :day)))
+;; (get-global-revenue)
+;; (get-global-revenue :to (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 3 :day)) :from (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 2000 :day)))
 ;; (get-global-revenue :to (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 0 :day)) :from (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 4 :day)))
 
 ;; Running hours.
 ;; (loop for i from 0 below 72 do (format t "~a: ~a~%" i (get-global-revenue :to (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 0 :day)) :from (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) i :hour)))))
 
 ;; Per day.
-;; (loop for i from 0 below 10 do (format t "~a: ~a~%" i (get-global-revenue :to (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) i :day)) :from (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) (1+ i) :day)))))
+;; (loop for i from 0 below 1000 do (format t "~a: ~a~%" i (get-global-revenue :to (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) i :day)) :from (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) (1+ i) :day)))))
 
 (defun debug-trade ()
   (let* ((trade (nth 5 (conn (query (:select 'trades.* 'patterns.*
@@ -494,20 +535,23 @@
 								  :inner-join 'patterns
 								  :on (:= 'patterns.id 'patterns-trades.pattern-id)
 								  ;; :where (:not (:is-null 'trades.result))
-								  :where (:is-null 'trades.result)
-								  )
-								'trades.id
-								)
+								  :where (:is-null 'trades.result))
+								'trades.id)
 						     'results))
 					(:desc 'creation-time))
-			     :alists))
-		))
+			     :alists))))
     (push-to-log (format nil "Trying to validate ~a trades." (length trades)))
     (loop for trade in trades
-	  do (let* ((from (* (assoccess trade :creation-time) 1000000))
+	  do (let* ((from (let ((entry-time (assoccess trade :entry-time))
+				(creation-time (assoccess trade :creation-time)))
+			    (* (if (not (equal entry-time :null))
+				entry-time
+				creation-time)
+			       1000000)))
 		    (from-timestamp (local-time:unix-to-timestamp (/ from 1000000))))
-	       (when (local-time:timestamp< from-timestamp
-					    (local-time:timestamp- (local-time:now) 1 :day))
+	       (when (or (not omage.config:*is-production*)
+			 (local-time:timestamp< from-timestamp
+						(local-time:timestamp- (local-time:now) 1 :day)))
 		 (push-to-log (format nil "Using minute rates from ~a to ~a to validate trade."
 				      from-timestamp
 				      (local-time:timestamp+ from-timestamp 3 :day)))
@@ -515,7 +559,7 @@
 			(timeframe :M1)
 			;; (to (* (local-time:timestamp-to-unix (local-time:timestamp+ from-timestamp 3 :day)) 1000000))
 			;; (rates (get-rates-range instrument timeframe from to :provider :oanda :type :fx))
-			(rates (get-rates-count-from instrument timeframe 5000 from :provider :oanda :type :fx))
+			(rates (get-rates-count-from-big instrument timeframe 50000 from))
 			(result (get-trade-result (assoccess trade :entry-price)
 						  (assoccess trade :tp)
 						  (assoccess trade :sl)
@@ -776,6 +820,7 @@
    (tp :col-type double-float :initarg :tp)
    (sl :col-type double-float :initarg :sl)
    (entry-price :col-type double-float :initarg :entry-price)
+   (entry-time :col-type double-float :initarg :entry-time)
    (train-begin-time :col-type integer :initarg :train-begin-time)
    (train-end-time :col-type integer :initarg :train-end-time)
    (test-begin-time :col-type integer :initarg :test-begin-time)
@@ -788,6 +833,10 @@
    (test-stdev-revenue :col-type double-float :initarg :test-stdev-revenue)
    (train-total-revenue :col-type double-float :initarg :train-total-revenue)
    (test-total-revenue :col-type double-float :initarg :test-total-revenue)
+   (train-avg-return :col-type double-float :initarg :train-avg-return)
+   (test-avg-return :col-type double-float :initarg :test-avg-return)
+   (train-total-return :col-type double-float :initarg :train-total-return)
+   (test-total-return :col-type double-float :initarg :test-total-return)
    (train-avg-max-pos :col-type double-float :initarg :train-avg-max-pos)
    (test-avg-max-pos :col-type double-float :initarg :test-avg-max-pos)
    (train-stdev-max-pos :col-type double-float :initarg :train-stdev-max-pos)
@@ -833,7 +882,9 @@
    (train-tps :col-type float[] :initarg :train-tps)
    (test-tps :col-type float[] :initarg :test-tps)
    (train-sls :col-type float[] :initarg :train-sls)
-   (test-sls :col-type float[] :initarg :test-sls))
+   (test-sls :col-type float[] :initarg :test-sls)
+   (train-activations :col-type float[] :initarg :train-activations)
+   (test-activations :col-type float[] :initarg :test-activations))
   (:metaclass dao-class)
   (:table-name trades)
   (:keys id))
@@ -1229,41 +1280,43 @@
 	  (sl 0)
 	  (activation 0)
 	  ;; (consensus t)
-	  (len (min count (length activations))))
+	  ;; (len (min count (length activations)))
+	  )
       (setf tp (nth (position 0 idxs) tps))
       (setf sl (nth (position 0 idxs) sls))
       (setf activation (nth (position 0 idxs) activations))
       ;; (when (> activation 0.5)
-      ;; 	(loop for idx from 1 below len
-      ;; 	      do (let* ((pos (position idx idxs))
-      ;; 			(nth-tp (nth pos tps))
-      ;; 			(nth-sl (nth pos sls)))
+      ;; (loop for idx from 1 below len
+      ;; 	    do (let* ((pos (position idx idxs))
+      ;; 		      (nth-tp (nth pos tps))
+      ;; 		      (nth-sl (nth pos sls)))
 
-      ;; 		   ;; ;; consensus
-      ;; 		   ;; (when (< (* nth-tp tp) 0)
-      ;; 		   ;;   (setf consensus nil)
-      ;; 		   ;;   (return))
+      ;; 		 ;; ;; consensus
+      ;; 		 ;; (when (< (* nth-tp tp) 0)
+      ;; 		 ;;   (setf consensus nil)
+      ;; 		 ;;   (return))
+
+      ;; 		 (when (< (* nth-tp tp) 0)
+      ;; 		 	(setf tp 0)
+      ;; 		 	(setf sl 0)
+      ;; 		 	(return))
+      ;; 		 (when (< (* nth-sl sl) 0)
+      ;; 		 	(setf tp 0)
+      ;; 		 	(setf sl 0)
+      ;; 		 	(return))
 	      
-      ;; 		   ;; (when (< (* nth-tp tp) 0)
-      ;; 		   ;; 	(setf tp 0)
-      ;; 		   ;; 	(setf sl 0)
-      ;; 		   ;; 	(return))
-      ;; 		   ;; (when (< (* nth-sl sl) 0)
-      ;; 		   ;; 	(setf tp 0)
-      ;; 		   ;; 	(setf sl 0)
-      ;; 		   ;; 	(return))
-	      
-      ;; 		   ;; (when (or (= tp 0) (< (abs nth-tp) (abs tp)))
-      ;; 		   ;; 	(setf tp nth-tp))
-      ;; 		   ;; (when (or (= sl 0) (< (abs nth-sl) (abs sl)))
-      ;; 		   ;; 	(setf sl nth-sl))
-      ;; 		   ;; (when (or (= tp 0) (< (abs nth-tp) (abs tp)))
-      ;; 		   ;; 	(setf tp nth-tp))
-      ;; 		   ;; (when (or (= sl 0) (< (abs nth-sl) (abs sl)))
-      ;; 		   ;; 	(setf sl nth-sl))
-      ;; 		   ;; (incf tp nth-tp)
-      ;; 		   ;; (incf sl nth-sl)
-      ;; 		   )))
+      ;; 		 ;; (when (or (= tp 0) (< (abs nth-tp) (abs tp)))
+      ;; 		 ;; 	(setf tp nth-tp))
+      ;; 		 ;; (when (or (= sl 0) (< (abs nth-sl) (abs sl)))
+      ;; 		 ;; 	(setf sl nth-sl))
+      ;; 		 ;; (when (or (= tp 0) (< (abs nth-tp) (abs tp)))
+      ;; 		 ;; 	(setf tp nth-tp))
+      ;; 		 ;; (when (or (= sl 0) (< (abs nth-sl) (abs sl)))
+      ;; 		 ;; 	(setf sl nth-sl))
+      ;; 		 ;; (incf tp nth-tp)
+      ;; 		 ;; (incf sl nth-sl)
+      ;; 		 ))
+	;;)
       ;; (push consensus *consensus*)
       (values (/ tp 1)
 	      (/ sl 1)
@@ -1720,6 +1773,7 @@
 			       :tp tp
 			       :sl sl
 			       :entry-price (assoccess (last-elt rates) :close-bid)
+			       :entry-time (/ (read-from-string (assoccess (last-elt rates) :time)) 1000000)
 			       :train-begin-time (assoccess train-fitnesses :begin-time)
 			       :test-begin-time (assoccess test-fitnesses :begin-time)
 			       :train-end-time (assoccess train-fitnesses :end-time)
@@ -1871,6 +1925,36 @@
      (swank:create-server :port 4444))))
 ;; (init)
 
+(defun get-rates-count-from-big (instrument timeframe count from)
+  (let* ((instrument (format nil "~a" instrument))
+	 (timeframe (format nil "~a" timeframe))
+	 (from-str (format nil "~a" from))
+	 (try-db (reverse (conn (query (:limit (:order-by (:select '* :from 'rates :where (:and (:= 'instrument instrument)
+												(:= 'timeframe timeframe)
+												(:>= 'time from-str)))
+							  (:desc 'rates.time))
+					       '$1)
+				       count
+				       :alists)))))
+    ;; Checking if we have all the necessary rates on the database already.
+    (if (= (length try-db) count)
+	try-db
+	;; We need to query from broker then.
+	(let ((recent (get-rates-count-from instrument timeframe 5000 from :provider :oanda :type :fx)))
+	  ;; Updating DB.
+	  (insert-rates instrument timeframe recent)
+	  (append (reverse (conn (query (:limit (:order-by (:select '* :from 'rates :where (:and (:= 'instrument instrument)
+												 (:= 'timeframe timeframe)
+												 (:>= 'time from-str)))
+							   (:desc 'rates.time))
+						'$1)
+					(1- count)
+					:alists)))
+		  (last recent))))))
+;; (length (get-rates-count-from-big :EUR_USD :M1 20000 (unix-to-nano (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 40 :day)))))
+;; (loop for rate in (get-rates-count-from-big :EUR_USD :M1 20000 (unix-to-nano (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 40 :day))))
+;;       do (print (local-time:unix-to-timestamp (/ (read-from-string (assoccess rate :time)) 1000000))))
+
 (defun get-rates-count-big (instrument timeframe count)
   (let ((recent (get-rates-count instrument timeframe 100)))
     ;; Updating DB.
@@ -1885,6 +1969,7 @@
 				  :alists)))
 	    (last recent))
     ))
+;; (get-rates-count-big :EUR_USD :H1 10)
 
 (defun get-random-rates-count-big (instrument timeframe count)
   "Assumes a minimum of 50K rates"
@@ -1896,6 +1981,7 @@
 				  '$1 '$2)
 			  count offset
 			  :alists)))))
+;; (get-random-rates-count-big :EUR_USD :H1 10)
 
 (defun get-rates-range-big (instrument timeframe from to)
   (let ((instrument (format nil "~a" instrument))
@@ -2010,23 +2096,25 @@
 			 (push-to-log (format nil "Trying to create signal with ~a agents." agents-count))
 			 (test-agents instrument timeframe type-groups rates full-training-dataset testing-dataset :test-size test-size)
 			 (push-to-log "Not enough agents to create a signal."))
-		       (when omage.config:*is-production*
-			 (push-to-log "<b>VALIDATION.</b><hr/>")
-			 (push-to-log "Validating trades older than 24 hours.")
-			 (validate-trades))
-		       )))))
+		       ))))
+	(when omage.config:*is-production*
+	  (push-to-log "<b>VALIDATION.</b><hr/>")
+	  (push-to-log "Validating trades older than 24 hours.")
+	  (validate-trades)))
       (refresh-memory)
       (sync-agents)))
   (unless omage.config:*is-production*
     (wipe-agents)))
 
 (defun loop-optimize-test ()
-  (when (is-market-close)
-    (format t "~%===============================================~%MARKET IS CLOSED~%SWITCH TO DEVELOPMENT MODE IF YOU WANT TO RUN EXPERIMENTS.~%==============================================="))
-  (clear-logs)
-  (refresh-memory)
-  (loop (unless (is-market-close))
-	(-loop-optimize-test)))
+  (handler-bind ((error (lambda (c)
+			  (log-stack c))))
+    (when (is-market-close)
+      (format t "~%===============================================~%MARKET IS CLOSED~%SWITCH TO DEVELOPMENT MODE IF YOU WANT TO RUN EXPERIMENTS.~%==============================================="))
+    (clear-logs)
+    (refresh-memory)
+    (loop (unless (is-market-close))
+	  (-loop-optimize-test))))
 
 (defun sorted-indexes (list &optional (sort-fn #'<))
   (loop

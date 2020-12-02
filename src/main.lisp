@@ -544,11 +544,11 @@
     (loop for trade in trades
 	  do (let* ((from (let ((entry-time (assoccess trade :entry-time))
 				(creation-time (assoccess trade :creation-time)))
-			    (* (if (not (equal entry-time :null))
-				entry-time
-				creation-time)
-			       1000000)))
-		    (from-timestamp (local-time:unix-to-timestamp (/ from 1000000))))
+			    (ceiling (* (if (not (equal entry-time :null))
+					    entry-time
+					    creation-time)
+					1000000))))
+		    (from-timestamp (local-time:unix-to-timestamp (ceiling (/ from 1000000)))))
 	       (when (or (not omage.config:*is-production*)
 			 (local-time:timestamp< from-timestamp
 						(local-time:timestamp- (local-time:now) 1 :day)))

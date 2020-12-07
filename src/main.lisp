@@ -1532,17 +1532,22 @@
 ;; (vector-1-similarity #(1 2 3) #(10 20 30))
 
 (defun activations-returns-dominated-p (activations1 returns1 activations2 returns2)
-  (loop for a1 across activations1
-	for r1 across returns1
-	for a2 across activations2
-	for r2 across returns2
-	when (and (> r1 0) ;; To even consider it, the return1 must be greater than 0.
-		  ;; (/= (* a1 r1) 0) ; Checking that activation1 and return1 are not equal to 0.
-		  (>= a1 a2)
-		  (>= r1 r2))
-	  do (return nil)
-	finally (return t)))
-;; (activations-returns-dominated-p #(1 1 1) #(1 1 1) #(2 2 2) #(2 2 2))
+  (let ((dominatedp t))
+    (loop for a1 across activations1
+	  for r1 across returns1
+	  for a2 across activations2
+	  for r2 across returns2
+	  when (and (> r1 0) ;; To even consider it, the return1 must be greater than 0.
+		    ;; (/= (* a1 r1) 0) ; Checking that activation1 and return1 are not equal to 0.
+		    (> a1 a2)
+		    (> r1 r2))
+	    do (progn
+		 (setf dominatedp nil)
+		 (return))
+	       ;; finally (return t)
+	  )
+    dominatedp))
+;; (activations-returns-dominated-p #(1 1 1) #(1 1 1) #(2 1 1) #(2 1 1))
 ;; (activations-returns-dominated-p #(2 0 0) #(2 0 0) #(1 1 1) #(1 1 1))
 
 (defun is-agent-dominated? (agent agents)
@@ -1552,7 +1557,7 @@
 	     (avg-revenue-0 (slot-value agent 'avg-revenue))
 	     (trades-won-0 (slot-value agent 'trades-won))
 	     (trades-lost-0 (slot-value agent 'trades-lost))
-	     (agent-direction-0 (aref (slot-value agent 'tps) 0))
+	     ;; (agent-direction-0 (aref (slot-value agent 'tps) 0))
 	     (avg-return-0 (slot-value agent 'avg-return))
 	     (total-return-0 (slot-value agent 'total-return))
 	     (activations-0 (slot-value agent 'activations))
@@ -1568,7 +1573,7 @@
 			  (avg-revenue (slot-value agent 'avg-revenue))
 			  (trades-won (slot-value agent 'trades-won))
 			  (trades-lost (slot-value agent 'trades-lost))
-			  (agent-direction (aref (slot-value agent 'tps) 0))
+			  ;; (agent-direction (aref (slot-value agent 'tps) 0))
 			  (avg-return (slot-value agent 'avg-return))
 			  (total-return (slot-value agent 'total-return))
 			  (activations (slot-value agent 'activations))
@@ -1579,20 +1584,22 @@
 			  )
 		     ;; Fitnesses currently being used.
 		     (when (or (<= total-return-0 0)
-			       (and (> (* agent-direction-0 agent-direction) 0)
-				    ;; (>= avg-revenue avg-revenue-0)
-				    ;; (< stdev-revenue stdev-revenue-0)
-				    ;; (>= trades-won trades-won-0)
-				    ;; (<= trades-lost trades-lost-0)
-				    ;; (>= avg-return avg-return-0)
-				    (>= total-return total-return-0)
-				    (activations-returns-dominated-p activations-0 returns-0 activations returns)
-				    ;; (>= (/ trades-won
-				    ;; 	      (+ trades-won trades-lost))
-				    ;; 	   (/ trades-won-0
-				    ;; 	      (+ trades-won-0 trades-lost-0)))
-				    ;; (vector-1-similarity entry-times entry-times-0)
-				    )
+			       (activations-returns-dominated-p activations-0 returns-0 activations returns)
+			       (>= total-return total-return-0)
+			       ;; (and (> (* agent-direction-0 agent-direction) 0)
+			       ;; 	    ;; (>= avg-revenue avg-revenue-0)
+			       ;; 	    ;; (< stdev-revenue stdev-revenue-0)
+			       ;; 	    ;; (>= trades-won trades-won-0)
+			       ;; 	    ;; (<= trades-lost trades-lost-0)
+			       ;; 	    ;; (>= avg-return avg-return-0)
+				    
+				    
+			       ;; 	    ;; (>= (/ trades-won
+			       ;; 	    ;; 	      (+ trades-won trades-lost))
+			       ;; 	    ;; 	   (/ trades-won-0
+			       ;; 	    ;; 	      (+ trades-won-0 trades-lost-0)))
+			       ;; 	    ;; (vector-1-similarity entry-times entry-times-0)
+			       ;; 	    )
 			       )
 		       ;; Candidate agent was dominated.
 		       (let ((metric-labels '("AVG-REVENUE" "TRADES-WON" "TRADES-LOST" "AVG-RETURN" "TOTAL-RETURN")))

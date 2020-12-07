@@ -42,7 +42,7 @@
 (defparameter *max-creation-dataset-size* 3000)
 (defparameter *max-training-dataset-size* 3000)
 (defparameter *max-testing-dataset-size* 200)
-(defparameter *number-of-agent-rules* 100)
+(defparameter *number-of-agent-rules* 20)
 (defparameter *number-of-agent-inputs* 5)
 ;; (defparameter *instruments* ominp:*forex*)
 (defparameter *timeframes* ominp:*shortterm*)

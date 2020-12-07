@@ -295,7 +295,8 @@
 		 (exit-prices :type (or db-null float[]))
 		 (tps :type (or db-null float[]))
 		 (sls :type (or db-null float[]))
-		 (activations :type (or db-null float[])))
+		 (activations :type (or db-null float[]))
+		 (returns :type (or db-null float[])))
 	      (:primary-key id))))
    (unless (table-exists-p 'agents-patterns)
      (query (:create-table 'agents-patterns
@@ -389,7 +390,9 @@
 		 (train-sls :type float[])
 		 (test-sls :type float[])
 		 (train-activations :type (or db-null float[]))
-		 (test-activations :type (or db-null float[])))
+		 (test-activations :type (or db-null float[]))
+		 (train-returns :type (or db-null float[]))
+		 (test-returns :type (or db-null float[])))
 	      (:primary-key id))))))
 ;; (init-database)
 
@@ -783,7 +786,8 @@
    (exit-prices :col-type (or db-null float[]) :initarg :exit-prices :initform :null)
    (tps :col-type (or db-null float[]) :initarg :tps :initform :null)
    (sls :col-type (or db-null float[]) :initarg :sls :initform :null)
-   (activations :col-type (or db-null float[]) :initarg :activations :initform :null))
+   (activations :col-type (or db-null float[]) :initarg :activations :initform :null)
+   (returns :col-type (or db-null float[]) :initarg :returns :initform :null))
   (:metaclass dao-class)
   (:table-name agents)
   (:keys id))
@@ -884,7 +888,9 @@
    (train-sls :col-type float[] :initarg :train-sls)
    (test-sls :col-type float[] :initarg :test-sls)
    (train-activations :col-type float[] :initarg :train-activations)
-   (test-activations :col-type float[] :initarg :test-activations))
+   (test-activations :col-type float[] :initarg :test-activations)
+   (train-returns :col-type float[] :initarg :train-returns)
+   (test-returns :col-type float[] :initarg :test-returns))
   (:metaclass dao-class)
   (:table-name trades)
   (:keys id))
@@ -1076,7 +1082,8 @@
 				 (string= key "ENTRY-PRICES")
 				 (string= key "EXIT-PRICES")
 				 (string= key "TPS")
-				 (string= key "SLS"))
+				 (string= key "SLS")
+				 (string= key "RETURNS"))
 			collect (let ((value (cond ((or (string= key "CREATION-BEGIN-TIME")
 							(string= key "CREATION-END-TIME")
 							(string= key "BEGIN-TIME")
@@ -1396,13 +1403,16 @@
 		   ))))
     (push-to-log (format nil "Traded ~a out of ~a datapoints." num-datapoints-traded num-datapoints))
     (push-to-log "<br/>Agents evaluated successfully.")
-    (let ((total-return (loop for revenue in revenues
-			      for tp in tps
-			      for sl in sls
-			      unless (= sl 0)
-			      summing (if (> revenue 0)
-					  (* (/ tp sl) -1) ;; to always get positive number.
+    (let* ((returns (loop for revenue in revenues
+			  for tp in tps
+			  for sl in sls
+			  collect (if (or (= tp 0)
+					  (= sl 0))
+				      0
+				      (if (> revenue 0)
+					  (* (/ tp sl) -1) ;; To always get positive number.
 					  -1))))
+	   (total-return (reduce #'+ returns)))
       `((:begin-time . ,(read-from-string (assoccess (first rates) :time)))
 	(:end-time . ,(read-from-string (assoccess (last-elt rates) :time)))
 	(:dataset-size . ,(length rates))
@@ -1436,7 +1446,8 @@
 	(:exit-prices . ,(reverse exit-prices))
 	(:tps . ,(reverse tps))
 	(:sls . ,(reverse sls))
-	(:activations . ,(reverse activations))))))
+	(:activations . ,(reverse activations))
+	(:returns . ,(reverse returns))))))
 ;; (evaluate-agents :EUR_USD :H1 '(:BULLISH) *rates*)
 
 ;; (defparameter *activations* nil)
@@ -1520,6 +1531,20 @@
   (loop for v across vec1 do (when (position v vec2) (return t))))
 ;; (vector-1-similarity #(1 2 3) #(10 20 30))
 
+(defun activations-returns-dominated-p (activations1 returns1 activations2 returns2)
+  (loop for a1 across activations1
+	for r1 across returns1
+	for a2 across activations2
+	for r2 across returns2
+	when (and (> r1 0) ;; To even consider it, the return1 must be greater than 0.
+		  ;; (/= (* a1 r1) 0) ; Checking that activation1 and return1 are not equal to 0.
+		  (>= a1 a2)
+		  (>= r1 r2))
+	  do (return nil)
+	finally (return t)))
+;; (activations-returns-dominated-p #(1 1 1) #(1 1 1) #(2 2 2) #(2 2 2))
+;; (activations-returns-dominated-p #(2 0 0) #(2 0 0) #(1 1 1) #(1 1 1))
+
 (defun is-agent-dominated? (agent agents)
   (if (= (length (slot-value agent 'tps)) 0)
       t ;; AGENT is dominated.
@@ -1530,6 +1555,8 @@
 	     (agent-direction-0 (aref (slot-value agent 'tps) 0))
 	     (avg-return-0 (slot-value agent 'avg-return))
 	     (total-return-0 (slot-value agent 'total-return))
+	     (activations-0 (slot-value agent 'activations))
+	     (returns-0 (slot-value agent 'returns))
 	     ;; (agent-directions (slot-value agent 'tps))
 	     ;; (stdev-revenue-0 (slot-value agent 'stdev-revenue))
 	     ;; (entry-times-0 (slot-value agent 'entry-times))
@@ -1544,6 +1571,8 @@
 			  (agent-direction (aref (slot-value agent 'tps) 0))
 			  (avg-return (slot-value agent 'avg-return))
 			  (total-return (slot-value agent 'total-return))
+			  (activations (slot-value agent 'activations))
+			  (returns (slot-value agent 'returns))
 			  ;; (agent-directions (slot-value agent 'tps))
 			  ;; (stdev-revenue (slot-value agent 'stdev-revenue))
 			  ;; (entry-times (slot-value agent 'entry-times))
@@ -1555,15 +1584,16 @@
 				    ;; (< stdev-revenue stdev-revenue-0)
 				    ;; (>= trades-won trades-won-0)
 				    ;; (<= trades-lost trades-lost-0)
-
-				    (>= avg-return avg-return-0)
+				    ;; (>= avg-return avg-return-0)
 				    (>= total-return total-return-0)
+				    (activations-returns-dominated-p activations-0 returns-0 activations returns)
 				    ;; (>= (/ trades-won
 				    ;; 	      (+ trades-won trades-lost))
 				    ;; 	   (/ trades-won-0
 				    ;; 	      (+ trades-won-0 trades-lost-0)))
 				    ;; (vector-1-similarity entry-times entry-times-0)
-				    ))
+				    )
+			       )
 		       ;; Candidate agent was dominated.
 		       (let ((metric-labels '("AVG-REVENUE" "TRADES-WON" "TRADES-LOST" "AVG-RETURN" "TOTAL-RETURN")))
 			 (with-open-stream (s (make-string-output-stream))

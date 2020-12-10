@@ -1554,26 +1554,38 @@
   (if (or (= (length (slot-value agent 'tps)) 0)
 	  (<= (slot-value agent 'total-return) 0))
       t ;; AGENT is dominated.
-      (let* ((agent-id-0 (slot-value agent 'id))
-	     (avg-revenue-0 (slot-value agent 'avg-revenue))
-	     (trades-won-0 (slot-value agent 'trades-won))
-	     (trades-lost-0 (slot-value agent 'trades-lost))
+      (let* (;; (agent-id-0 (slot-value agent 'id))
+	     ;; (avg-revenue-0 (slot-value agent 'avg-revenue))
+	     ;; (trades-won-0 (slot-value agent 'trades-won))
+	     ;; (trades-lost-0 (slot-value agent 'trades-lost))
 	     ;; (agent-direction-0 (aref (slot-value agent 'tps) 0))
-	     (avg-return-0 (slot-value agent 'avg-return))
-	     (total-return-0 (slot-value agent 'total-return))
+	     ;; (avg-return-0 (slot-value agent 'avg-return))
+	     ;; (total-return-0 (slot-value agent 'total-return))
 	     (activations-0 (slot-value agent 'activations))
 	     (returns-0 (slot-value agent 'returns))
 	     ;; (agent-directions (slot-value agent 'tps))
 	     ;; (stdev-revenue-0 (slot-value agent 'stdev-revenue))
 	     ;; (entry-times-0 (slot-value agent 'entry-times))
-	     (max-activations (reverse (slot-value (first agents) 'activations))) ;; Initializing with activations from first challenger.
-	     (max-returns (reverse (slot-value (first agents) 'returns))) ;; Initializing with returns from first challenger.
-	     (is-dominated? nil))
+
+	     ;; Initializing with activations from first challenger.
+	     (max-activations (reverse (slot-value (first agents) 'activations)))
+	     ;; Initializing with returns from first challenger.
+	     (max-returns (reverse (slot-value (first agents) 'returns)))
+	     ;; The max length to be used for comparison across returns and activations.
+	     (max-length (length activations-0))
+	     ;; (is-dominated? nil)
+	     )
 	;; Setting MAX-ACTIVATIONS and MAX-RETURNS with the highest activation and return for each DP.
 	(loop for agent in agents
-	      do (let ((acts (reverse (slot-value agent 'activations)))
-		       (rets (reverse (slot-value agent 'returns))))
-		   (loop for i from 0 below (min (length acts) (length max-activations))
+	      do (let* ((acts (reverse (slot-value agent 'activations)))
+			(rets (reverse (slot-value agent 'returns)))
+			;; (length acts) == (length rets), so it's safe to just use (length acts).
+			(lacts (length acts)))
+		   ;; We want to iteratively determine what's the maximum number of DP
+		   ;;; we can read without overflowing an agent from the agent pool.
+		   (when (< lacts max-length)
+		     (setf max-length lacts))
+		   (loop for i from 0 below max-length
 			 for act across acts
 			 for ret across rets
 			 do (when (> act (aref max-activations i))
@@ -1584,7 +1596,12 @@
 			      (setf (aref max-returns i) ret)))))
 	;; Checking if candidate AGENT gets dominated while being compared against all the pool of agents
 	;; in terms of activations and returns for each DP.
-	(activations-returns-dominated-p activations-0 returns-0 max-activations max-returns)
+	(activations-returns-dominated-p
+	 (subseq (reverse activations-0) 0 max-length)
+	 (subseq (reverse returns-0) 0 max-length)
+	 ;; These are already reversed.
+	 (subseq max-activations 0 max-length)
+	 (subseq max-returns 0 max-length))
 	;; (loop for agent in agents
 	;;       do (when (> (length (slot-value agent 'tps)) 0)
 	;; 	   (let* ((agent-id (slot-value agent 'id))

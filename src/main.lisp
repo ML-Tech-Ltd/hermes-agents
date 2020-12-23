@@ -30,6 +30,7 @@
 	   #:get-rates-range-big
 	   #:get-rates-count-big
 	   #:get-all-agents
+	   #:get-datasets
 	   #:update-creation-training-dataset)
   (:nicknames #:omage))
 (in-package :overmind-agents)
@@ -1353,7 +1354,7 @@
 
 (defun -evaluate-agents (&key instrument timeframe types rates agent idx test-size)
   "Used for EVALUATE-AGENT and EVALUATE-AGENTS."
-  (push-to-log "Trying to evaluate agents.")
+  (push-to-log (if agent "Trying to evaluate agent." "Trying to evaluate agents."))
   (let* ((max-lookbehind (get-max-lookbehind instrument timeframe types))
 	 (idx (if idx idx max-lookbehind))
 	 (rates (last rates (+ (if test-size test-size (length rates)) max-lookbehind 1)))
@@ -1371,7 +1372,7 @@
 	 (exit-times)
 	 (num-datapoints 0)
 	 (num-datapoints-traded 0))
-    (push-to-log "Evaluating agent: ")
+    (push-to-log (if agent "Evaluating agent:" "Evaluating agents:"))
     (loop while (< idx (length rates))
 	  do (let* ((input-dataset (get-input-dataset rates idx))
 		    (output-dataset (get-output-dataset rates idx)))
@@ -1561,7 +1562,8 @@
 	  when (and (> r1 0) ;; To even consider it, the return1 must be greater than 0.
 		    ;; (/= (* a1 r1) 0) ; Checking that activation1 and return1 are not equal to 0.
 		    (> a1 a2)
-		    (> r1 r2))
+		    ;; (> r1 r2)
+		    )
 	    do (progn
 		 (setf dominatedp nil)
 		 (return))
@@ -1574,14 +1576,14 @@
 (defun is-agent-dominated? (agent agents)
   (if (or (= (length (slot-value agent 'tps)) 0)
 	  (<= (slot-value agent 'total-return) 0))
-      t ;; AGENT is dominated.
-      (let* (;; (agent-id-0 (slot-value agent 'id))
+      t	      ;; AGENT is dominated.
+      (let* ( ;; (agent-id-0 (slot-value agent 'id))
 	     ;; (avg-revenue-0 (slot-value agent 'avg-revenue))
 	     ;; (trades-won-0 (slot-value agent 'trades-won))
 	     ;; (trades-lost-0 (slot-value agent 'trades-lost))
 	     ;; (agent-direction-0 (aref (slot-value agent 'tps) 0))
 	     ;; (avg-return-0 (slot-value agent 'avg-return))
-	     ;; (total-return-0 (slot-value agent 'total-return))
+	     (total-return-0 (slot-value agent 'total-return))
 	     (activations-0 (slot-value agent 'activations))
 	     (returns-0 (slot-value agent 'returns))
 	     ;; (agent-directions (slot-value agent 'tps))
@@ -1603,18 +1605,27 @@
 			;; (length acts) == (length rets), so it's safe to just use (length acts).
 			(lacts (length acts)))
 		   ;; We want to iteratively determine what's the maximum number of DP
-		   ;;; we can read without overflowing an agent from the agent pool.
+		   ;; we can read without overflowing an agent from the agent pool.
 		   (when (< lacts max-length)
 		     (setf max-length lacts))
 		   (loop for i from 0 below max-length
 			 for act across acts
 			 for ret across rets
-			 do (when (> act (aref max-activations i))
-			      (setf (aref max-activations i) act)
-			      ;; It's safe to assume that it's also the max return,
-			      ;; because the condition for adding a new agent is that it must beat another agent at that DP
-			      ;; only if beats the current score for both metrics.
-			      (setf (aref max-returns i) ret)))))
+			 do (let ((total-return (slot-value agent 'total-return)))
+			      (if (> total-return total-return-0)
+				  (progn
+				    ;; Then we don't want to consider this DP at all.
+				    ;; A decent way of excluding this DP is just to set the activation
+				    ;; and return to a ridiculously big number.
+				    (setf (aref max-activations i) most-positive-long-float)
+				    (setf (aref max-returns i) most-positive-long-float))
+				  (when (> act (aref max-activations i))
+				    (setf (aref max-activations i) act)
+				    ;; It's safe to assume that it's also the max return,
+				    ;; because the condition for adding a new agent is that it must beat another agent at that DP
+				    ;; only if beats the current score for both metrics.
+				    (setf (aref max-returns i) ret)))
+			      ))))
 	;; Checking if candidate AGENT gets dominated while being compared against all the pool of agents
 	;; in terms of activations and returns for each DP.
 	(activations-returns-dominated-p
@@ -2010,8 +2021,9 @@
       (when (> (length log) size)
 	(setf log (butlast log)))))
   (defun read-agents-log ()
-    (format nil "~a<h3>AGENTS LOG.</h3><hr/><br/>~{~a~%~}"
-	    (describe-agents)
+    (format nil ;; "~a<h3>AGENTS LOG.</h3><hr/><br/>~{~a~%~}"
+	    ;; (describe-agents)
+	    "~{~a~%~}"
 	    (reverse log)
 	    ))
   (defun clear-agents-log ()
@@ -2147,12 +2159,27 @@
 		 (list (assoccess dataset :begin-time)
 		       (assoccess dataset :end-time)))))
 
+(comment (loop for key being each hash-key of *creation-training-datasets*
+	       for value being each hash-value of *creation-training-datasets*
+	       do (print value)))
+
 (defun get-dataset (type pattern instrument timeframe rates)
   (if-let ((begin-end (gethash (list type pattern instrument timeframe) *creation-training-datasets*)))
     (let ((begin-time (first begin-end))
 	  (end-time (second begin-end)))
       (get-rates-range-big instrument timeframe begin-time end-time))
     rates))
+
+(defun get-datasets ()
+  (let ((datasets (alexandria:hash-table-alist *creation-training-datasets*)))
+    (if datasets
+	(loop for dataset in datasets
+	      collect `((:segment ,(first dataset))
+			(:from . ,(local-time:unix-to-timestamp (unix-from-nano (second dataset))))
+			(:to . ,(local-time:unix-to-timestamp (unix-from-nano (third dataset))))))
+	"No manual datasets have been selected.")))
+
+;; (get-datasets)
 
 (defun -loop-optimize-test (&key
 			      (report-fn nil)

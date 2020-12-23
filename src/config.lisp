@@ -35,10 +35,10 @@
 ;; Algorithm Configuration ;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defparameter *is-production* t)
+(defparameter *is-production* nil)
 (defparameter *is-log* t)
 
-(defparameter *seconds-to-optimize-per-pattern* 100)
+(defparameter *seconds-to-optimize-per-pattern* 10)
 (defparameter *max-creation-dataset-size* 3000)
 (defparameter *max-training-dataset-size* 3000)
 (defparameter *max-testing-dataset-size* 200)

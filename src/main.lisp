@@ -25,12 +25,13 @@
 	   #:loop-optimize-test
 	   #:read-log
 	   #:read-agents-log
+	   #:read-agent-directions-log
 	   #:unix-to-nano
 	   #:unix-from-nano
 	   #:get-rates-range-big
 	   #:get-rates-count-big
 	   #:get-all-agents
-	   #:get-datasets
+	   #:format-datasets
 	   #:update-creation-training-dataset)
   (:nicknames #:omage))
 (in-package :overmind-agents)
@@ -1064,7 +1065,7 @@
 					 collect (let ((avg-tp (read-from-string (assoccess agent-props :avg-tp)))
 						       (avg-sl (read-from-string (assoccess agent-props :avg-sl))))
 						   (append (alist-values agent-props)
-							   (list (format-rr avg-tp avg-sl)))))))
+							   (list (format-rr avg-sl avg-tp)))))))
 			(when (> (length agents-props) 0)
 			  (format s "<h4>~a (~a, ~a)</h4>" instrument (car types) agents-count)
 			  (format s "<pre>")
@@ -1129,7 +1130,7 @@
 							 collect (let ((avg-tp (read-from-string (assoccess agent-props :avg-tp)))
 								       (avg-sl (read-from-string (assoccess agent-props :avg-sl))))
 								   (append agent-props
-									   `((:r/r . ,(format-rr avg-tp avg-sl))))))))
+									   `((:r/r . ,(format-rr avg-sl avg-tp))))))))
 					(when (> (length agents-props) 0)
 					  vals))))
 			  (when values
@@ -1553,53 +1554,65 @@
   (loop for v across vec1 do (when (position v vec2) (return t))))
 ;; (vector-1-similarity #(1 2 3) #(10 20 30))
 
-(defun activations-returns-dominated-p (activations1 returns1 activations2 returns2)
-  (let ((dominatedp t))
-    (loop for a1 across activations1
+(defun activations-returns-dominated-p (activations1 returns1 activations2 returns2 total-return total-returns agent-idxs)
+  (let ((dominatedp t)
+	(dominated-idx -1))
+    (loop for idx across agent-idxs
+	  for a1 across activations1
 	  for r1 across returns1
 	  for a2 across activations2
 	  for r2 across returns2
+	  for tr across total-returns
 	  when (and (> r1 0) ;; To even consider it, the return1 must be greater than 0.
 		    ;; (/= (* a1 r1) 0) ; Checking that activation1 and return1 are not equal to 0.
-		    (> a1 a2)
+		    (>= a1 a2)
 		    ;; (> r1 r2)
-		    )
+		    (> total-return tr))
 	    do (progn
 		 (setf dominatedp nil)
+		 (setf dominated-idx idx)
 		 (return))
 	       ;; finally (return t)
 	  )
-    dominatedp))
+    (values dominatedp
+	    dominated-idx)))
 ;; (activations-returns-dominated-p #(1 1 1) #(1 1 1) #(2 1 1) #(2 1 1))
 ;; (activations-returns-dominated-p #(2 0 0) #(2 0 0) #(1 1 1) #(1 1 1))
 
 (defun is-agent-dominated? (agent agents)
   (if (or (= (length (slot-value agent 'tps)) 0)
 	  (<= (slot-value agent 'total-return) 0))
-      t	      ;; AGENT is dominated.
-      (let* ( ;; (agent-id-0 (slot-value agent 'id))
-	     ;; (avg-revenue-0 (slot-value agent 'avg-revenue))
-	     ;; (trades-won-0 (slot-value agent 'trades-won))
-	     ;; (trades-lost-0 (slot-value agent 'trades-lost))
-	     ;; (agent-direction-0 (aref (slot-value agent 'tps) 0))
-	     ;; (avg-return-0 (slot-value agent 'avg-return))
-	     (total-return-0 (slot-value agent 'total-return))
-	     (activations-0 (slot-value agent 'activations))
-	     (returns-0 (slot-value agent 'returns))
-	     ;; (agent-directions (slot-value agent 'tps))
-	     ;; (stdev-revenue-0 (slot-value agent 'stdev-revenue))
-	     ;; (entry-times-0 (slot-value agent 'entry-times))
+      t	;; AGENT is dominated.
+      (let* ( (agent-id-0 (slot-value agent 'id))
+	      (avg-revenue-0 (slot-value agent 'avg-revenue))
+	      (trades-won-0 (slot-value agent 'trades-won))
+	      (trades-lost-0 (slot-value agent 'trades-lost))
+	      ;; (agent-direction-0 (aref (slot-value agent 'tps) 0))
+	      (avg-return-0 (slot-value agent 'avg-return))
+	      (total-return-0 (slot-value agent 'total-return))
+	      (activations-0 (slot-value agent 'activations))
+	      (returns-0 (slot-value agent 'returns))
+	      (avg-tp-0 (slot-value agent 'avg-tp))
+	      (avg-sl-0 (slot-value agent 'avg-sl))
+	      ;; (agent-directions (slot-value agent 'tps))
+	      ;; (stdev-revenue-0 (slot-value agent 'stdev-revenue))
+	      ;; (entry-times-0 (slot-value agent 'entry-times))
 
-	     ;; Initializing with activations from first challenger.
-	     (max-activations (reverse (slot-value (first agents) 'activations)))
-	     ;; Initializing with returns from first challenger.
-	     (max-returns (reverse (slot-value (first agents) 'returns)))
-	     ;; The max length to be used for comparison across returns and activations.
-	     (max-length (length activations-0))
-	     ;; (is-dominated? nil)
-	     )
+	      ;; Initializing with activations from first challenger.
+	      (max-activations (reverse (slot-value (first agents) 'activations)))
+	      ;; Initializing with returns from first challenger.
+	      (max-returns (reverse (slot-value (first agents) 'returns)))
+	      ;; Initializing with horrible total returns.
+	      ;; This list represents the total return for the agents that scored the maximum activation at certain DP.
+	      (max-total-returns (make-array (length max-returns) :initial-element most-negative-long-float))
+	      (max-agent-idxs (make-array (length max-returns) :initial-element most-negative-long-float))
+	      ;; The max length to be used for comparison across returns and activations.
+	      (max-length (length activations-0))
+	      ;; (is-dominated? nil)
+	      )
 	;; Setting MAX-ACTIVATIONS and MAX-RETURNS with the highest activation and return for each DP.
 	(loop for agent in agents
+	      for agent-idx from 0 ;; Agent idx.
 	      do (let* ((acts (reverse (slot-value agent 'activations)))
 			(rets (reverse (slot-value agent 'returns)))
 			;; (length acts) == (length rets), so it's safe to just use (length acts).
@@ -1612,89 +1625,70 @@
 			 for act across acts
 			 for ret across rets
 			 do (let ((total-return (slot-value agent 'total-return)))
-			      (if (> total-return total-return-0)
-				  (progn
-				    ;; Then we don't want to consider this DP at all.
-				    ;; A decent way of excluding this DP is just to set the activation
-				    ;; and return to a ridiculously big number.
-				    (setf (aref max-activations i) most-positive-long-float)
-				    (setf (aref max-returns i) most-positive-long-float))
-				  (when (> act (aref max-activations i))
-				    (setf (aref max-activations i) act)
-				    ;; It's safe to assume that it's also the max return,
-				    ;; because the condition for adding a new agent is that it must beat another agent at that DP
-				    ;; only if beats the current score for both metrics.
-				    (setf (aref max-returns i) ret)))
-			      ))))
+			      (when (> act (aref max-activations i))
+				(setf (aref max-activations i) act)
+				(setf (aref max-total-returns i) total-return)
+				(setf (aref max-agent-idxs i) agent-idx)
+				;; It's safe to assume that it's also the max return,
+				;; because the condition for adding a new agent is that it must beat another agent at that DP
+				;; only if beats the current score for both metrics.
+				(setf (aref max-returns i) ret))))))
 	;; Checking if candidate AGENT gets dominated while being compared against all the pool of agents
 	;; in terms of activations and returns for each DP.
-	(activations-returns-dominated-p
-	 (subseq (reverse activations-0) 0 max-length)
-	 (subseq (reverse returns-0) 0 max-length)
-	 ;; These are already reversed.
-	 (subseq max-activations 0 max-length)
-	 (subseq max-returns 0 max-length))
-	;; (loop for agent in agents
-	;;       do (when (> (length (slot-value agent 'tps)) 0)
-	;; 	   (let* ((agent-id (slot-value agent 'id))
-	;; 		  (avg-revenue (slot-value agent 'avg-revenue))
-	;; 		  (trades-won (slot-value agent 'trades-won))
-	;; 		  (trades-lost (slot-value agent 'trades-lost))
-	;; 		  ;; (agent-direction (aref (slot-value agent 'tps) 0))
-	;; 		  (avg-return (slot-value agent 'avg-return))
-	;; 		  (total-return (slot-value agent 'total-return))
-	;; 		  (activations (slot-value agent 'activations))
-	;; 		  (returns (slot-value agent 'returns))
-	;; 		  ;; (agent-directions (slot-value agent 'tps))
-	;; 		  ;; (stdev-revenue (slot-value agent 'stdev-revenue))
-	;; 		  ;; (entry-times (slot-value agent 'entry-times))
-	;; 		  )
-	;; 	     ;; Fitnesses currently being used.
-	;; 	     (when (or (activations-returns-dominated-p activations-0 returns-0 activations returns)
-	;; 		       ;; (>= total-return total-return-0)
-	;; 		       ;; (and (> (* agent-direction-0 agent-direction) 0)
-	;; 		       ;; 	    ;; (>= avg-revenue avg-revenue-0)
-	;; 		       ;; 	    ;; (< stdev-revenue stdev-revenue-0)
-	;; 		       ;; 	    ;; (>= trades-won trades-won-0)
-	;; 		       ;; 	    ;; (<= trades-lost trades-lost-0)
-	;; 		       ;; 	    ;; (>= avg-return avg-return-0)
-	
-	
-	;; 		       ;; 	    ;; (>= (/ trades-won
-	;; 		       ;; 	    ;; 	      (+ trades-won trades-lost))
-	;; 		       ;; 	    ;; 	   (/ trades-won-0
-	;; 		       ;; 	    ;; 	      (+ trades-won-0 trades-lost-0)))
-	;; 		       ;; 	    ;; (vector-1-similarity entry-times entry-times-0)
-	;; 		       ;; 	    )
-	;; 		       )
-	;; 	       ;; Candidate agent was dominated.
-	;; 	       (let ((metric-labels '("AVG-REVENUE" "TRADES-WON" "TRADES-LOST" "AVG-RETURN" "TOTAL-RETURN")))
-	;; 		 (with-open-stream (s (make-string-output-stream))
-	;; 		   ;; (push-to-agents-log )
-	;; 		   (format s "<pre><b>(BETA) </b>Agent ID ~a~%" agent-id-0)
-	;; 		   (format-table s `((,(format nil "~6$" avg-revenue-0) ,trades-won-0 ,trades-lost-0 ,(format nil "~2$" avg-return-0) ,(format nil "~2$" total-return-0))) :column-label metric-labels)
-	;; 		   (format s "</pre>")
+        (multiple-value-bind (dominatedp dominated-idx)
+	    (activations-returns-dominated-p
+	     (subseq (reverse activations-0) 0 max-length)
+	     (subseq (reverse returns-0) 0 max-length)
+	     ;; These are already reversed.
+	     (subseq max-activations 0 max-length)
+	     (subseq max-returns 0 max-length)
+	     total-return-0
+	     max-total-returns
+	     max-agent-idxs)
+	  ;; TODO: Refactor this out into its own function.
+	  (let ((metric-labels '("AVG-REVENUE" "TRADES-WON" "TRADES-LOST" "AVG-RETURN" "TOTAL-RETURN" "AVG-RR" "DIRECTION")))
+	    (if (>= dominated-idx 0)
+		;; Logging what BETA agent our ALPHA dominated (if any).
+		(let ((dominated-agent (nth dominated-idx agents)))
+		  ;; (break "~s ~s ~s" dominated-idx dominated-agent (length agents))
+		  (with-open-stream (s (make-string-output-stream))
+		    (format s "<pre><b>(BETA) </b>Agent ID ~a~%" (slot-value dominated-agent 'id))
+		    (format-table s `((,(format nil "~6$" (slot-value dominated-agent 'avg-revenue))
+				       ,(slot-value dominated-agent 'trades-won)
+				       ,(slot-value dominated-agent 'trades-lost)
+				       ,(format nil "~2$" (slot-value dominated-agent 'avg-return))
+				       ,(format nil "~2$" (slot-value dominated-agent 'total-return))
+				       ,(format-rr (slot-value dominated-agent 'avg-sl)
+						   (slot-value dominated-agent 'avg-tp))
+				       ,(if (plusp (slot-value dominated-agent 'avg-tp)) "BULL" "BEAR")))
+				  :column-label metric-labels)
+		    (format s "</pre>")
 
-	;; 		   (format s "<pre><b>(ALPHA) </b>Agent ID ~a~%" agent-id)
-	;; 		   (format-table s `((,(format nil "~6$" avg-revenue) ,trades-won ,trades-lost ,(format nil "~2$" avg-return) ,(format nil "~2$" total-return))) :column-label metric-labels)
-	;; 		   (format s "</pre><hr/>")
-	
-	;; 		   ;; (format s "Fitnesses <b>~a</b>:<br/>~a: ~a<br/>~a: ~a<br/>~a: ~a"
-	;; 		   ;; 	agent-id-0
-	;; 		   ;; 	(symbol-name 'avg-revenue) avg-revenue-0
-	;; 		   ;; 	(symbol-name 'trades-won) trades-won-0
-	;; 		   ;; 	(symbol-name 'trades-lost) trades-lost-0)
-	;; 		   ;; (format s "Fitnesses (~a):<br/>~a: ~a<br/>~a: ~a<br/>~a: ~a<hr />"
-	;; 		   ;; 	agent-id
-	;; 		   ;; 	(symbol-name 'avg-revenue) avg-revenue
-	;; 		   ;; 	(symbol-name 'trades-won) trades-won
-	;; 		   ;; 	(symbol-name 'trades-lost) trades-lost)
-	;; 		   (push-to-agents-log (get-output-stream-string s))))
-	
-	;; 	       (setf is-dominated? t)
-	;; 	       (return)))))
-	;; is-dominated?
-	)))
+		    (format s "<pre><b>(ALPHA) </b>Agent ID ~a~%" agent-id-0)
+		    (format-table s `((,(format nil "~6$" avg-revenue-0)
+				       ,trades-won-0
+				       ,trades-lost-0
+				       ,(format nil "~2$" avg-return-0)
+				       ,(format nil "~2$" total-return-0)
+				       ,(format-rr avg-sl-0 avg-tp-0)
+				       ,(if (plusp avg-tp-0) "BULL" "BEAR")))
+				  :column-label metric-labels)
+		    (format s "</pre><hr/>")
+		    (push-to-agents-log (get-output-stream-string s))))
+		;; Logging crappy agent who couldn't beat anyone.
+		(with-open-stream (s (make-string-output-stream))
+		  (format s "<pre><b>(CRAP) </b>Agent ID ~a~%" agent-id-0)
+		  (format-table s `((,(format nil "~6$" avg-revenue-0)
+				     ,trades-won-0
+				     ,trades-lost-0
+				     ,(format nil "~2$" avg-return-0)
+				     ,(format nil "~2$" total-return-0)
+				     ,(format-rr avg-sl-0 avg-tp-0)
+				     ,(if (plusp avg-tp-0) "BULL" "BEAR")))
+				:column-label metric-labels)
+		  (format s "</pre><hr/>")
+		  (push-to-agents-log (get-output-stream-string s)))))
+	  dominatedp))))
 
 (defun get-agent (instrument timeframe types agent-id)
   (find agent-id (gethash (list instrument timeframe types) *agents-cache*)
@@ -1720,10 +1714,18 @@
 		   (conn (loop for agent in agents
 			       do (unless (get-agent instrument timeframe types (slot-value agent 'id))
 				    (push-to-log (format nil "Inserting new agent with ID ~a" (slot-value agent 'id)))
-				    (let ((metric-labels '("AVG-REVENUE" "TRADES-WON" "TRADES-LOST")))
+				    (let ((metric-labels '("AVG-REVENUE" "TRADES-WON" "TRADES-LOST" "AVG-RETURN" "TOTAL-RETURN" "AVG-RR" "DIRECTION")))
 				      (with-open-stream (s (make-string-output-stream))
 					(format s "<pre><b>(OMEGA) </b>Agent ID ~a~%" (slot-value agent 'id))
-					(format-table s `((,(format nil "~6$" (slot-value agent 'avg-revenue)) ,(slot-value agent 'trades-won) ,(slot-value agent 'trades-lost))) :column-label metric-labels)
+					(format-table s `((,(format nil "~6$" (slot-value agent 'avg-revenue))
+							   ,(slot-value agent 'trades-won)
+							   ,(slot-value agent 'trades-lost)
+							   ,(format nil "~2$" (slot-value agent 'avg-return))
+							   ,(format nil "~2$" (slot-value agent 'total-return))
+							   ,(format-rr (slot-value agent 'avg-sl)
+								       (slot-value agent 'avg-tp))
+							   ,(if (plusp (slot-value agent 'avg-tp)) "BULL" "BEAR")))
+						      :column-label metric-labels)
 					(format s "</pre><hr/>")
 					(push-to-agents-log (get-output-stream-string s))))
 				    (add-agent agent instrument timeframe types))))
@@ -1731,6 +1733,8 @@
 		   (return))
 		 (let* ((challenger (list (evaluate-agent (funcall gen-agent-fn) rates)))
 			(is-dominated? (is-agent-dominated? (car challenger) agents)))
+		   ;; Logging agent direction.
+		   (push-to-agent-directions-log instrument timeframe types (slot-value (first challenger) 'avg-tp))
 		   (unless is-dominated?
 		     ;; Purging agents.
 		     (loop for in-trial in agents
@@ -1809,8 +1813,9 @@
 		 (* 10000 (abs risk))))
 	  (if (= reward 0)
 	      0
-	      (/ (* 10000 (abs risk))
-		 (* 10000 (abs reward))))))
+	      (/ (* 10000 (abs reward))
+		 (* 10000 (abs risk))))))
+;; (format-rr 10 30)
 
 (defun add-agent (agent instrument timeframe types)
   "Works with *agents-cache*"
@@ -2032,9 +2037,43 @@
 ;; (read-agents-log)
 ;; (read-log)
 
+;; Agents' directions log.
+(let ((log (make-hash-table :test 'equal)))
+  (defun push-to-agent-directions-log (instrument timeframe types direction &key (size 1000))
+    (when omage.config:*is-log*
+      (let ((pairing-directions (gethash instrument log))
+	    (pattern-directions (gethash (list instrument timeframe types) log))
+	    (global-directions (gethash :global log)))
+	(push direction pairing-directions)
+	(push direction pattern-directions)
+	(push direction global-directions)
+	(when (> (length pairing-directions) size)
+	  (setf pairing-directions (butlast pairing-directions)))
+	(when (> (length pattern-directions) size)
+	  (setf pattern-directions (butlast pattern-directions)))
+	(when (> (length global-directions) size)
+	  (setf global-directions (butlast global-directions)))
+	(setf (gethash instrument log) pairing-directions)
+	(setf (gethash (list instrument timeframe types) log) pattern-directions)
+	(setf (gethash :global log) global-directions))))
+  (defun read-agent-directions-log ()
+    (format nil "<pre>~{~a~%~}</pre>"
+	    (loop for key being each hash-key of log
+		  for value being each hash-value of log
+		  collect (format nil "~{~a~^, ~}: BULL: ~a, BEAR: ~a~%"
+				  (flatten key)
+				  (length (remove-if-not #'plusp value))
+				  (length (remove-if-not #'minusp value))))))
+  (defun clear-agent-directions-log ()
+    (setf log (make-hash-table :test 'equal))))
+
+;; (push-to-agent-directions-log :AUD_USD :H1 '(:bullish) 1.1)
+;; (read-agent-directions-log)
+
 (defun clear-logs ()
   (clear-log)
-  (clear-agents-log))
+  (clear-agents-log)
+  (clear-agent-directions-log))
 
 (defun init ()
   (bt:make-thread
@@ -2174,12 +2213,32 @@
   (let ((datasets (alexandria:hash-table-alist *creation-training-datasets*)))
     (if datasets
 	(loop for dataset in datasets
-	      collect `((:segment ,(first dataset))
+	      collect `((:segment . ,(first dataset))
 			(:from . ,(local-time:unix-to-timestamp (unix-from-nano (second dataset))))
 			(:to . ,(local-time:unix-to-timestamp (unix-from-nano (third dataset))))))
 	"No manual datasets have been selected.")))
-
 ;; (get-datasets)
+
+(defun format-datasets ()
+  (let ((datasets (sort (get-datasets) ;; TODO: Sorting in a very, very naughty way.
+			#'string< :key (lambda (elt) (format nil "~a" (assoccess elt :segment)))))
+	(table-labels '("FROM" "TO")))
+    (with-open-stream (s (make-string-output-stream))
+      (loop for dataset in datasets
+	    do (let ((segment (assoccess dataset :segment))
+		     (from (assoccess dataset :from))
+		     (to (assoccess dataset :to)))
+		 (format s "~%~{~a~^, ~}~%" segment)
+		 (format s "------------------------~%")
+		 (format-table s `((,from
+				    ,to
+				    ))
+			       :column-label table-labels)
+		 ;; (format s "</pre><hr/>")
+		 ))
+      (get-output-stream-string s)
+      )))
+;; (format-datasets)
 
 (defun -loop-optimize-test (&key
 			      (report-fn nil)

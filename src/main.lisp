@@ -579,7 +579,7 @@
 		      (update-dao dao))))
 		 (sleep 1))))))
 
-(defun re-validate-trades (&optional (older-than 0))
+(defun re-validate-trades (&optional (older-than 0) (last-n-days 30))
   (let ((trades (conn (query (:order-by (:select '*
 					  :from (:as (:order-by (:select 'trades.* 'patterns.*
 								  :distinct-on 'trades.id
@@ -587,13 +587,14 @@
 								  :inner-join 'patterns-trades
 								  :on (:= 'trades.id 'patterns-trades.trade-id)
 								  :inner-join 'patterns
-								  :on (:= 'patterns.id 'patterns-trades.pattern-id))
+								  :on (:= 'patterns.id 'patterns-trades.pattern-id)
+								  :where (:> :creation-time (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) last-n-days :day))))
 								'trades.id)
 						     'results))
 					(:desc 'creation-time))
 			     :alists))))
     (-validate-trades trades older-than)))
-;; (re-validate-trades)
+;; (re-validate-trades 0 1)
 
 (defun validate-trades (&optional (older-than 1))
   (let ((trades (conn (query (:order-by (:select '*

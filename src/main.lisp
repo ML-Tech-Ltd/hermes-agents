@@ -540,7 +540,62 @@
 	  (loop for rate in rates do (print (assoccess rate :high-ask)))
 	  (loop for rate in rates do (print (assoccess rate :high-bid)))))))
 
-(defun validate-trades ()
+(defun -validate-trades (trades older-than)
+  "We use `older-than` to determine what trades to ignore due to possible lack of prices for validation."
+  (push-to-log (format nil "Trying to validate ~a trades." (length trades)))
+  (loop for trade in trades
+	do (let* ((from (let ((entry-time (assoccess trade :entry-time))
+			      (creation-time (assoccess trade :creation-time)))
+			  (ceiling (* (if omage.config:*is-production*
+					  ;; The exact time when the trade got created, e.g 4:33 PM.
+					  creation-time
+					  (if (not (equal entry-time :null))
+					      ;; The time of the last traded candle in the testing dataset.
+					      ;; This time will be a rounded hour (if using hours), e.g. 4:00 PM.
+					      entry-time
+					      creation-time))
+				      1000000))))
+		  (from-timestamp (local-time:unix-to-timestamp (ceiling (/ from 1000000)))))
+	     (when (or (not omage.config:*is-production*)
+		       (local-time:timestamp< from-timestamp
+					      (local-time:timestamp- (local-time:now) older-than :day)))
+	       (push-to-log (format nil "Using minute rates from ~a to ~a to validate trade."
+				    from-timestamp
+				    (local-time:timestamp+ from-timestamp 3 :day)))
+	       (let* ((instrument (make-keyword (assoccess trade :instrument)))
+		      (timeframe :M1)
+		      ;; (to (* (local-time:timestamp-to-unix (local-time:timestamp+ from-timestamp 3 :day)) 1000000))
+		      ;; (rates (get-rates-range instrument timeframe from to :provider :oanda :type :fx))
+		      (rates (get-rates-count-from-big instrument timeframe 50000 from))
+		      (result (get-trade-result (assoccess trade :entry-price)
+						(assoccess trade :tp)
+						(assoccess trade :sl)
+						rates)))
+		 (push-to-log (format nil "Result obtained for trade: ~a." result))
+		 (when result
+		   (conn
+		    (let ((dao (get-dao 'trade (assoccess trade :id))))
+		      (setf (slot-value dao 'result) result)
+		      (update-dao dao))))
+		 (sleep 1))))))
+
+(defun re-validate-trades (&optional (older-than 0))
+  (let ((trades (conn (query (:order-by (:select '*
+					  :from (:as (:order-by (:select 'trades.* 'patterns.*
+								  :distinct-on 'trades.id
+								  :from 'trades
+								  :inner-join 'patterns-trades
+								  :on (:= 'trades.id 'patterns-trades.trade-id)
+								  :inner-join 'patterns
+								  :on (:= 'patterns.id 'patterns-trades.pattern-id))
+								'trades.id)
+						     'results))
+					(:desc 'creation-time))
+			     :alists))))
+    (-validate-trades trades older-than)))
+;; (re-validate-trades)
+
+(defun validate-trades (&optional (older-than 1))
   (let ((trades (conn (query (:order-by (:select '*
 					  :from (:as (:order-by (:select 'trades.* 'patterns.*
 								  :distinct-on 'trades.id
@@ -555,37 +610,7 @@
 						     'results))
 					(:desc 'creation-time))
 			     :alists))))
-    (push-to-log (format nil "Trying to validate ~a trades." (length trades)))
-    (loop for trade in trades
-	  do (let* ((from (let ((entry-time (assoccess trade :entry-time))
-				(creation-time (assoccess trade :creation-time)))
-			    (ceiling (* (if (not (equal entry-time :null))
-					    entry-time
-					    creation-time)
-					1000000))))
-		    (from-timestamp (local-time:unix-to-timestamp (ceiling (/ from 1000000)))))
-	       (when (or (not omage.config:*is-production*)
-			 (local-time:timestamp< from-timestamp
-						(local-time:timestamp- (local-time:now) 1 :day)))
-		 (push-to-log (format nil "Using minute rates from ~a to ~a to validate trade."
-				      from-timestamp
-				      (local-time:timestamp+ from-timestamp 3 :day)))
-		 (let* ((instrument (make-keyword (assoccess trade :instrument)))
-			(timeframe :M1)
-			;; (to (* (local-time:timestamp-to-unix (local-time:timestamp+ from-timestamp 3 :day)) 1000000))
-			;; (rates (get-rates-range instrument timeframe from to :provider :oanda :type :fx))
-			(rates (get-rates-count-from-big instrument timeframe 50000 from))
-			(result (get-trade-result (assoccess trade :entry-price)
-						  (assoccess trade :tp)
-						  (assoccess trade :sl)
-						  rates)))
-		   (push-to-log (format nil "Result obtained for trade: ~a." result))
-		   (when result
-		     (conn
-		      (let ((dao (get-dao 'trade (assoccess trade :id))))
-			(setf (slot-value dao 'result) result)
-			(update-dao dao))))
-		   (sleep 1)))))))
+    (-validate-trades trades older-than)))
 ;; (validate-trades)
 
 (defun ->delta-close (rates offset)
@@ -1579,10 +1604,39 @@
 ;; (activations-returns-dominated-p #(1 1 1) #(1 1 1) #(2 1 1) #(2 1 1))
 ;; (activations-returns-dominated-p #(2 0 0) #(2 0 0) #(1 1 1) #(1 1 1))
 
-(defun is-agent-dominated? (agent agents)
+(defun log-agent (type agent-id avg-revenue trades-won trades-lost avg-return total-return avg-sl avg-tp)
+  (let ((metric-labels '("AVG-REVENUE" "TRADES-WON" "TRADES-LOST" "AVG-RETURN" "TOTAL-RETURN" "AVG-RR" "DIRECTION")))
+    (with-open-stream (s (make-string-output-stream))
+      (format s "<pre><b>(~a) </b>Agent ID ~a~%" type agent-id)
+      (format-table s `((,(format nil "~6$" avg-revenue)
+			 ,trades-won
+			 ,trades-lost
+			 ,(format nil "~2$" avg-return)
+			 ,(format nil "~2$" total-return)
+			 ,(format-rr avg-sl avg-tp)
+			 ,(if (plusp avg-tp) "BULL" "BEAR")))
+		    :column-label metric-labels)
+      (format s "</pre><hr/>")
+      (push-to-agents-log (get-output-stream-string s))))
+  ;; Don't return anything.
+  (values))
+
+(defun is-agent-dominated? (agent agents &optional (logp nil))
   (if (or (= (length (slot-value agent 'tps)) 0)
 	  (<= (slot-value agent 'total-return) 0))
-      t	;; AGENT is dominated.
+      ;; AGENT is dominated.
+      (progn
+	(when logp
+	  (log-agent :crap
+		     (slot-value agent 'id)
+		     (slot-value agent 'avg-revenue)
+		     (slot-value agent 'trades-won)
+		     (slot-value agent 'trades-lost)
+		     (slot-value agent 'avg-return)
+		     (slot-value agent 'total-return)
+		     (slot-value agent 'avg-sl)
+		     (slot-value agent 'avg-tp)))
+	t)
       (let* ( (agent-id-0 (slot-value agent 'id))
 	      (avg-revenue-0 (slot-value agent 'avg-revenue))
 	      (trades-won-0 (slot-value agent 'trades-won))
@@ -1645,49 +1699,24 @@
 	     total-return-0
 	     max-total-returns
 	     max-agent-idxs)
-	  ;; TODO: Refactor this out into its own function.
-	  (let ((metric-labels '("AVG-REVENUE" "TRADES-WON" "TRADES-LOST" "AVG-RETURN" "TOTAL-RETURN" "AVG-RR" "DIRECTION")))
-	    (if (>= dominated-idx 0)
-		;; Logging what BETA agent our ALPHA dominated (if any).
-		(let ((dominated-agent (nth dominated-idx agents)))
-		  ;; (break "~s ~s ~s" dominated-idx dominated-agent (length agents))
-		  (with-open-stream (s (make-string-output-stream))
-		    (format s "<pre><b>(BETA) </b>Agent ID ~a~%" (slot-value dominated-agent 'id))
-		    (format-table s `((,(format nil "~6$" (slot-value dominated-agent 'avg-revenue))
-				       ,(slot-value dominated-agent 'trades-won)
-				       ,(slot-value dominated-agent 'trades-lost)
-				       ,(format nil "~2$" (slot-value dominated-agent 'avg-return))
-				       ,(format nil "~2$" (slot-value dominated-agent 'total-return))
-				       ,(format-rr (slot-value dominated-agent 'avg-sl)
-						   (slot-value dominated-agent 'avg-tp))
-				       ,(if (plusp (slot-value dominated-agent 'avg-tp)) "BULL" "BEAR")))
-				  :column-label metric-labels)
-		    (format s "</pre>")
-
-		    (format s "<pre><b>(ALPHA) </b>Agent ID ~a~%" agent-id-0)
-		    (format-table s `((,(format nil "~6$" avg-revenue-0)
-				       ,trades-won-0
-				       ,trades-lost-0
-				       ,(format nil "~2$" avg-return-0)
-				       ,(format nil "~2$" total-return-0)
-				       ,(format-rr avg-sl-0 avg-tp-0)
-				       ,(if (plusp avg-tp-0) "BULL" "BEAR")))
-				  :column-label metric-labels)
-		    (format s "</pre><hr/>")
-		    (push-to-agents-log (get-output-stream-string s))))
-		;; Logging crappy agent who couldn't beat anyone.
-		(with-open-stream (s (make-string-output-stream))
-		  (format s "<pre><b>(CRAP) </b>Agent ID ~a~%" agent-id-0)
-		  (format-table s `((,(format nil "~6$" avg-revenue-0)
-				     ,trades-won-0
-				     ,trades-lost-0
-				     ,(format nil "~2$" avg-return-0)
-				     ,(format nil "~2$" total-return-0)
-				     ,(format-rr avg-sl-0 avg-tp-0)
-				     ,(if (plusp avg-tp-0) "BULL" "BEAR")))
-				:column-label metric-labels)
-		  (format s "</pre><hr/>")
-		  (push-to-agents-log (get-output-stream-string s)))))
+	  (if (>= dominated-idx 0)
+	      ;; Logging what BETA agent our ALPHA dominated (if any).
+	      (let ((dominated-agent (nth dominated-idx agents)))
+		(when logp
+		  (log-agent :beta
+			     (slot-value dominated-agent 'id)
+			     (slot-value dominated-agent 'avg-revenue)
+			     (slot-value dominated-agent 'trades-won)
+			     (slot-value dominated-agent 'trades-lost)
+			     (slot-value dominated-agent 'avg-return)
+			     (slot-value dominated-agent 'total-return)
+			     (slot-value dominated-agent 'avg-sl)
+			     (slot-value dominated-agent 'avg-tp)))
+		(when logp
+		  (log-agent :alpha agent-id-0 avg-revenue-0 trades-won-0 trades-lost-0 avg-return-0 total-return-0 avg-sl-0 avg-tp-0)))
+	      ;; Logging crappy agent who couldn't beat anyone.
+	      (when logp
+		(log-agent :crap agent-id-0 avg-revenue-0 trades-won-0 trades-lost-0 avg-return-0 total-return-0 avg-sl-0 avg-tp-0)))
 	  dominatedp))))
 
 (defun get-agent (instrument timeframe types agent-id)
@@ -1714,25 +1743,19 @@
 		   (conn (loop for agent in agents
 			       do (unless (get-agent instrument timeframe types (slot-value agent 'id))
 				    (push-to-log (format nil "Inserting new agent with ID ~a" (slot-value agent 'id)))
-				    (let ((metric-labels '("AVG-REVENUE" "TRADES-WON" "TRADES-LOST" "AVG-RETURN" "TOTAL-RETURN" "AVG-RR" "DIRECTION")))
-				      (with-open-stream (s (make-string-output-stream))
-					(format s "<pre><b>(OMEGA) </b>Agent ID ~a~%" (slot-value agent 'id))
-					(format-table s `((,(format nil "~6$" (slot-value agent 'avg-revenue))
-							   ,(slot-value agent 'trades-won)
-							   ,(slot-value agent 'trades-lost)
-							   ,(format nil "~2$" (slot-value agent 'avg-return))
-							   ,(format nil "~2$" (slot-value agent 'total-return))
-							   ,(format-rr (slot-value agent 'avg-sl)
-								       (slot-value agent 'avg-tp))
-							   ,(if (plusp (slot-value agent 'avg-tp)) "BULL" "BEAR")))
-						      :column-label metric-labels)
-					(format s "</pre><hr/>")
-					(push-to-agents-log (get-output-stream-string s))))
+				    (log-agent :omega (slot-value agent 'id)
+					       (slot-value agent 'avg-revenue)
+					       (slot-value agent 'trades-won)
+					       (slot-value agent 'trades-lost)
+					       (slot-value agent 'avg-return)
+					       (slot-value agent 'total-return)
+					       (slot-value agent 'avg-sl)
+					       (slot-value agent 'avg-tp))
 				    (add-agent agent instrument timeframe types))))
 		   (push-to-log "Pareto frontier updated successfully.")
 		   (return))
 		 (let* ((challenger (list (evaluate-agent (funcall gen-agent-fn) rates)))
-			(is-dominated? (is-agent-dominated? (car challenger) agents)))
+			(is-dominated? (is-agent-dominated? (car challenger) agents t)))
 		   ;; Logging agent direction.
 		   (push-to-agent-directions-log instrument timeframe types (slot-value (first challenger) 'avg-tp))
 		   (unless is-dominated?
@@ -2166,7 +2189,7 @@
   (fare-memoization:memoize 'read-str))
 
 (defun update-creation-training-dataset (type pattern instrument timeframe start end)
-  (setf (gethash (list type pattern instrument timeframe) *creation-training-datasets*)
+  (setf (gethash (list instrument timeframe pattern type) *creation-training-datasets*)
 	(list start end))
   "")
 
@@ -2198,12 +2221,8 @@
 		 (list (assoccess dataset :begin-time)
 		       (assoccess dataset :end-time)))))
 
-(comment (loop for key being each hash-key of *creation-training-datasets*
-	       for value being each hash-value of *creation-training-datasets*
-	       do (print value)))
-
 (defun get-dataset (type pattern instrument timeframe rates)
-  (if-let ((begin-end (gethash (list type pattern instrument timeframe) *creation-training-datasets*)))
+  (if-let ((begin-end (gethash (list instrument timeframe pattern type) *creation-training-datasets*)))
     (let ((begin-time (first begin-end))
 	  (end-time (second begin-end)))
       (get-rates-range-big instrument timeframe begin-time end-time))

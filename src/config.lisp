@@ -25,6 +25,7 @@
 	   #:*max-testing-dataset-size*
 	   #:*number-of-agent-rules*
 	   #:*number-of-agent-inputs*
+	   #:*evaluate-agents-activation-threshold*
 	   #:*instruments*
 	   #:*timeframes*
 	   )
@@ -44,6 +45,8 @@
 (defparameter *max-testing-dataset-size* 200)
 (defparameter *number-of-agent-rules* 20)
 (defparameter *number-of-agent-inputs* 5)
+(defparameter *evaluate-agents-activation-threshold* 0.7
+  "Minimum activation required for a trade to be added to the metrics generated during agent pool evaluation.")
 ;; (defparameter *instruments* ominp:*forex*)
 (defparameter *timeframes* ominp:*shortterm*)
 (defparameter *instruments* nil)

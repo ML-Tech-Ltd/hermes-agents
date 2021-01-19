@@ -143,6 +143,32 @@
 ;; (drop-database)
 ;; (progn (drop-database) (init-database) (init-patterns) (clear-log))
 
+(comment
+ (progn
+   (defparameter *proof* nil)
+   (progn (drop-database) (init-database) (init-patterns) (clear-log))
+   (loop-optimize-test))
+ )
+;; (float (/ (count t *proof* :key #'first) (length *proof*)))
+;; (float (/ (count t *proof*) (length *proof*)))
+
+;; Deciles.
+(comment
+ (loop for i from 0 below 10
+       do (let ((proof (remove-if-not (lambda (elt) (equal elt (list i (1+ i)))) *proof* :key #'second)))
+	    (if (> (length proof) 0)
+		(print (list (1+ i) (float (/ (count t proof :key #'first) (length proof)))
+			     (length proof)))
+		(print "N/A"))))
+ )
+
+(comment
+ (sort (loop for act in *activations*
+	     for rev in *revenues*
+	     collect (list act rev))
+       #'<
+       :key #'first))
+
 (defun init-patterns ()
   (unless (get-patterns :AUD_USD :H1 '(:BULLISH))
     (insert-pattern :AUD_USD :H1 :BULLISH))
@@ -942,7 +968,7 @@
   (:table-name trades)
   (:keys id))
 
-(defun get-tp-sl (rates &optional (lookahead-count 10))
+(defun get-tp-sl (rates &optional (lookahead-count 10) (symmetricp nil))
   (let* ((init-rate (rate-close (first rates)))
 	 (max-pos 0)
 	 (max-neg 0))
@@ -957,8 +983,9 @@
 		 (when (< delta-low max-neg)
 		   (setf max-neg delta-low)))))
     `((:tp . ,(if (>= max-pos (abs max-neg)) max-pos max-neg))
-      ;; (:sl . ,(if (>= max-pos (abs max-neg)) (* max-pos -1.0) (* max-neg -1.0)))
-      (:sl . ,(if (>= (abs max-neg) max-pos) max-pos max-neg))
+      ,(if symmetricp
+	   `(:sl . ,(if (>= max-pos (abs max-neg)) (* max-pos -1.0) (* max-neg -1.0)))
+	   `(:sl . ,(if (>= (abs max-neg) max-pos) max-pos max-neg)))
       )))
 ;; (time (get-tp-sl (get-input-dataset *rates* 400)))
 
@@ -1342,37 +1369,37 @@
       (setf sl (nth (position 0 idxs) sls))
       (setf activation (nth (position 0 idxs) activations))
       ;; (when (> activation 0.5)
-      ;; (loop for idx from 1 below len
-      ;; 	    do (let* ((pos (position idx idxs))
-      ;; 		      (nth-tp (nth pos tps))
-      ;; 		      (nth-sl (nth pos sls)))
+      ;; 	(loop for idx from 1 below len
+      ;; 	      do (let* ((pos (position idx idxs))
+      ;; 			(nth-tp (nth pos tps))
+      ;; 			(nth-sl (nth pos sls)))
 
-      ;; 		 ;; ;; consensus
-      ;; 		 ;; (when (< (* nth-tp tp) 0)
-      ;; 		 ;;   (setf consensus nil)
-      ;; 		 ;;   (return))
+      ;; 		   ;; ;; consensus
+      ;; 		   ;; (when (< (* nth-tp tp) 0)
+      ;; 		   ;;   (setf consensus nil)
+      ;; 		   ;;   (return))
 
-      ;; 		 (when (< (* nth-tp tp) 0)
-      ;; 		 	(setf tp 0)
-      ;; 		 	(setf sl 0)
-      ;; 		 	(return))
-      ;; 		 (when (< (* nth-sl sl) 0)
-      ;; 		 	(setf tp 0)
-      ;; 		 	(setf sl 0)
-      ;; 		 	(return))
+      ;; 		   (when (< (* nth-tp tp) 0)
+      ;; 		     (setf tp 0)
+      ;; 		     (setf sl 0)
+      ;; 		     (return))
+      ;; 		   (when (< (* nth-sl sl) 0)
+      ;; 		     (setf tp 0)
+      ;; 		     (setf sl 0)
+      ;; 		     (return))
 	      
-      ;; 		 ;; (when (or (= tp 0) (< (abs nth-tp) (abs tp)))
-      ;; 		 ;; 	(setf tp nth-tp))
-      ;; 		 ;; (when (or (= sl 0) (< (abs nth-sl) (abs sl)))
-      ;; 		 ;; 	(setf sl nth-sl))
-      ;; 		 ;; (when (or (= tp 0) (< (abs nth-tp) (abs tp)))
-      ;; 		 ;; 	(setf tp nth-tp))
-      ;; 		 ;; (when (or (= sl 0) (< (abs nth-sl) (abs sl)))
-      ;; 		 ;; 	(setf sl nth-sl))
-      ;; 		 ;; (incf tp nth-tp)
-      ;; 		 ;; (incf sl nth-sl)
-      ;; 		 ))
-	;;)
+      ;; 		   ;; (when (or (= tp 0) (< (abs nth-tp) (abs tp)))
+      ;; 		   ;; 	(setf tp nth-tp))
+      ;; 		   ;; (when (or (= sl 0) (< (abs nth-sl) (abs sl)))
+      ;; 		   ;; 	(setf sl nth-sl))
+      ;; 		   ;; (when (or (= tp 0) (< (abs nth-tp) (abs tp)))
+      ;; 		   ;; 	(setf tp nth-tp))
+      ;; 		   ;; (when (or (= sl 0) (< (abs nth-sl) (abs sl)))
+      ;; 		   ;; 	(setf sl nth-sl))
+      ;; 		   ;; (incf tp nth-tp)
+      ;; 		   ;; (incf sl nth-sl)
+      ;; 		   ))
+      ;; 	)
       ;; (push consensus *consensus*)
       (values (/ tp 1)
 	      (/ sl 1)
@@ -1414,6 +1441,7 @@
 			(exit-time (assoccess trade :exit-time))
 			(finish-idx (assoccess trade :finish-idx)))
 		   (if (or (= revenue 0)
+			   (< activation omage.config:*evaluate-agents-activation-threshold*)
 			   (> (abs sl) (abs tp))
 			   (> (* tp sl) 0)
 			   (= tp 0)
@@ -1450,6 +1478,11 @@
 		   ;; (incf idx finish-idx)
 		   (incf idx)
 		   ))))
+    ;; ACTPROOF
+    ;; (unless agent
+    ;;   (setf *activations* activations)
+    ;;   (setf *revenues* revenues)
+    ;;   (coco))
     (push-to-log (format nil "Traded ~a out of ~a datapoints." num-datapoints-traded num-datapoints))
     (push-to-log "<br/>Agents evaluated successfully.")
     (let* ((returns (loop for revenue in revenues
@@ -1499,34 +1532,124 @@
 	(:returns . ,(reverse returns))))))
 ;; (evaluate-agents :EUR_USD :H1 '(:BULLISH) *rates*)
 
-;; (defparameter *activations* nil)
-;; (defparameter *tps* nil)
-;; (defparameter *sls* nil)
-;; (defparameter *revenues* nil)
+(comment
+ (defparameter *activations* nil)
+ (defparameter *tps* nil)
+ (defparameter *sls* nil)
+ (defparameter *revenues* nil)
 
-;; (defun coco ()
-;;   (let ((sorted (sort (loop for act in *activations*
-;; 			    for rev in *revenues*
-;; 			    collect (list act rev))
-;; 		      #'<
-;; 		      :key #'first)))
-;;     ;; (cl-mathstats:correlation
-;;     ;;  (mapcar #'second sorted)
-;;     ;;  (mapcar #'first sorted))
-;;     ;; (loop for s in sorted
-;;     ;; 	do (format t "~a ~a~%" (first s) (if (plusp (second s)) 1 -1)))
-;;     (let* ((first-half (subseq sorted 0 (round (/ (length sorted) 2))))
-;; 	   (second-half (subseq sorted (round (/ (length sorted) 2))))
-;; 	   (first-act (float (/ (length (remove-if-not #'plusp first-half :key #'second))
-;; 				(length first-half))))
-;; 	   (second-act (float (/ (length (remove-if-not #'plusp second-half :key #'second))
-;; 				 (length second-half)))))
-;;       (format t "~a ~a ~a~%"
-;; 	      (> second-act first-act)
-;; 	      first-act
-;; 	      second-act
-;; 	      ))
-;;     ))
+ (defparameter *proof* nil))
+
+;; (format t "~a, ~a, ~a~%"
+;; 	(length *activations*)
+;; 	(length *tps*)
+;; 	(length *sls*))
+
+(comment
+ (defun coco ()
+   (let* ((sorted (sort (loop for act in *activations*
+			      for rev in *revenues*
+			      collect (list act rev))
+			#'<
+			:key #'first))
+	  ;; (mean-act (/ (reduce #'+ sorted :key #'first) (length sorted)))
+	  ;; (sorted (remove-if-not (lambda (elt) (> elt mean-act)) sorted :key #'first))
+	  )
+     ;; (cl-mathstats:correlation
+     ;;  (mapcar #'second sorted)
+     ;;  (mapcar #'first sorted))
+     ;; (loop for s in sorted
+     ;; 	do (format t "~a ~a~%" first s) (if (plusp (second s)) 1 -1)))
+
+     ;; Extremes revenue.
+     (when (and (> (length sorted) 1)
+		(< (* (second (first sorted))
+		      (second (last-elt sorted))) 0))
+       (push (< (second (first sorted))
+		(second (last-elt sorted)))
+	     *proof*))
+     ;; Extremes wins.
+     ;; (when (and (> (length sorted) 1)
+     ;; 	       (< (* (second (first sorted))
+     ;; 		     (second (last-elt sorted))) 0))
+     ;;   (push (and (< (second (first sorted)) 0)
+     ;; 		 (> (second (last-elt sorted)) 0))
+     ;; 	    *proof*))
+
+    
+     ;; Chunks.
+     (let* ((step (floor (/ (length sorted) 2)))
+	    (idx0 0)
+	    (idx1 step))
+       (when (and *activations*
+		  ;; (> (mean *activations*) 0.5)
+		  (> step 0))
+	 (loop while (< (+ idx1 step) (length sorted))
+	       do (let* ((fst (subseq sorted idx0 idx1))
+			 (snd (subseq sorted idx1 (+ idx1 step)))
+			 (fst-wins (remove-if-not #'plusp fst :key #'second))
+			 (snd-wins (remove-if-not #'plusp snd :key #'second)))
+		    (when (and (> (length fst-wins) 0)
+			       (> (length snd-wins) 0)
+			       (/= (length snd-wins) (length fst-wins)))
+		      ;; Wins.
+		      ;; (push (list (> (length snd-wins) (length fst-wins))
+		      ;; 		 (list (/ idx0 step) (/ idx1 step)))
+		      ;; 	   *proof*)
+		      ;; Positive revenue.
+		      ;; (push (list (> (/ (reduce #'+ snd-wins :key #'second) (length snd-wins))
+		      ;; 		    (/ (reduce #'+ fst-wins :key #'second) (length fst-wins)))
+		      ;; 		 (list (/ idx0 step) (/ idx1 step)))
+		      ;; 	   *proof*)
+		      ;; Revenue.
+		      ;; (push (list (> (/ (reduce #'+ snd :key #'second) (length snd))
+		      ;; 		    (/ (reduce #'+ fst :key #'second) (length fst)))
+		      ;; 		 (list (/ idx0 step) (/ idx1 step)))
+		      ;; 	   *proof*)
+		      )
+		    (incf idx0 step)
+		    (incf idx1 step))))
+       nil)
+
+
+
+    
+    
+     ;; (ignore-errors
+     ;;  (let* ((first-half (subseq sorted (* (round (/ (length sorted) 10)) 0) (* (round (/ (length sorted) 10)) 5)))
+     ;; 	    (second-half (subseq sorted (* (round (/ (length sorted) 10)) 5)))
+
+     ;; 	    (first-half-wins (remove-if-not #'plusp first-half :key #'second))
+     ;; 	    (second-half-wins (remove-if-not #'plusp second-half :key #'second))
+
+     ;; 	    (first-half-losses (remove-if-not #'minusp first-half :key #'second))
+     ;; 	    (second-half-losses (remove-if-not #'minusp second-half :key #'second))
+	   
+     ;; 	    (first-half-avg-revenue (/ (reduce #'+ first-half :key #'second) (length first-half)))
+     ;; 	    (second-half-avg-revenue (/ (reduce #'+ second-half :key #'second) (length second-half)))
+
+     ;; 	    (first-half-wins-avg-revenue (/ (reduce #'+ first-half-wins :key #'second) (length first-half-wins)))
+     ;; 	    (second-half-wins-avg-revenue (/ (reduce #'+ second-half-wins :key #'second) (length second-half-wins)))
+
+     ;; 	    (first-half-losses-avg-revenue (/ (reduce #'+ first-half-losses :key #'second) (length first-half-losses)))
+     ;; 	    (second-half-losses-avg-revenue (/ (reduce #'+ second-half-losses :key #'second) (length second-half-losses)))
+     ;; 	    )
+
+     ;;    ;; Pushing how many times having a greater activation resulted in greater avg. revenue.
+     ;;    ;; (format t "~a, ~a~%" second-half-avg-revenue first-half-avg-revenue)
+     ;;    ;; (push (> second-half-avg-revenue first-half-avg-revenue) *proof*)
+     ;;    (push (> (length second-half-wins) (length first-half-wins)) *proof*)
+     ;;    ;; (format t "~a, ~a~%" second-half-wins-avg-revenue first-half-wins-avg-revenue)
+     ;;    ;; (push (> second-half-wins-avg-revenue first-half-wins-avg-revenue) *proof*)
+     ;;    ;; (push (> second-half-losses-avg-revenue first-half-losses-avg-revenue) *proof*)
+      
+     ;;    ;; (format t "~a ~a ~a~%"
+     ;;    ;; 	      (> second-act first-act)
+     ;;    ;; 	      first-act
+     ;;    ;; 	      second-act
+     ;;    ;; 	      )
+     ;;    ))
+     )))
 
 ;; (cl-mathstats:correlation *activations* *revenues*)
 ;; (ql:system-apropos "math")
@@ -1540,6 +1663,13 @@
     ;;   (setf *sls* (assoccess fitnesses :sls))
     ;;   (setf *revenues* (assoccess fitnesses :revenues))
     ;;   (coco))
+    ;; ACTPROOF
+    (comment
+     (setf *activations* (assoccess fitnesses :activations))
+     (setf *tps* (assoccess fitnesses :tps))
+     (setf *sls* (assoccess fitnesses :sls))
+     (setf *revenues* (assoccess fitnesses :revenues))
+     (coco))
     ;; (ignore-errors (print (cl-mathstats:correlation *activations* *revenues*)))
     
     (loop for fitness in fitnesses
@@ -1589,11 +1719,15 @@
 	  for a2 across activations2
 	  for r2 across returns2
 	  for tr across total-returns
-	  when (and (> r1 0) ;; To even consider it, the return1 must be greater than 0.
-		    ;; (/= (* a1 r1) 0) ; Checking that activation1 and return1 are not equal to 0.
-		    (>= a1 a2)
-		    ;; (> r1 r2)
-		    (> total-return tr))
+	  when (and
+		;; To even consider it, the return1 must be greater than 0.
+		(> r1 0)
+		;; Checking that activation1 and return1 are not equal to 0.
+		;; (/= (* a1 r1) 0)
+		;; Activation must be greater than a2 and the threshold.
+		(>= a1 a2 omage.config:*evaluate-agents-activation-threshold*)
+		;; (> r1 r2)
+		(> total-return tr))
 	    do (progn
 		 (setf dominatedp nil)
 		 (setf dominated-idx idx)
@@ -2455,6 +2589,7 @@
 	 (b (+ (* m (- x0)) 0)))
     (/ (- y b) m)))
 ;; (con 0.0 -5 0)
+;; (con 0.0 0 -5)
 
 (defun ant (x x0 x1)
   (if (= (- x1 x0) 0)
@@ -2463,6 +2598,7 @@
 	     (b (+ (* m (- x0)) 0)))
 	(+ (* m x) b))))
 ;; (ant 3 0 5)
+;; (ant 3 5 0)
 
 ;; (defun make-antecedent (mean spread)
 ;;   (lambda (x) (exp (* -0.5 (expt (/ (- x mean) spread) 2)))))
@@ -2594,18 +2730,24 @@
 				       (list (vector (vector ;; (if (and nil (< mn-tp mn-out-tp))
 						      ;;     mn-out-tp
 						      ;;     mn-tp)
-						      0 tp
+						      ;; 0 tp
+						      (if (plusp tp)
+						          0
+						          tp)
+						      (if (plusp tp)
+						          tp
+						          0)
 						      )
 						     (vector ;; (if (and nil (< mn-sl mn-out-sl))
 						      ;;     mn-out-sl
 						      ;;     mn-sl)
-						      0 sl
-						      ;; (if (plusp sl)
-						      ;;     0
-						      ;;     sl)
-						      ;; (if (plusp sl)
-						      ;;     sl
-						      ;;     0)
+						      ;; 0 sl
+						      (if (plusp sl)
+						          0
+						          sl)
+						      (if (plusp sl)
+						          sl
+						          0)
 						      ))
 					     ;; (vector (vector tp
 					     ;; 		 ;; (if (and nil (> mx-tp mx-out-tp))

@@ -1988,7 +1988,7 @@
      (loop for agent in A2
 	   do (if (get-dao 'agent (slot-value agent 'id))
 		  (update-dao agent)
-		  (insert-dao agent)))
+		  (insert-agent agent instrument timeframe types)))
      ;; Now we delete the agents that are in A1 (database) but not in A2 (cache).
      (let ((ids (mapcar (lambda (agent) (slot-value agent 'id)) A2)))
        (loop for agent in A1

@@ -2686,17 +2686,17 @@
       do (let ((gm 0))
 	   (loop for antecedents across input-antecedents
 		 for input in inputs
-		 do (let ((antecedent (aref antecedents idx)))
-		      (incf gm (ant input (aref antecedent 0) (aref antecedent 1)))))
-	   (when (and (<= gm 1)
-		      (>= gm 0)
-		      (>= gm winner-gm))
+		 do (let* ((antecedent (aref antecedents idx))
+			   (act (ant input (aref antecedent 0) (aref antecedent 1))))
+		      (when (and (<= act 1)
+				 (>= act 0))
+			(incf gm act))))
+	   (when (>= gm winner-gm)
 	     (setf winner-idx idx)
 	     (setf winner-gm gm))))
     ;; Calculating outputs (TP & SL).
     (let ((activation (/ winner-gm len)))
       (loop
-	for antecedents across input-antecedents
 	for consequents across input-consequents
 	do (progn
 	     (incf tp (con activation
@@ -2771,11 +2771,8 @@
 		collect (let ((v (flatten (loop
 					    for input in inputs
 					    collect (list
-						     (if (plusp input)
-							 (vector 0 input)
-							 (vector input 0))
-						     ;; (vector (- input (nth idx inp-sd)) input)
-						     ;; (vector input (+ input (nth idx inp-sd)))
+						     (vector 0 input)
+						     (vector (* 2 input) input)
 						     )))))
 			  (make-array (length v) :initial-contents v)))))
        (make-array (length v) :initial-contents v))
@@ -2790,11 +2787,15 @@
 					    )
 				       ;; Consequent creation.
 				       (list (vector (vector 0 tp)
-						     (vector sl 0)))))))
+						     (vector sl 0))
+					     ;; We need to repeat the consequent for the "other side" of the triangle.
+					     (vector (vector 0 tp)
+					     	     (vector sl 0))
+					     )))))
 	    (one-set-outputs-v (make-array (length one-set-outputs) :initial-contents one-set-outputs))
 	    (v (loop repeat (length (first chosen-inputs))
 		     collect one-set-outputs-v)))
        (make-array (length v) :initial-contents v)))))
-;; (make-ifis (gen-agent 3 *rates* (assoccess (gen-random-beliefs 2) :perception-fns) 10 10) 3 *rates*)
+;; (make-ifis (gen-agent 3 :EUR_USD *rates* (assoccess (gen-random-beliefs 2) :perception-fns) 10 10) 3 :EUR_USD *rates*)
 ;; (slot-value (gen-agent 2 *rates* (assoccess (gen-random-beliefs 2) :perception-fns) 10 10) 'perception-fns)
 ;; (insert-agent (gen-agent 2 *rates* (assoccess (gen-random-beliefs 2) :perception-fns) 10 16) :EUR_USD :H1 '(:BULLISH))

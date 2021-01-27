@@ -31,6 +31,7 @@
 	   #:*max-tp*
 	   #:*min-sl*
 	   #:*min-n-times-spread-sl*
+	   #:*lookahead*
 	   )
   (:nicknames #:omage.config))
 (in-package :overmind-agents.config)
@@ -42,6 +43,7 @@
 (defparameter *is-production* t)
 (defparameter *is-log* t)
 
+(defparameter *lookahead* 10)
 (defparameter *max-tp* 100 "In PIPs")
 (defparameter *min-sl* 0 "In PIPs")
 (defparameter *min-n-times-spread-sl* 2

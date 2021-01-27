@@ -108,7 +108,7 @@
   (assoccess rate :close-bid))
 
 (defun rate-close-ask (rate)
-  (assoccess rate :close-bid))
+  (assoccess rate :close-ask))
 
 (defun rate-low-bid (rate)
   (assoccess rate :low-bid))
@@ -795,7 +795,7 @@
 		      (setf max-lookbehind lookbehind))
 		    (push perc perceptions)))
     `((:perception-fns . ,(make-array (length perceptions) :initial-contents perceptions))
-      (:lookahead-count . 10)
+      (:lookahead-count . ,omage.config:*lookahead*)
       (:lookbehind-count . ,(+ 10 max-lookbehind)))))
 ;; (gen-random-beliefs 30)
 

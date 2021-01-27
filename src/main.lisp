@@ -38,6 +38,7 @@
 
 (defparameter *rand-gen* (make-generator :mersenne-twister-32))
 (defparameter *agents-cache* (make-hash-table :test 'equal))
+;; (progn (drop-database) (init-database) (init-patterns) (clear-log))
 (defparameter *creation-training-datasets* (make-hash-table :test 'equal))
 (defparameter +CELL-FORMATS+ '(:left   "~vA"
 			       :center "~v:@<~A~>"
@@ -141,7 +142,6 @@
    (drop-table 'patterns-trades)
    (drop-table 'trades)))
 ;; (drop-database)
-;; (progn (drop-database) (init-database) (init-patterns) (clear-log))
 
 (comment
  (progn
@@ -2788,41 +2788,9 @@
 					    ;; (mn-sl (- sl sl-sd))
 					    ;; (mx-sl (+ sl sl-sd))
 					    )
-				       (list (vector (vector ;; (if (and nil (< mn-tp mn-out-tp))
-						      ;;     mn-out-tp
-						      ;;     mn-tp)
-						      ;; 0 tp
-						      (if (plusp tp)
-						          0
-						          tp)
-						      (if (plusp tp)
-						          tp
-						          0)
-						      )
-						     (vector ;; (if (and nil (< mn-sl mn-out-sl))
-						      ;;     mn-out-sl
-						      ;;     mn-sl)
-						      ;; 0 sl
-						      (if (plusp sl)
-						          sl
-						          0)
-						      (if (plusp sl)
-						          0
-						          sl)
-						      ))
-					     ;; (vector (vector tp
-					     ;; 		 ;; (if (and nil (> mx-tp mx-out-tp))
-					     ;; 		 ;;     mx-out-tp
-					     ;; 		 ;;     mx-tp)
-					     ;; 		 0)
-					     ;; 	 (vector sl
-					     ;; 		 ;; (if (and nil (> mx-sl mx-out-sl))
-					     ;; 		 ;;     mx-out-sl
-					     ;; 		 ;;     mx-sl)
-					     ;; 		 0
-					     ;; 		 )
-					     ;; 	 )
-					     )))))
+				       ;; Consequent creation.
+				       (list (vector (vector 0 tp)
+						     (vector sl 0)))))))
 	    (one-set-outputs-v (make-array (length one-set-outputs) :initial-contents one-set-outputs))
 	    (v (loop repeat (length (first chosen-inputs))
 		     collect one-set-outputs-v)))

@@ -468,6 +468,20 @@
 	  (t (* quantity 10000)))))
 ;; (to-pips :USD_CZK 0.010)
 
+(defun from-pips (instrument quantity)
+  (let ((str-instrument (format nil "~a" instrument)))
+    (cond ((or (cl-ppcre:scan "JPY" str-instrument)
+	       (cl-ppcre:scan "HUF" str-instrument)
+	       (cl-ppcre:scan "KRW" str-instrument)
+	       (cl-ppcre:scan "THB" str-instrument))
+	   (/ quantity 100))
+	  ((or (cl-ppcre:scan "CZK" str-instrument)
+	       (cl-ppcre:scan "CNY" str-instrument)
+	       (cl-ppcre:scan "INR" str-instrument))
+	   (/ quantity 1000))
+	  (t (/ quantity 10000)))))
+;; (float (from-pips :EUR_JPY 100))
+
 (defun get-global-revenue (&key from to)
   (let ((trades (conn (if (and from to)
 			  (query (:order-by (:select '*
@@ -989,7 +1003,7 @@
       )))
 ;; (time (get-tp-sl (get-input-dataset *rates* 400)))
 
-(defun get-same-direction-outputs-idxs (rates count &key (lookahead-count 10) (lookbehind-count 10) direction-fn)
+(defun get-same-direction-outputs-idxs (instrument rates count &key (lookahead-count 10) (lookbehind-count 10) direction-fn)
   (let* ((r (random-float *rand-gen* 0 1))
 	 (pred (if direction-fn direction-fn (if (> r 0.5) #'plusp #'minusp)))
 	 (opposite-pred (if (> r 0.5) #'minusp #'plusp))
@@ -999,17 +1013,19 @@
 	  do (let ((tp-sl (get-tp-sl (subseq rates idx) lookahead-count)))
 	       (when (and (< (length result) count)
 			  (funcall pred (assoccess tp-sl :tp))
-			  (/= (assoccess tp-sl :sl) 0))
+			  (/= (assoccess tp-sl :sl) 0)
+			  (> (abs (assoccess tp-sl :sl)) (from-pips instrument omage.config:*min-sl*))
+			  (< (abs (assoccess tp-sl :tp)) (from-pips instrument omage.config:*max-tp*)))
 		 (push idx result))))
     (if (> (length result) 1)
 	result
-	(get-same-direction-outputs-idxs rates count
+	(get-same-direction-outputs-idxs instrument rates count
 					 :lookahead-count lookahead-count
 					 :lookbehind-count lookbehind-count
 					 :direction-fn opposite-pred))))
 ;; (get-same-direction-outputs-idxs *rates* :lookahead-count 5)
 
-(defun gen-agent (num-rules rates perception-fns lookahead-count lookbehind-count)
+(defun gen-agent (num-rules instrument rates perception-fns lookahead-count lookbehind-count)
   (let ((agent (make-instance 'agent)))
     (setf (slot-value agent 'creation-begin-time) (read-from-string (assoccess (first rates) :time)))
     (setf (slot-value agent 'creation-end-time) (read-from-string (assoccess (last-elt rates) :time)))
@@ -1017,14 +1033,14 @@
     (setf (slot-value agent 'lookahead-count) lookahead-count)
     (setf (slot-value agent 'lookbehind-count) lookbehind-count)
     (multiple-value-bind (antecedents consequents)
-    	(make-ifis agent num-rules rates)
+    	(make-ifis agent num-rules instrument rates)
       (setf (slot-value agent 'antecedents) (format nil "~s" antecedents))
       (setf (slot-value agent 'consequents) (format nil "~s" consequents)))
     agent))
 ;; (gen-agent 3 *rates* (gen-random-beliefs 2) 10 55)
 
-(defun gen-agents (num-agents num-rules rates perception-fns lookahead-count lookbehind-count)
-  (loop repeat num-agents collect (gen-agent num-rules rates perception-fns lookahead-count lookbehind-count)))
+(defun gen-agents (num-agents num-rules instrument rates perception-fns lookahead-count lookbehind-count)
+  (loop repeat num-agents collect (gen-agent instrument num-rules rates perception-fns lookahead-count lookbehind-count)))
 ;; (gen-agents 2 3 *rates* (assoccess *beliefs* :perception-fns) 10 55)
 
 (defun evaluate-trade (tp sl rates)
@@ -1352,10 +1368,21 @@
       (loop for agent in agents
 	    do (multiple-value-bind (tp sl activation)
 		   (eval-agent agent rates)
-		 (push tp tps)
-		 (push sl sls)
-		 (push activation activations)
-		 (push (slot-value agent 'id) ids)
+		 (let* ((last-rate (last-elt rates))
+			;; Checking if calculated SL is greater than Nx the current spread.
+			;; If not, we set Nx the current spread as the SL.
+			(corrected-sl (let ((nx-spread (* omage.config:*min-n-times-spread-sl*
+							  (abs (- (rate-close-bid last-rate)
+								    (rate-close-ask last-rate))))))
+					(if (>= (abs sl) nx-spread)
+					    sl
+					    (if (plusp sl)
+						nx-spread
+						(* -1 nx-spread))))))
+		   (push tp tps)
+		   (push corrected-sl sls)
+		   (push activation activations)
+		   (push (slot-value agent 'id) ids))
 		 )))
     ;; (format t "~a, ~a~%" (apply #'min activations) (apply #'max activations))
     (let ((idxs (sorted-indexes activations #'>))
@@ -1942,11 +1969,34 @@
 	(query (:delete-from 'agents-patterns :where (:= 1 1)))))
 ;; (wipe-agents)
 
-(defun sync-agents ()
-  (wipe-agents)
-  (loop for key being each hash-key of *agents-cache*
-	do (loop for agent in (apply #'get-agents key)
-		 do (apply #'insert-agent agent key))))
+(defun get-agents-from-cache (instrument timeframe types)
+  (gethash (list instrument timeframe types) *agents-cache*))
+
+;; (get-agents :EUR_JPY :H1 '(:BULLISH))
+;; (get-agents-from-cache :EUR_JPY :H1 '(:BULLISH))
+
+(defun sync-agents (instrument timeframe types)
+  ;; Get agents from database (A1)
+  ;; Get agents from cache (A2)
+  ;; Update or add agents from A1 using A2
+  ;; Delete agents found in A1 but not in A2
+  (let ((A1 (get-agents instrument timeframe types))
+	(A2 (get-agents-from-cache instrument timeframe types)))
+    (conn
+     ;; First we update existing agents on database and insert the new ones.
+     ;; If the algorithm crashes, we at least keep some of the agents updated and new ones.
+     (loop for agent in A2
+	   do (if (get-dao 'agent (slot-value agent 'id))
+		  (update-dao agent)
+		  (insert-dao agent)))
+     ;; Now we delete the agents that are in A1 (database) but not in A2 (cache).
+     (let ((ids (mapcar (lambda (agent) (slot-value agent 'id)) A2)))
+       (loop for agent in A1
+	     do (let* ((id (slot-value agent 'id))
+		       (foundp (find id ids :test #'string=)))
+		  (unless foundp
+		    (delete-dao agent))))))))
+;; (time (sync-agents :AUD_USD :H1 '(:BULLISH)))
 
 (defun get-agents (instrument timeframe types)
   (flatten
@@ -2370,28 +2420,30 @@
 	      collect `((:segment . ,(first dataset))
 			(:from . ,(local-time:unix-to-timestamp (unix-from-nano (second dataset))))
 			(:to . ,(local-time:unix-to-timestamp (unix-from-nano (third dataset))))))
-	"No manual datasets have been selected.")))
+	nil)))
 ;; (get-datasets)
 
 (defun format-datasets ()
-  (let ((datasets (sort (get-datasets) ;; TODO: Sorting in a very, very naughty way.
-			#'string< :key (lambda (elt) (format nil "~a" (assoccess elt :segment)))))
-	(table-labels '("FROM" "TO")))
-    (with-open-stream (s (make-string-output-stream))
-      (loop for dataset in datasets
-	    do (let ((segment (assoccess dataset :segment))
-		     (from (assoccess dataset :from))
-		     (to (assoccess dataset :to)))
-		 (format s "~%~{~a~^, ~}~%" segment)
-		 (format s "------------------------~%")
-		 (format-table s `((,from
-				    ,to
-				    ))
-			       :column-label table-labels)
-		 ;; (format s "</pre><hr/>")
-		 ))
-      (get-output-stream-string s)
-      )))
+  (let ((data (get-datasets)))
+    (when data
+      (let ((datasets (sort data ;; TODO: Sorting in a very, very naughty way.
+			    #'string< :key (lambda (elt) (format nil "~a" (assoccess elt :segment)))))
+	    (table-labels '("FROM" "TO")))
+	(with-open-stream (s (make-string-output-stream))
+	  (loop for dataset in datasets
+		do (let ((segment (assoccess dataset :segment))
+			 (from (assoccess dataset :from))
+			 (to (assoccess dataset :to)))
+		     (format s "~%~{~a~^, ~}~%" segment)
+		     (format s "------------------------~%")
+		     (format-table s `((,from
+					,to
+					))
+				   :column-label table-labels)
+		     ;; (format s "</pre><hr/>")
+		     ))
+	  (get-output-stream-string s)
+	  )))))
 ;; (format-datasets)
 
 (defun -loop-optimize-test (&key
@@ -2471,7 +2523,9 @@
 		       (push-to-log (format nil "~a agents retrieved for pattern ~s." agents-count types))
 		       (optimization instrument timeframe types
 				     (lambda () (let ((beliefs (gen-random-beliefs omage.config:*number-of-agent-inputs*)))
-						  (gen-agent omage.config:*number-of-agent-rules* creation-dataset
+						  (gen-agent omage.config:*number-of-agent-rules*
+							     instrument
+							     creation-dataset
 							     (assoccess beliefs :perception-fns)
 							     (assoccess beliefs :lookahead-count)
 							     (assoccess beliefs :lookbehind-count))))
@@ -2479,6 +2533,8 @@
 				     omage.config:*seconds-to-optimize-per-pattern*
 				     :report-fn report-fn)
 		       (push-to-log "Optimization process completed.")
+		       (push-to-log "Syncing agents.")
+		       (sync-agents instrument timeframe types)
 		       ))
 	    (when (not omage.config:*is-production*)
 	      (push-to-log "<b>SIGNAL.</b><hr/>")
@@ -2490,7 +2546,6 @@
 	  (push-to-log "Validating trades older than 24 hours.")
 	  (validate-trades)))
       (refresh-memory)
-      (sync-agents)
       (sync-datasets-to-database)))
   (unless omage.config:*is-production*
     (wipe-agents)))
@@ -2621,33 +2676,39 @@
 (defun eval-ifis (inputs input-antecedents input-consequents)
   (let ((tp 0)
 	(sl 0)
-	(activation 0)
-	(len (length inputs)))
+	(len (length inputs))
+	(winner-gm 0)
+	(winner-idx 0)
+	(num-rules (length (aref input-antecedents 0))))
+    ;; Calculating most activated antecedents.
     (loop
-      for input in inputs
-      for antecedents across input-antecedents
-      for consequents across input-consequents
-      do (let ((winner-gm 0)
-	       (winner-idx 0))
-	   (loop
-	     for idx from 0
-	     for ant across antecedents
-	     do (let ((gm (ant input (aref ant 0) (aref ant 1))))
-		  ;; Antecedents will always work with OR (max).
-		  (when (and (<= gm 1)
-			     (>= gm 0)
-			     (>= gm winner-gm))
-		    (setf winner-idx idx)
-		    (setf winner-gm gm))))
-	   ;; Averaging outputs (tp and sl).
-	   (incf activation winner-gm)
-	   (incf tp (con winner-gm
-			 (aref (aref (aref consequents winner-idx) 0) 0)
-			 (aref (aref (aref consequents winner-idx) 0) 1)))
-	   (incf sl (con winner-gm
-			 (aref (aref (aref consequents winner-idx) 1) 0)
-			 (aref (aref (aref consequents winner-idx) 1) 1)))))
-    (values (/ tp len) (/ sl len) (/ activation len))))
+      for idx from 0 below num-rules
+      do (let ((gm 0))
+	   (loop for antecedents across input-antecedents
+		 for input in inputs
+		 do (let ((antecedent (aref antecedents idx)))
+		      (incf gm (ant input (aref antecedent 0) (aref antecedent 1)))))
+	   (when (and (<= gm 1)
+		      (>= gm 0)
+		      (>= gm winner-gm))
+	     (setf winner-idx idx)
+	     (setf winner-gm gm))))
+    ;; Calculating outputs (TP & SL).
+    (let ((activation (/ winner-gm len)))
+      (loop
+	for antecedents across input-antecedents
+	for consequents across input-consequents
+	do (progn
+	     (incf tp (con activation
+			   (aref (aref (aref consequents winner-idx) 0) 0)
+			   (aref (aref (aref consequents winner-idx) 0) 1)))
+	     (incf sl (con activation
+			   (aref (aref (aref consequents winner-idx) 1) 0)
+			   (aref (aref (aref consequents winner-idx) 1) 1)))))
+      (values
+       (/ tp len)
+       (/ sl len)
+       activation))))
 
 ;; Tipping problem.
 ;; Food Q, Service Q
@@ -2671,12 +2732,12 @@
 ;; 	      (format t "~2$, " (float (eval-ifis inputs input-antecedents input-consequents)))))
 ;; 	(format t "~%")))
 
-(defun make-ifis (agent num-rules rates)
+(defun make-ifis (agent num-rules instrument rates)
   "Analytical version."
   (let* ((perception-fn (get-perception-fn agent))
 	 (lookahead-count (slot-value agent 'lookahead-count))
 	 (lookbehind-count (slot-value agent 'lookbehind-count))
-	 (idxs (remove-duplicates (get-same-direction-outputs-idxs rates num-rules :lookahead-count lookahead-count :lookbehind-count lookbehind-count)))
+	 (idxs (remove-duplicates (get-same-direction-outputs-idxs instrument rates num-rules :lookahead-count lookahead-count :lookbehind-count lookbehind-count)))
 	 (chosen-inputs (loop for idx in idxs collect (funcall perception-fn (get-input-dataset rates idx))))
 	 (chosen-outputs (loop for idx in idxs collect (get-tp-sl (get-output-dataset rates idx) lookahead-count)))
 	 ;; (inp-sd (mapcar (lambda (inp) (standard-deviation inp)) (apply #'mapcar #'list chosen-inputs)))
@@ -2743,11 +2804,11 @@
 						      ;;     mn-sl)
 						      ;; 0 sl
 						      (if (plusp sl)
-						          0
-						          sl)
-						      (if (plusp sl)
 						          sl
 						          0)
+						      (if (plusp sl)
+						          0
+						          sl)
 						      ))
 					     ;; (vector (vector tp
 					     ;; 		 ;; (if (and nil (> mx-tp mx-out-tp))

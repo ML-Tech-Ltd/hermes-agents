@@ -28,6 +28,9 @@
 	   #:*evaluate-agents-activation-threshold*
 	   #:*instruments*
 	   #:*timeframes*
+	   #:*max-tp*
+	   #:*min-sl*
+	   #:*min-n-times-spread-sl*
 	   )
   (:nicknames #:omage.config))
 (in-package :overmind-agents.config)
@@ -39,20 +42,25 @@
 (defparameter *is-production* t)
 (defparameter *is-log* t)
 
+(defparameter *max-tp* 100 "In PIPs")
+(defparameter *min-sl* 0 "In PIPs")
+(defparameter *min-n-times-spread-sl* 2
+  "When creating a signal, the agent can potentially output 0 < SL < spread. This parameter is used to determine a minimum SL that is greater than the current spread.")
 (defparameter *seconds-to-optimize-per-pattern* 100)
 (defparameter *max-creation-dataset-size* 3000)
 (defparameter *max-training-dataset-size* 3000)
 (defparameter *max-testing-dataset-size* 200)
 (defparameter *number-of-agent-rules* 20)
 (defparameter *number-of-agent-inputs* 5)
-(defparameter *evaluate-agents-activation-threshold* 0.7
+(defparameter *evaluate-agents-activation-threshold* 0.0
   "Minimum activation required for a trade to be added to the metrics generated during agent pool evaluation.")
 ;; (defparameter *instruments* ominp:*forex*)
 (defparameter *timeframes* ominp:*shortterm*)
 (defparameter *instruments* nil)
 (if *is-production*
     (setf *instruments* ominp:*forex*)
-    (setf *instruments* '(:AUD_USD :EUR_GBP)))
+    (setf *instruments* '(:AUD_USD :EUR_GBP :EUR_JPY :EUR_USD :GBP_USD :USD_CAD :USD_CHF :USD_CNH
+ :USD_JPY)))
 
 (setf (config-env-var) "APP_ENV")
 

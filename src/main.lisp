@@ -466,7 +466,7 @@
 	       (cl-ppcre:scan "INR" str-instrument))
 	   (* quantity 1000))
 	  (t (* quantity 10000)))))
-;; (to-pips :USD_CZK 0.010)
+;; (to-pips :USD_CNH 0.0001)
 
 (defun from-pips (instrument quantity)
   (let ((str-instrument (format nil "~a" instrument)))
@@ -2091,7 +2091,10 @@
 			       :tp tp
 			       :sl sl
 			       :activation activation
-			       :entry-price (assoccess (last-elt rates) :close-bid)
+			       :entry-price (assoccess (last-elt rates)
+						       (if (> tp 0)
+							   :close-bid
+							   :close-ask))
 			       :entry-time (/ (read-from-string (assoccess (last-elt rates) :time)) 1000000)
 			       :train-begin-time (assoccess train-fitnesses :begin-time)
 			       :test-begin-time (assoccess test-fitnesses :begin-time)
@@ -2787,10 +2790,10 @@
 					    )
 				       ;; Consequent creation.
 				       (list (vector (vector 0 tp)
-						     (vector sl 0))
+						     (vector (* 2 sl) sl))
 					     ;; We need to repeat the consequent for the "other side" of the triangle.
 					     (vector (vector 0 tp)
-					     	     (vector sl 0))
+					     	     (vector (* 2 sl) sl))
 					     )))))
 	    (one-set-outputs-v (make-array (length one-set-outputs) :initial-contents one-set-outputs))
 	    (v (loop repeat (length (first chosen-inputs))

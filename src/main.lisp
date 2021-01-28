@@ -434,6 +434,7 @@
 	      (:primary-key id))))))
 ;; (init-database)
 
+;; TODO: Refactor to use RATE-LOW-BID, RATE-HIGH-ASK, etc.
 (defun get-trade-result (entry-price tp sl rates)
   (let ((low-type (if (plusp tp) :low-bid :low-ask))
 	(high-type (if (plusp tp) :high-bid :high-ask)))
@@ -1056,7 +1057,7 @@
 	(finish-idx (length rates)))
     (loop for rate in (rest rates)
 	  for idx from 1 below (length (rest rates))
-	  do (let ((low (if (plusp tp)
+	  do (let ((low (if (plusp tp) ;; Used to exit a trade, so buy -> bid, sell -> ask.
 			    (rate-low-bid rate)
 			    (rate-low-ask rate)))
 		   (high (if (plusp tp)
@@ -1373,7 +1374,7 @@
 			;; If not, we set Nx the current spread as the SL.
 			(corrected-sl (let ((nx-spread (* omage.config:*min-n-times-spread-sl*
 							  (abs (- (rate-close-bid last-rate)
-								    (rate-close-ask last-rate))))))
+								  (rate-close-ask last-rate))))))
 					(if (>= (abs sl) nx-spread)
 					    sl
 					    (if (plusp sl)
@@ -2091,10 +2092,9 @@
 			       :tp tp
 			       :sl sl
 			       :activation activation
-			       :entry-price (assoccess (last-elt rates)
-						       (if (> tp 0)
-							   :close-bid
-							   :close-ask))
+			       :entry-price (if (> tp 0)
+						(rate-close-ask (last-elt rates))
+						(rate-close-bid (last-elt rates)))
 			       :entry-time (/ (read-from-string (assoccess (last-elt rates) :time)) 1000000)
 			       :train-begin-time (assoccess train-fitnesses :begin-time)
 			       :test-begin-time (assoccess test-fitnesses :begin-time)
@@ -2790,10 +2790,10 @@
 					    )
 				       ;; Consequent creation.
 				       (list (vector (vector 0 tp)
-						     (vector (* 2 sl) sl))
+						     (vector (* omage.config:*n-times-sl-for-max-sl* sl) sl))
 					     ;; We need to repeat the consequent for the "other side" of the triangle.
 					     (vector (vector 0 tp)
-					     	     (vector (* 2 sl) sl))
+					     	     (vector (* omage.config:*n-times-sl-for-max-sl* sl) sl))
 					     )))))
 	    (one-set-outputs-v (make-array (length one-set-outputs) :initial-contents one-set-outputs))
 	    (v (loop repeat (length (first chosen-inputs))

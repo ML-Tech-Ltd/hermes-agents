@@ -32,6 +32,7 @@
 	   #:*min-sl*
 	   #:*min-n-times-spread-sl*
 	   #:*lookahead*
+	   #:*n-times-sl-for-max-sl*
 	   )
   (:nicknames #:omage.config))
 (in-package :overmind-agents.config)
@@ -46,6 +47,9 @@
 (defparameter *lookahead* 10)
 (defparameter *max-tp* 100 "In PIPs")
 (defparameter *min-sl* 0 "In PIPs")
+(defparameter *n-times-sl-for-max-sl* 2
+  "If activation for an agent is 1, then we use the SL we read from the creation dataset, but determining
+what SL to use if activation = 0 is not straightforward. We use this parameter to obtain the max SL as a factor of SL (we multiply *n-times-sl-for-max-sl* by the SL read from the creation dataset).")
 (defparameter *min-n-times-spread-sl* 2
   "When creating a signal, the agent can potentially output 0 < SL < spread. This parameter is used to determine a minimum SL that is greater than the current spread.")
 (defparameter *seconds-to-optimize-per-pattern* 100)
@@ -54,7 +58,7 @@
 (defparameter *max-testing-dataset-size* 200)
 (defparameter *number-of-agent-rules* 20)
 (defparameter *number-of-agent-inputs* 5)
-(defparameter *evaluate-agents-activation-threshold* 0.0
+(defparameter *evaluate-agents-activation-threshold* 0.5
   "Minimum activation required for a trade to be added to the metrics generated during agent pool evaluation.")
 ;; (defparameter *instruments* ominp:*forex*)
 (defparameter *timeframes* ominp:*shortterm*)

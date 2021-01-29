@@ -56,7 +56,7 @@ what SL to use if activation = 0 is not straightforward. We use this parameter t
 (defparameter *max-creation-dataset-size* 3000)
 (defparameter *max-training-dataset-size* 3000)
 (defparameter *max-testing-dataset-size* 200)
-(defparameter *number-of-agent-rules* 20)
+(defparameter *number-of-agent-rules* 2)
 (defparameter *number-of-agent-inputs* 5)
 (defparameter *evaluate-agents-activation-threshold* 0.5
   "Minimum activation required for a trade to be added to the metrics generated during agent pool evaluation.")

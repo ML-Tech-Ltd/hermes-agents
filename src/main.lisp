@@ -135,7 +135,7 @@
 
 (defun drop-database ()
   (conn
-   (drop-table 'datasets)
+   ;; (drop-table 'datasets)
    (drop-table 'agents)
    (drop-table 'agents-patterns)
    (drop-table 'patterns)
@@ -258,14 +258,13 @@
 			    :volume (assoccess rate :volume)
 			    )))))))
 
-(defun init-rates (howmany-batches)
-  (let ((instruments ominp:*forex*)
-	(timeframes '(:H1 :M1)))
+(defun init-rates (howmany-batches &key (timeframes '(:H1 :M1)))
+  (let ((instruments ominp:*forex*))
     (loop for instrument in instruments
 	  do (loop for timeframe in timeframes
 		   do (let ((rates (get-rates-batches instrument timeframe howmany-batches)))
 			(insert-rates instrument timeframe rates))))))
-;; (init-rates 1)
+;; (init-rates 2 :timeframes '(:D))
 
 (defun init-database ()
   "Creates all the necessary tables for Overmind Agents."
@@ -1016,7 +1015,8 @@
 			  (funcall pred (assoccess tp-sl :tp))
 			  (/= (assoccess tp-sl :sl) 0)
 			  (> (abs (assoccess tp-sl :sl)) (from-pips instrument omage.config:*min-sl*))
-			  (< (abs (assoccess tp-sl :tp)) (from-pips instrument omage.config:*max-tp*)))
+			  (or (eq instrument :USD_CNH)
+			   (< (abs (assoccess tp-sl :tp)) (from-pips instrument omage.config:*max-tp*))))
 		 (push idx result))))
     (if (> (length result) 1)
 	result
@@ -1357,6 +1357,18 @@
     (eval-ifis (funcall perception-fn rates)
 	       (read-str (slot-value agent 'antecedents))
 	       (read-str (slot-value agent 'consequents)))))
+
+(defun buy-and-hold (rates)
+  (- (rate-close (last-elt rates))
+     (rate-close (first rates))))
+
+;; (comment
+;;  (loop for instrument in '(:EUR_USD :USD_JPY :USD_CHF :GBP_USD :USD_CAD :AUD_USD)
+;;        collect (list instrument
+;; 		     (buy-and-hold
+;; 		      (get-rates-range-big instrument :D
+;; 					   (unix-to-nano (local-time:timestamp-to-unix (local-time:parse-timestring "2004-08-28")))
+;; 					   (unix-to-nano (local-time:timestamp-to-unix (local-time:parse-timestring "2020-05-18")))
 
 ;; (comment
 ;;  (defparameter *consensus* nil)
@@ -1738,37 +1750,16 @@
   (loop for v across vec1 do (when (position v vec2) (return t))))
 ;; (vector-1-similarity #(1 2 3) #(10 20 30))
 
-(defun activations-returns-dominated-p (activations1 returns1 activations2 returns2 total-return total-returns agent-idxs)
-  (let ((dominatedp t)
-	(dominated-idx -1))
-    (loop for idx across agent-idxs
-	  for a1 across activations1
-	  for r1 across returns1
-	  for a2 across activations2
-	  for r2 across returns2
-	  for tr across total-returns
-	  when (and
-		;; To even consider it, the return1 must be greater than 0.
-		(> r1 0)
-		;; Checking that activation1 and return1 are not equal to 0.
-		;; (/= (* a1 r1) 0)
-		;; Activation must be greater than a2 and the threshold.
-		(>= a1 a2 omage.config:*evaluate-agents-activation-threshold*)
-		;; (> r1 r2)
-		(> total-return tr))
-	    do (progn
-		 (setf dominatedp nil)
-		 (setf dominated-idx idx)
-		 (return))
-	       ;; finally (return t)
-	  )
-    (values dominatedp
-	    dominated-idx)))
-;; (activations-returns-dominated-p #(1 1 1) #(1 1 1) #(2 1 1) #(2 1 1))
-;; (activations-returns-dominated-p #(2 0 0) #(2 0 0) #(1 1 1) #(1 1 1))
-
-(defun log-agent (type agent-id avg-revenue trades-won trades-lost avg-return total-return avg-sl avg-tp)
-  (let ((metric-labels '("AVG-REVENUE" "TRADES-WON" "TRADES-LOST" "AVG-RETURN" "TOTAL-RETURN" "AVG-RR" "DIRECTION")))
+(defun log-agent (type agent)
+  (let ((agent-id (slot-value agent 'id))
+	(avg-revenue (slot-value agent 'avg-revenue))
+	(trades-won (slot-value agent 'trades-won))
+	(trades-lost (slot-value agent 'trades-lost))
+	(avg-return (slot-value agent 'avg-return))
+	(total-return (slot-value agent 'total-return))
+	(avg-sl (slot-value agent 'avg-sl))
+	(avg-tp (slot-value agent 'avg-tp))
+	(metric-labels '("AVG-REVENUE" "TRADES-WON" "TRADES-LOST" "AVG-RETURN" "TOTAL-RETURN" "AVG-RR" "DIRECTION")))
     (with-open-stream (s (make-string-output-stream))
       (format s "<pre><b>(~a) </b>Agent ID ~a~%" type agent-id)
       (format-table s `((,(format nil "~6$" avg-revenue)
@@ -1790,97 +1781,84 @@
       ;; AGENT is dominated.
       (progn
 	(when logp
-	  (log-agent :crap
-		     (slot-value agent 'id)
-		     (slot-value agent 'avg-revenue)
-		     (slot-value agent 'trades-won)
-		     (slot-value agent 'trades-lost)
-		     (slot-value agent 'avg-return)
-		     (slot-value agent 'total-return)
-		     (slot-value agent 'avg-sl)
-		     (slot-value agent 'avg-tp)))
+	  (log-agent :crap agent))
 	t)
-      (let* ( (agent-id-0 (slot-value agent 'id))
-	      (avg-revenue-0 (slot-value agent 'avg-revenue))
-	      (trades-won-0 (slot-value agent 'trades-won))
-	      (trades-lost-0 (slot-value agent 'trades-lost))
-	      ;; (agent-direction-0 (aref (slot-value agent 'tps) 0))
-	      (avg-return-0 (slot-value agent 'avg-return))
-	      (total-return-0 (slot-value agent 'total-return))
-	      (activations-0 (slot-value agent 'activations))
-	      (returns-0 (slot-value agent 'returns))
-	      (avg-tp-0 (slot-value agent 'avg-tp))
-	      (avg-sl-0 (slot-value agent 'avg-sl))
-	      ;; (agent-directions (slot-value agent 'tps))
-	      ;; (stdev-revenue-0 (slot-value agent 'stdev-revenue))
-	      ;; (entry-times-0 (slot-value agent 'entry-times))
+      (let* ((total-return-0 (slot-value agent 'total-return))
+	     (activations-0 (slot-value agent 'activations))
+	     (returns-0 (slot-value agent 'returns))
+	     (entry-times-0 (slot-value agent 'entry-times)))
+	;; `data`'s going to hold the max activations, returns and entry times per DP.
+	(let ((data (make-hash-table)))
+	  ;; Determining max activations and returns.
+	  (loop for agent in agents
+		for agent-idx from 0
+		do (loop for act across (slot-value agent 'activations)
+			 for ret across (slot-value agent 'returns)
+			 for time across (slot-value agent 'entry-times)
+			 do (progn
+			      ;; Checking if internal hash-table doesn't exist.
+			      (unless (gethash time data)
+				(setf (gethash time data) (make-hash-table :size 3)))
+			      (let ((datum (gethash time data)))
+				;; Updating internal hash-table.
+				(when (or (not (gethash :activation datum))
+					  (> act (gethash :activation datum)))
+				  (setf (gethash :agent-idx datum) agent-idx)
+				  (setf (gethash :activation datum) act)
+				  ;; (setf (gethash :return datum) ret) ;; Keeping in case we want to compare against DPret.
+				  (setf (gethash :total-return datum)
+					(slot-value agent 'total-return)))))))
+	  ;; Comparing agent activations, returns, etc. to see if it doesn't get dominated.
+	  (let ((dominatedp t)
+		(dominated-idx -1))
+	    ;; First checking if our candidate AGENT wins by default because no other agent is trading at a particular DP.
+	    ;; Also checking if candidate has a positive total return and return at that DP.
+	    ;; Checking agent data against max values.
+	    (let ((foundp t))
+	      (loop for time across entry-times-0
+		    for ret across returns-0
+		    do (when (and (not (gethash time data))
+				  (> ret 0)
+				  (> total-return-0 0))
+			 (setf foundp nil)
+			 (return)))
+	      (unless foundp
+		;; Not dominated.
+		(setf dominatedp nil)))
 
-	      ;; Initializing with activations from first challenger.
-	      (max-activations (reverse (slot-value (first agents) 'activations)))
-	      ;; Initializing with returns from first challenger.
-	      (max-returns (reverse (slot-value (first agents) 'returns)))
-	      ;; Initializing with horrible total returns.
-	      ;; This list represents the total return for the agents that scored the maximum activation at certain DP.
-	      (max-total-returns (make-array (length max-returns) :initial-element most-negative-long-float))
-	      (max-agent-idxs (make-array (length max-returns) :initial-element most-negative-long-float))
-	      ;; The max length to be used for comparison across returns and activations.
-	      (max-length (length activations-0))
-	      ;; (is-dominated? nil)
-	      )
-	;; Setting MAX-ACTIVATIONS and MAX-RETURNS with the highest activation and return for each DP.
-	(loop for agent in agents
-	      for agent-idx from 0 ;; Agent idx.
-	      do (let* ((acts (reverse (slot-value agent 'activations)))
-			(rets (reverse (slot-value agent 'returns)))
-			;; (length acts) == (length rets), so it's safe to just use (length acts).
-			(lacts (length acts)))
-		   ;; We want to iteratively determine what's the maximum number of DP
-		   ;; we can read without overflowing an agent from the agent pool.
-		   (when (< lacts max-length)
-		     (setf max-length lacts))
-		   (loop for i from 0 below max-length
-			 for act across acts
-			 for ret across rets
-			 do (let ((total-return (slot-value agent 'total-return)))
-			      (when (> act (aref max-activations i))
-				(setf (aref max-activations i) act)
-				(setf (aref max-total-returns i) total-return)
-				(setf (aref max-agent-idxs i) agent-idx)
-				;; It's safe to assume that it's also the max return,
-				;; because the condition for adding a new agent is that it must beat another agent at that DP
-				;; only if beats the current score for both metrics.
-				(setf (aref max-returns i) ret))))))
-	;; Checking if candidate AGENT gets dominated while being compared against all the pool of agents
-	;; in terms of activations and returns for each DP.
-        (multiple-value-bind (dominatedp dominated-idx)
-	    (activations-returns-dominated-p
-	     (subseq (reverse activations-0) 0 max-length)
-	     (subseq (reverse returns-0) 0 max-length)
-	     ;; These are already reversed.
-	     (subseq max-activations 0 max-length)
-	     (subseq max-returns 0 max-length)
-	     total-return-0
-	     max-total-returns
-	     max-agent-idxs)
-	  (if (>= dominated-idx 0)
-	      ;; Logging what BETA agent our ALPHA dominated (if any).
-	      (let ((dominated-agent (nth dominated-idx agents)))
-		(when logp
-		  (log-agent :beta
-			     (slot-value dominated-agent 'id)
-			     (slot-value dominated-agent 'avg-revenue)
-			     (slot-value dominated-agent 'trades-won)
-			     (slot-value dominated-agent 'trades-lost)
-			     (slot-value dominated-agent 'avg-return)
-			     (slot-value dominated-agent 'total-return)
-			     (slot-value dominated-agent 'avg-sl)
-			     (slot-value dominated-agent 'avg-tp)))
-		(when logp
-		  (log-agent :alpha agent-id-0 avg-revenue-0 trades-won-0 trades-lost-0 avg-return-0 total-return-0 avg-sl-0 avg-tp-0)))
-	      ;; Logging crappy agent who couldn't beat anyone.
-	      (when logp
-		(log-agent :crap agent-id-0 avg-revenue-0 trades-won-0 trades-lost-0 avg-return-0 total-return-0 avg-sl-0 avg-tp-0)))
-	  dominatedp))))
+	    ;; Checking if we already know that it wasn't dominated.
+	    (when dominatedp
+	      ;; Checking each DP if agent dominates at that DP.
+	      (loop for time across entry-times-0
+		    for act across activations-0
+		    for ret across returns-0
+		    do (let ((datum (gethash time data)))
+			 ;; We're going to add an agent to the agent pool that has a positive DPret (`ret`),
+			 ;; a greater total-return on that DP and a greater than or equal activation than that DP's (and threshold).
+			 (when (and datum
+				    (> ret 0)
+				    (> total-return-0 (gethash :total-return datum))
+				    (>= act
+					(gethash :activation datum)
+					omage.config:*evaluate-agents-activation-threshold*))
+			   ;; Storing what agent got dominated, mainly for logging purposes.
+			   (setf dominated-idx (gethash :agent-idx datum))
+			   ;; Not dominated. Returning from loop.
+			   (setf dominatedp nil)
+			   (return)))))
+	    ;; TODO: Refactor to its own function.
+	    (when logp
+	      (if (>= dominated-idx 0)
+		  ;; Logging what BETA agent our ALPHA dominated (if any).
+		  (let ((dominated-agent (nth dominated-idx agents)))
+		    (log-agent :beta dominated-agent)
+		    (log-agent :alpha agent))
+		  ;; Logging crappy agent who couldn't beat anyone.
+		  (if dominatedp
+		      (log-agent :crap agent)
+		      (log-agent :default agent))))
+	    ;; Returning result.
+	    dominatedp)))))
 
 (defun get-agent (instrument timeframe types agent-id)
   (find agent-id (gethash (list instrument timeframe types) *agents-cache*)
@@ -1906,14 +1884,7 @@
 		   (conn (loop for agent in agents
 			       do (unless (get-agent instrument timeframe types (slot-value agent 'id))
 				    (push-to-log (format nil "Inserting new agent with ID ~a" (slot-value agent 'id)))
-				    (log-agent :omega (slot-value agent 'id)
-					       (slot-value agent 'avg-revenue)
-					       (slot-value agent 'trades-won)
-					       (slot-value agent 'trades-lost)
-					       (slot-value agent 'avg-return)
-					       (slot-value agent 'total-return)
-					       (slot-value agent 'avg-sl)
-					       (slot-value agent 'avg-tp))
+				    (log-agent :omega agent)
 				    (add-agent agent instrument timeframe types))))
 		   (push-to-log "Pareto frontier updated successfully.")
 		   (return))

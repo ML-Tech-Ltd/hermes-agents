@@ -1403,43 +1403,43 @@
 	  (sl 0)
 	  (activation 0)
 	  ;; (consensus t)
-	  ;; (len (min count (length activations)))
+	  (len (min count (length activations)))
 	  )
       (setf tp (nth (position 0 idxs) tps))
       (setf sl (nth (position 0 idxs) sls))
       (setf activation (nth (position 0 idxs) activations))
-      ;; (when (> activation 0.5)
-      ;; 	(loop for idx from 1 below len
-      ;; 	      do (let* ((pos (position idx idxs))
-      ;; 			(nth-tp (nth pos tps))
-      ;; 			(nth-sl (nth pos sls)))
+      (when (> activation 0.5)
+      	(loop for idx from 1 below len
+      	      do (let* ((pos (position idx idxs))
+      			(nth-tp (nth pos tps))
+      			(nth-sl (nth pos sls)))
 
-      ;; 		   ;; ;; consensus
-      ;; 		   ;; (when (< (* nth-tp tp) 0)
-      ;; 		   ;;   (setf consensus nil)
-      ;; 		   ;;   (return))
+      		   ;; ;; consensus
+      		   ;; (when (< (* nth-tp tp) 0)
+      		   ;;   (setf consensus nil)
+      		   ;;   (return))
 
-      ;; 		   (when (< (* nth-tp tp) 0)
-      ;; 		     (setf tp 0)
-      ;; 		     (setf sl 0)
-      ;; 		     (return))
-      ;; 		   (when (< (* nth-sl sl) 0)
-      ;; 		     (setf tp 0)
-      ;; 		     (setf sl 0)
-      ;; 		     (return))
+      		   (when (< (* nth-tp tp) 0)
+      		     (setf tp 0)
+      		     (setf sl 0)
+      		     (return))
+      		   (when (< (* nth-sl sl) 0)
+      		     (setf tp 0)
+      		     (setf sl 0)
+      		     (return))
 	      
-      ;; 		   ;; (when (or (= tp 0) (< (abs nth-tp) (abs tp)))
-      ;; 		   ;; 	(setf tp nth-tp))
-      ;; 		   ;; (when (or (= sl 0) (< (abs nth-sl) (abs sl)))
-      ;; 		   ;; 	(setf sl nth-sl))
-      ;; 		   ;; (when (or (= tp 0) (< (abs nth-tp) (abs tp)))
-      ;; 		   ;; 	(setf tp nth-tp))
-      ;; 		   ;; (when (or (= sl 0) (< (abs nth-sl) (abs sl)))
-      ;; 		   ;; 	(setf sl nth-sl))
-      ;; 		   ;; (incf tp nth-tp)
-      ;; 		   ;; (incf sl nth-sl)
-      ;; 		   ))
-      ;; 	)
+      		   ;; (when (or (= tp 0) (< (abs nth-tp) (abs tp)))
+      		   ;; 	(setf tp nth-tp))
+      		   ;; (when (or (= sl 0) (< (abs nth-sl) (abs sl)))
+      		   ;; 	(setf sl nth-sl))
+      		   ;; (when (or (= tp 0) (< (abs nth-tp) (abs tp)))
+      		   ;; 	(setf tp nth-tp))
+      		   ;; (when (or (= sl 0) (< (abs nth-sl) (abs sl)))
+      		   ;; 	(setf sl nth-sl))
+      		   ;; (incf tp nth-tp)
+      		   ;; (incf sl nth-sl)
+      		   ))
+      	)
       ;; (push consensus *consensus*)
       (values (/ tp 1)
 	      (/ sl 1)
@@ -1784,6 +1784,7 @@
 	  (log-agent :crap agent))
 	t)
       (let* ((total-return-0 (slot-value agent 'total-return))
+	     (avg-return-0 (slot-value agent 'avg-return))
 	     (activations-0 (slot-value agent 'activations))
 	     (returns-0 (slot-value agent 'returns))
 	     (entry-times-0 (slot-value agent 'entry-times)))
@@ -1818,8 +1819,10 @@
 	      (loop for time across entry-times-0
 		    for ret across returns-0
 		    do (when (and (not (gethash time data))
-				  (> ret 0)
-				  (> total-return-0 0))
+				  ;; (> ret 0)
+				  (> avg-return-0 omage.config:*min-agent-avg-return*)
+				  ;; (> total-return-0 0)
+				  )
 			 (setf foundp nil)
 			 (return)))
 	      (unless foundp
@@ -2472,7 +2475,8 @@
 						   (get-rates-chunk-of-types full-training-dataset types
 									     :slide-step 50
 									     :min-chunk-size 300
-									     :max-chunk-size 700)
+									     :max-chunk-size 700
+									     :stagnation-threshold omage.config:*stagnation-threshold*)
 						 (let ((dataset (subseq full-training-dataset from to)))
 						   (push-to-log (format nil "Training dataset created successfully. Size: ~s. Dataset from ~a to ~a."
 									(length dataset)
@@ -2486,7 +2490,8 @@
 						   (get-rates-chunk-of-types full-creation-dataset types
 									     :slide-step 50
 									     :min-chunk-size 300
-									     :max-chunk-size 700)
+									     :max-chunk-size 700
+									     :stagnation-threshold omage.config:*stagnation-threshold*)
 						 (let ((dataset (subseq full-creation-dataset from to)))
 						   (push-to-log (format nil "Creation dataset created successfully. Size: ~s. Dataset from ~a to ~a."
 									(length dataset)
@@ -2514,7 +2519,7 @@
 	      (push-to-log "<b>SIGNAL.</b><hr/>")
 	      (push-to-log (format nil "Trying to create signal with ~a agents." agents-count))
 	      (test-agents instrument timeframe type-groups rates full-training-dataset testing-dataset :test-size test-size)
-	      (push-to-log "Not enough agents to create a signal."))))
+	      (validate-trades))))
 	(when omage.config:*is-production*
 	  (push-to-log "<b>VALIDATION.</b><hr/>")
 	  (push-to-log "Validating trades older than 24 hours.")
@@ -2552,11 +2557,13 @@
 (defun score-rates (rates &key (lookahead 10) (stagnation-threshold 0.5))
   (let* ((results (loop for i from 0 below (- (length rates) lookahead)
 			collect (get-tp-sl (get-output-dataset rates i) lookahead)))
-	 (rrs (loop for result in results collect (* (/ (assoccess result :sl)
+	 (rrs (remove nil (loop for result in results collect (if (= (assoccess result :tp) 0)
+						      nil
+						      (* (/ (assoccess result :sl)
 							(assoccess result :tp))
 						     (if (plusp (assoccess result :tp))
 							 -1
-							 1))))
+							 1))))))
 	 (stagnated (count-if (lambda (elt) (>= (abs elt) stagnation-threshold)) rrs))
 	 (uptrend (count-if (lambda (elt) (and (< (abs elt) stagnation-threshold)
 					       (plusp elt)))

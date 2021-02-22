@@ -170,68 +170,68 @@
        :key #'first))
 
 (defun init-patterns ()
-  (unless (get-patterns :AUD_USD :H1 '(:BULLISH))
-    (insert-pattern :AUD_USD :H1 :BULLISH))
-  (unless (get-patterns :AUD_USD :H1 '(:BEARISH))
-    (insert-pattern :AUD_USD :H1 :BEARISH))
-  (unless (get-patterns :AUD_USD :H1 '(:STAGNATED))
-    (insert-pattern :AUD_USD :H1 :STAGNATED))
+  (unless (get-patterns :AUD_USD omage.config:*train-tf* '(:BULLISH))
+    (insert-pattern :AUD_USD omage.config:*train-tf* :BULLISH))
+  (unless (get-patterns :AUD_USD omage.config:*train-tf* '(:BEARISH))
+    (insert-pattern :AUD_USD omage.config:*train-tf* :BEARISH))
+  (unless (get-patterns :AUD_USD omage.config:*train-tf* '(:STAGNATED))
+    (insert-pattern :AUD_USD omage.config:*train-tf* :STAGNATED))
   
-  (unless (get-patterns :EUR_GBP :H1 '(:BULLISH))
-    (insert-pattern :EUR_GBP :H1 :BULLISH))
-  (unless (get-patterns :EUR_GBP :H1 '(:BEARISH))
-    (insert-pattern :EUR_GBP :H1 :BEARISH))
-  (unless (get-patterns :EUR_GBP :H1 '(:STAGNATED))
-    (insert-pattern :EUR_GBP :H1 :STAGNATED))
+  (unless (get-patterns :EUR_GBP omage.config:*train-tf* '(:BULLISH))
+    (insert-pattern :EUR_GBP omage.config:*train-tf* :BULLISH))
+  (unless (get-patterns :EUR_GBP omage.config:*train-tf* '(:BEARISH))
+    (insert-pattern :EUR_GBP omage.config:*train-tf* :BEARISH))
+  (unless (get-patterns :EUR_GBP omage.config:*train-tf* '(:STAGNATED))
+    (insert-pattern :EUR_GBP omage.config:*train-tf* :STAGNATED))
 
-  (unless (get-patterns :EUR_JPY :H1 '(:BULLISH))
-    (insert-pattern :EUR_JPY :H1 :BULLISH))
-  (unless (get-patterns :EUR_JPY :H1 '(:BEARISH))
-    (insert-pattern :EUR_JPY :H1 :BEARISH))
-  (unless (get-patterns :EUR_JPY :H1 '(:STAGNATED))
-    (insert-pattern :EUR_JPY :H1 :STAGNATED))
+  (unless (get-patterns :EUR_JPY omage.config:*train-tf* '(:BULLISH))
+    (insert-pattern :EUR_JPY omage.config:*train-tf* :BULLISH))
+  (unless (get-patterns :EUR_JPY omage.config:*train-tf* '(:BEARISH))
+    (insert-pattern :EUR_JPY omage.config:*train-tf* :BEARISH))
+  (unless (get-patterns :EUR_JPY omage.config:*train-tf* '(:STAGNATED))
+    (insert-pattern :EUR_JPY omage.config:*train-tf* :STAGNATED))
   
-  (unless (get-patterns :EUR_USD :H1 '(:BULLISH))
-    (insert-pattern :EUR_USD :H1 :BULLISH))
-  (unless (get-patterns :EUR_USD :H1 '(:BEARISH))
-    (insert-pattern :EUR_USD :H1 :BEARISH))
-  (unless (get-patterns :EUR_USD :H1 '(:STAGNATED))
-    (insert-pattern :EUR_USD :H1 :STAGNATED))
+  (unless (get-patterns :EUR_USD omage.config:*train-tf* '(:BULLISH))
+    (insert-pattern :EUR_USD omage.config:*train-tf* :BULLISH))
+  (unless (get-patterns :EUR_USD omage.config:*train-tf* '(:BEARISH))
+    (insert-pattern :EUR_USD omage.config:*train-tf* :BEARISH))
+  (unless (get-patterns :EUR_USD omage.config:*train-tf* '(:STAGNATED))
+    (insert-pattern :EUR_USD omage.config:*train-tf* :STAGNATED))
 
-  (unless (get-patterns :GBP_USD :H1 '(:BULLISH))
-    (insert-pattern :GBP_USD :H1 :BULLISH))
-  (unless (get-patterns :GBP_USD :H1 '(:BEARISH))
-    (insert-pattern :GBP_USD :H1 :BEARISH))
-  (unless (get-patterns :GBP_USD :H1 '(:STAGNATED))
-    (insert-pattern :GBP_USD :H1 :STAGNATED))
+  (unless (get-patterns :GBP_USD omage.config:*train-tf* '(:BULLISH))
+    (insert-pattern :GBP_USD omage.config:*train-tf* :BULLISH))
+  (unless (get-patterns :GBP_USD omage.config:*train-tf* '(:BEARISH))
+    (insert-pattern :GBP_USD omage.config:*train-tf* :BEARISH))
+  (unless (get-patterns :GBP_USD omage.config:*train-tf* '(:STAGNATED))
+    (insert-pattern :GBP_USD omage.config:*train-tf* :STAGNATED))
 
-  (unless (get-patterns :USD_CAD :H1 '(:BULLISH))
-    (insert-pattern :USD_CAD :H1 :BULLISH))
-  (unless (get-patterns :USD_CAD :H1 '(:BEARISH))
-    (insert-pattern :USD_CAD :H1 :BEARISH))
-  (unless (get-patterns :USD_CAD :H1 '(:STAGNATED))
-    (insert-pattern :USD_CAD :H1 :STAGNATED))
+  (unless (get-patterns :USD_CAD omage.config:*train-tf* '(:BULLISH))
+    (insert-pattern :USD_CAD omage.config:*train-tf* :BULLISH))
+  (unless (get-patterns :USD_CAD omage.config:*train-tf* '(:BEARISH))
+    (insert-pattern :USD_CAD omage.config:*train-tf* :BEARISH))
+  (unless (get-patterns :USD_CAD omage.config:*train-tf* '(:STAGNATED))
+    (insert-pattern :USD_CAD omage.config:*train-tf* :STAGNATED))
 
-  (unless (get-patterns :USD_CHF :H1 '(:BULLISH))
-    (insert-pattern :USD_CHF :H1 :BULLISH))
-  (unless (get-patterns :USD_CHF :H1 '(:BEARISH))
-    (insert-pattern :USD_CHF :H1 :BEARISH))
-  (unless (get-patterns :USD_CHF :H1 '(:STAGNATED))
-    (insert-pattern :USD_CHF :H1 :STAGNATED))
+  (unless (get-patterns :USD_CHF omage.config:*train-tf* '(:BULLISH))
+    (insert-pattern :USD_CHF omage.config:*train-tf* :BULLISH))
+  (unless (get-patterns :USD_CHF omage.config:*train-tf* '(:BEARISH))
+    (insert-pattern :USD_CHF omage.config:*train-tf* :BEARISH))
+  (unless (get-patterns :USD_CHF omage.config:*train-tf* '(:STAGNATED))
+    (insert-pattern :USD_CHF omage.config:*train-tf* :STAGNATED))
 
-  (unless (get-patterns :USD_CNH :H1 '(:BULLISH))
-    (insert-pattern :USD_CNH :H1 :BULLISH))
-  (unless (get-patterns :USD_CNH :H1 '(:BEARISH))
-    (insert-pattern :USD_CNH :H1 :BEARISH))
-  (unless (get-patterns :USD_CNH :H1 '(:STAGNATED))
-    (insert-pattern :USD_CNH :H1 :STAGNATED))
+  (unless (get-patterns :USD_CNH omage.config:*train-tf* '(:BULLISH))
+    (insert-pattern :USD_CNH omage.config:*train-tf* :BULLISH))
+  (unless (get-patterns :USD_CNH omage.config:*train-tf* '(:BEARISH))
+    (insert-pattern :USD_CNH omage.config:*train-tf* :BEARISH))
+  (unless (get-patterns :USD_CNH omage.config:*train-tf* '(:STAGNATED))
+    (insert-pattern :USD_CNH omage.config:*train-tf* :STAGNATED))
 
-  (unless (get-patterns :USD_JPY :H1 '(:BULLISH))
-    (insert-pattern :USD_JPY :H1 :BULLISH))
-  (unless (get-patterns :USD_JPY :H1 '(:BEARISH))
-    (insert-pattern :USD_JPY :H1 :BEARISH))
-  (unless (get-patterns :USD_JPY :H1 '(:STAGNATED))
-    (insert-pattern :USD_JPY :H1 :STAGNATED)))
+  (unless (get-patterns :USD_JPY omage.config:*train-tf* '(:BULLISH))
+    (insert-pattern :USD_JPY omage.config:*train-tf* :BULLISH))
+  (unless (get-patterns :USD_JPY omage.config:*train-tf* '(:BEARISH))
+    (insert-pattern :USD_JPY omage.config:*train-tf* :BEARISH))
+  (unless (get-patterns :USD_JPY omage.config:*train-tf* '(:STAGNATED))
+    (insert-pattern :USD_JPY omage.config:*train-tf* :STAGNATED)))
 ;; (init-patterns)
 
 (defun insert-rates (instrument timeframe rates)
@@ -264,7 +264,7 @@
 	  do (loop for timeframe in timeframes
 		   do (let ((rates (get-rates-batches instrument timeframe howmany-batches)))
 			(insert-rates instrument timeframe rates))))))
-;; (init-rates 2 :timeframes '(:D))
+;; (init-rates 20 :timeframes '(:M15))
 
 (defun init-database ()
   "Creates all the necessary tables for Overmind Agents."
@@ -795,7 +795,11 @@
 		      (setf max-lookbehind lookbehind))
 		    (push perc perceptions)))
     `((:perception-fns . ,(make-array (length perceptions) :initial-contents perceptions))
-      (:lookahead-count . ,omage.config:*lookahead*)
+      (:lookahead-count . ,(if omage.config:*random-lookahead-p*
+			       (random-int *rand-gen*
+					   omage.config:*random-lookahead-min*
+					   omage.config:*random-lookahead-max*)
+			       omage.config:*lookahead*))
       (:lookbehind-count . ,(+ 10 max-lookbehind)))))
 ;; (gen-random-beliefs 30)
 
@@ -1015,6 +1019,9 @@
 			  (funcall pred (assoccess tp-sl :tp))
 			  (/= (assoccess tp-sl :sl) 0)
 			  (> (abs (assoccess tp-sl :sl)) (from-pips instrument omage.config:*min-sl*))
+			  (> (abs (/ (assoccess tp-sl :tp)
+				     (assoccess tp-sl :sl)))
+			     omage.config:*agents-min-rr-creation*)
 			  (or (eq instrument :USD_CNH)
 			   (< (abs (assoccess tp-sl :tp)) (from-pips instrument omage.config:*max-tp*))))
 		 (push idx result))))
@@ -1118,19 +1125,19 @@
 
 (defun alist-keys (alist)
   (loop for item in alist collect (car item)))
-;; (alist-keys (car (prepare-agents-properties (get-agents :AUD_USD :H1 '(:bullish)))))
+;; (alist-keys (car (prepare-agents-properties (get-agents :AUD_USD omage.config:*train-tf* '(:bullish)))))
 
 (defun alist-values (alist)
   (loop for item in alist collect (cdr item)))
-;; (alist-values (car (prepare-agents-properties (get-agents :EUR_USD :H1 '(:bullish)))))
+;; (alist-values (car (prepare-agents-properties (get-agents :EUR_USD omage.config:*train-tf* '(:bullish)))))
 
 (defun describe-agents ()
   (with-open-stream (s (make-string-output-stream))
     (format s "<h3>AGENTS POOL.</h3><hr/>")
     (loop for instrument in ominp:*forex*
 	  do (loop for types in '((:bullish) (:bearish) (:stagnated))
-		   do (let* ((agents-props (prepare-agents-properties (get-agents instrument :H1 types)))
-			     (agents-count (get-agents-count instrument :H1 types))
+		   do (let* ((agents-props (prepare-agents-properties (get-agents instrument omage.config:*train-tf* types)))
+			     (agents-count (get-agents-count instrument omage.config:*train-tf* types))
 			     (vals (loop for agent-props in agents-props
 					 collect (let ((avg-tp (read-from-string (assoccess agent-props :avg-tp)))
 						       (avg-sl (read-from-string (assoccess agent-props :avg-sl))))
@@ -1188,14 +1195,14 @@
 						   (t (format nil "~a" value)))))
 				  ;; (format nil "~a: ~a~%" key value)
 				  `(,key . ,value)))))
-;; (prepare-agents-properties (get-agents :AUD_USD :H1 '(:stagnated)))
+;; (prepare-agents-properties (get-agents :AUD_USD omage.config:*train-tf* '(:stagnated)))
 
 (defun get-all-agents ()
   (let ((markets (make-hash-table)))
     (loop for instrument in ominp:*forex*
 	  do (let ((agents (make-hash-table)))
 	       (loop for types in '(:bullish :bearish :stagnated)
-		     do (let ((values (let* ((agents-props (prepare-agents-properties (get-agents instrument :H1 (list types))))
+		     do (let ((values (let* ((agents-props (prepare-agents-properties (get-agents instrument omage.config:*train-tf* (list types))))
 					     (vals (loop for agent-props in agents-props
 							 collect (let ((avg-tp (read-from-string (assoccess agent-props :avg-tp)))
 								       (avg-sl (read-from-string (assoccess agent-props :avg-sl))))
@@ -1325,26 +1332,34 @@
 			   summing (assoccess trade :test-trades-won)))
 	 (trades-lost (loop for trade in trades
 			    summing (assoccess trade :test-trades-lost)))
-	 (total-revenue (loop for trade in trades
-			      summing (to-pips (assoccess trade :instrument)
-					       (assoccess trade :test-total-revenue)))))
-    (format t "Total trades won: ~a. Total trades lost: ~a. Total trades: ~a. Total revenue: ~a. Avg revenue: ~a.~%~%"
-	    trades-won
-	    trades-lost
-	    (+ trades-won trades-lost)
-	    total-revenue
-	    (/ total-revenue (+ trades-won trades-lost)))
-    (loop for trade in trades
-	  do (format t "market: ~a, train-total-revenue: ~5$, train-trades-won: ~a, train-trades-lost: ~a,    test-total-revenue: ~5$, test-trades-won: ~a, test-trades-lost: ~a~%"
-		     (assoccess trade :instrument)
-		     (to-pips (assoccess trade :instrument)
-			      (assoccess trade :train-total-revenue))
-		     (assoccess trade :train-trades-won)
-		     (assoccess trade :train-trades-lost)
-		     (to-pips (assoccess trade :instrument)
-			      (assoccess trade :test-total-revenue))
-		     (assoccess trade :test-trades-won)
-		     (assoccess trade :test-trades-lost)))))
+	 (total-return (loop for trade in trades
+			     summing (assoccess trade :test-total-return))))
+    (when trades
+      (format t "Total trades won: ~a. Total trades lost: ~a. Total trades: ~a. ~%Total return: ~a. Avg return: ~a.~%~%"
+	      trades-won
+	      trades-lost
+	      (+ trades-won trades-lost)
+	      total-return
+	      (/ total-return (+ trades-won trades-lost)))
+      (loop for trade in trades
+	    do (format t "market: :~a, test-total-return: ~5$, test-trades-won: ~a, test-trades-lost: ~a, rr: ~a~%"
+		       (assoccess trade :instrument)
+		       (assoccess trade :test-total-return)
+		       (assoccess trade :test-trades-won)
+		       (assoccess trade :test-trades-lost)
+		       (format-rr (assoccess trade :sl)
+				  (assoccess trade :tp)))))))
+
+;; (describe-trades)
+(comment
+ (loop for instrument in omage.config:*instruments*
+       do (progn
+	    (format t "~a: " instrument)
+	    (loop for type in '((:bullish) (:bearish) (:stagnated))
+		  do (format t "~a, " (length (get-agents instrument omage.config:*train-tf* type))))
+	    (format t "~%"))
+       finally (describe-trades))
+ )
 
 (defun read-str (str)
   (read-from-string str))
@@ -1375,7 +1390,7 @@
 ;;  (float (/ (count t *consensus*)
 ;; 	   (length *consensus*))))
 
-(defun eval-agents (instrument timeframe types rates &key (count 5))
+(defun eval-agents (instrument timeframe types rates)
   (let (tps sls activations ids)
     (let ((agents (get-agents instrument timeframe types)))
       (loop for agent in agents
@@ -1401,50 +1416,79 @@
     (let ((idxs (sorted-indexes activations #'>))
 	  (tp 0)
 	  (sl 0)
+	  (dir 0)
 	  (activation 0)
 	  ;; (consensus t)
-	  (len (min count (length activations)))
+	  (len (min omage.config:*consensus-threshold* (length activations)))
 	  )
       (setf tp (nth (position 0 idxs) tps))
       (setf sl (nth (position 0 idxs) sls))
       (setf activation (nth (position 0 idxs) activations))
-      (when (> activation 0.5)
-      	(loop for idx from 1 below len
-      	      do (let* ((pos (position idx idxs))
-      			(nth-tp (nth pos tps))
-      			(nth-sl (nth pos sls)))
 
-      		   ;; ;; consensus
-      		   ;; (when (< (* nth-tp tp) 0)
-      		   ;;   (setf consensus nil)
-      		   ;;   (return))
+      ;; Majority of agents must agree on direction.
+      ;; (when (< (length (loop for idx from 1 below len
+      ;; 			     collect (let* ((pos (position idx idxs))
+      ;; 					    (nth-tp (nth pos tps)))
+      ;; 				       (> (* nth-tp tp) 0))))
+      ;; 	       (/ (1+ len) 2))
+      ;; 	(setf tp 0)
+      ;; 	(setf sl 0)
+      ;; 	(setf activation 0))
 
-      		   (when (< (* nth-tp tp) 0)
-      		     (setf tp 0)
-      		     (setf sl 0)
-      		     (return))
-      		   (when (< (* nth-sl sl) 0)
-      		     (setf tp 0)
-      		     (setf sl 0)
-      		     (return))
+      
+
+      ;; Using activation as weight to determine direction.
+      ;; (loop for idx from 0 below (length activations)
+      ;; 	    do (let* ((nth-tp (nth idx tps))
+      ;; 		      (nth-act (nth idx activations)))
+      ;; 		 (incf dir (if (plusp nth-tp)
+      ;; 			       nth-act
+      ;; 			       (- nth-act)))))
+
+      (loop for idx from 1 below len
+      	    do (let* ((pos (position idx idxs))
+      		      (nth-tp (nth pos tps))
+      		      (nth-sl (nth pos sls))
+		      (nth-act (nth idx activations)))
+
+		 (incf dir (if (plusp nth-tp)
+      			       nth-act
+      			       (- nth-act)))
+
+      		 ;; ;; consensus
+      		 ;; (when (< (* nth-tp tp) 0)
+      		 ;;   (setf consensus nil)
+      		 ;;   (return))
+
+      		 ;; (when (< (* nth-tp tp) 0)
+      		 ;;   (setf tp 0)
+      		 ;;   (setf sl 0)
+      		 ;;   (return))
 	      
-      		   ;; (when (or (= tp 0) (< (abs nth-tp) (abs tp)))
-      		   ;; 	(setf tp nth-tp))
-      		   ;; (when (or (= sl 0) (< (abs nth-sl) (abs sl)))
-      		   ;; 	(setf sl nth-sl))
-      		   ;; (when (or (= tp 0) (< (abs nth-tp) (abs tp)))
-      		   ;; 	(setf tp nth-tp))
-      		   ;; (when (or (= sl 0) (< (abs nth-sl) (abs sl)))
-      		   ;; 	(setf sl nth-sl))
-      		   ;; (incf tp nth-tp)
-      		   ;; (incf sl nth-sl)
-      		   ))
-      	)
+      		 ;; (when (or (= tp 0) (< (abs nth-tp) (abs tp)))
+      		 ;; 	(setf tp nth-tp))
+      		 ;; (when (or (= sl 0) (< (abs nth-sl) (abs sl)))
+      		 ;; 	(setf sl nth-sl))
+      		 ;; (when (or (= tp 0) (< (abs nth-tp) (abs tp)))
+      		 ;; 	(setf tp nth-tp))
+      		 ;; (when (or (= sl 0) (< (abs nth-sl) (abs sl)))
+      		 ;; 	(setf sl nth-sl))
+      		 (incf tp nth-tp)
+      		 (incf sl nth-sl)
+      		 ))
       ;; (push consensus *consensus*)
       (values (/ tp 1)
-	      (/ sl 1)
-	      activation
-	      (list (nth (position 0 idxs) ids))))))
+      	      (/ sl 1)
+      	      activation
+      	      (list (nth (position 0 idxs) ids)))
+
+      ;; (values
+      ;;  (/ (* (abs tp) (if (/= dir 0) (/ dir (abs dir)) 0)) len)
+      ;;  (/ (* (abs sl) (if (/= dir 0) (- (/ dir (abs dir))) 0)) len)
+      ;;  activation
+      ;;  (list (nth (position 0 idxs) ids))
+      ;;  )
+      )))
 
 (defun -evaluate-agents (&key instrument timeframe types rates agent idx test-size)
   "Used for EVALUATE-AGENT and EVALUATE-AGENTS."
@@ -1484,6 +1528,8 @@
 			   (< activation omage.config:*evaluate-agents-activation-threshold*)
 			   (> (abs sl) (abs tp))
 			   (> (* tp sl) 0)
+			   (< (abs (/ tp sl))
+			      omage.config:*agents-min-rr-trading*)
 			   (= tp 0)
 			   (= sl 0)
 			   (< (abs (to-pips instrument sl)) 3)
@@ -1515,8 +1561,9 @@
 			 (push max-pos max-poses)
 			 (push max-neg max-negses)
 			 (push revenue revenues)))
-		   ;; (incf idx finish-idx)
-		   (incf idx)
+		   (if omage.config:*trade-every-dp-p*
+		       (incf idx)
+		       (incf idx finish-idx))
 		   ))))
     ;; ACTPROOF
     ;; (unless agent
@@ -1570,7 +1617,7 @@
 	(:sls . ,(reverse sls))
 	(:activations . ,(reverse activations))
 	(:returns . ,(reverse returns))))))
-;; (evaluate-agents :EUR_USD :H1 '(:BULLISH) *rates*)
+;; (evaluate-agents :EUR_USD omage.config:*train-tf* '(:BULLISH) *rates*)
 
 (comment
  (defparameter *activations* nil)
@@ -1704,12 +1751,12 @@
     ;;   (setf *revenues* (assoccess fitnesses :revenues))
     ;;   (coco))
     ;; ACTPROOF
-    (comment
-     (setf *activations* (assoccess fitnesses :activations))
-     (setf *tps* (assoccess fitnesses :tps))
-     (setf *sls* (assoccess fitnesses :sls))
-     (setf *revenues* (assoccess fitnesses :revenues))
-     (coco))
+    ;; (comment
+    ;;  (setf *activations* (assoccess fitnesses :activations))
+    ;;  (setf *tps* (assoccess fitnesses :tps))
+    ;;  (setf *sls* (assoccess fitnesses :sls))
+    ;;  (setf *revenues* (assoccess fitnesses :revenues))
+    ;;  (coco))
     ;; (ignore-errors (print (cl-mathstats:correlation *activations* *revenues*)))
     
     (loop for fitness in fitnesses
@@ -1722,7 +1769,7 @@
 
 (defun evaluate-agents (instrument timeframe types rates &key (test-size 50))
   (-evaluate-agents :instrument instrument :timeframe timeframe :types types :rates rates :test-size test-size))
-;; (time (evaluate-agents :EUR_USD :H1 '(:BULLISH) (subseq *rates* 0 200)))
+;; (time (evaluate-agents :EUR_USD omage.config:*train-tf* '(:BULLISH) (subseq *rates* 0 200)))
 
 (defun update-agent-fitnesses (instrument timeframe types agent rates)
   (let* ((agents (gethash (list instrument timeframe types) *agents-cache*))
@@ -1777,110 +1824,116 @@
 
 (defun is-agent-dominated? (agent agents &optional (logp nil))
   (if (or (= (length (slot-value agent 'tps)) 0)
-	  (<= (slot-value agent 'total-return) 0))
+  	  (<= (slot-value agent 'total-return) 0)
+  	  (< (length (slot-value agent 'tps))
+  	     omage.config:*min-num-trades-training*))
       ;; AGENT is dominated.
       (progn
-	(when logp
-	  (log-agent :crap agent))
-	t)
+  	(when logp
+  	  (log-agent :crap agent))
+  	t)
       (let* ((total-return-0 (slot-value agent 'total-return))
-	     (avg-return-0 (slot-value agent 'avg-return))
-	     (activations-0 (slot-value agent 'activations))
-	     (returns-0 (slot-value agent 'returns))
-	     (entry-times-0 (slot-value agent 'entry-times)))
-	;; `data`'s going to hold the max activations, returns and entry times per DP.
-	(let ((data (make-hash-table)))
-	  ;; Determining max activations and returns.
-	  (loop for agent in agents
-		for agent-idx from 0
-		do (loop for act across (slot-value agent 'activations)
-			 for ret across (slot-value agent 'returns)
-			 for time across (slot-value agent 'entry-times)
-			 do (progn
-			      ;; Checking if internal hash-table doesn't exist.
-			      (unless (gethash time data)
-				(setf (gethash time data) (make-hash-table :size 3)))
-			      (let ((datum (gethash time data)))
-				;; Updating internal hash-table.
-				(when (or (not (gethash :activation datum))
-					  (> act (gethash :activation datum)))
-				  (setf (gethash :agent-idx datum) agent-idx)
-				  (setf (gethash :activation datum) act)
-				  ;; (setf (gethash :return datum) ret) ;; Keeping in case we want to compare against DPret.
-				  (setf (gethash :total-return datum)
-					(slot-value agent 'total-return)))))))
-	  ;; Comparing agent activations, returns, etc. to see if it doesn't get dominated.
-	  (let ((dominatedp t)
-		(dominated-idx -1))
-	    ;; First checking if our candidate AGENT wins by default because no other agent is trading at a particular DP.
-	    ;; Also checking if candidate has a positive total return and return at that DP.
-	    ;; Checking agent data against max values.
-	    (let ((foundp t))
-	      (loop for time across entry-times-0
-		    for ret across returns-0
-		    do (when (and (not (gethash time data))
-				  ;; (> ret 0)
-				  (> avg-return-0 omage.config:*min-agent-avg-return*)
-				  ;; (> total-return-0 0)
-				  )
-			 (setf foundp nil)
-			 (return)))
-	      (unless foundp
-		;; Not dominated.
-		(setf dominatedp nil)))
+  	     (avg-return-0 (slot-value agent 'avg-return))
+  	     (activations-0 (slot-value agent 'activations))
+  	     (returns-0 (slot-value agent 'returns))
+  	     (entry-times-0 (slot-value agent 'entry-times)))
+  	;; `data`'s going to hold the max activations, returns and entry times per DP.
+  	(let ((data (make-hash-table)))
+  	  ;; Determining max activations and returns.
+  	  (loop for agent in agents
+  		for agent-idx from 0
+  		do (loop for act across (slot-value agent 'activations)
+  			 for ret across (slot-value agent 'returns)
+  			 for time across (slot-value agent 'entry-times)
+  			 do (progn
+  			      ;; Checking if internal hash-table doesn't exist.
+  			      (unless (gethash time data)
+  				(setf (gethash time data) (make-hash-table :size 3)))
+  			      (let ((datum (gethash time data)))
+  				;; Updating internal hash-table.
+  				(when (or (not (gethash :activation datum))
+  					  (> act (gethash :activation datum)))
+  				  (setf (gethash :agent-idx datum) agent-idx)
+  				  (setf (gethash :activation datum) act)
+  				  ;; (setf (gethash :return datum) ret) ;; Keeping in case we want to compare against DPret.
+  				  (setf (gethash :total-return datum)
+  					(slot-value agent 'total-return)))))))
+  	  ;; Comparing agent activations, returns, etc. to see if it doesn't get dominated.
+  	  (let ((dominatedp t)
+  		(dominated-idx -1))
+  	    ;; First checking if our candidate AGENT wins by default because no other agent is trading at a particular DP.
+  	    ;; Also checking if candidate has a positive total return and return at that DP.
+  	    ;; Checking agent data against max values.
+  	    (let ((foundp t))
+  	      (loop for time across entry-times-0
+  		    for ret across returns-0
+  		    do (when (and (not (gethash time data))
+  				  (> ret 0)
+  				  (> avg-return-0 omage.config:*min-agent-avg-return*)
+  				  (> total-return-0 0)
+  				  )
+  			 (setf foundp nil)
+  			 (return)))
+  	      (unless foundp
+  		;; Not dominated.
+  		(setf dominatedp nil)))
 
-	    ;; Checking if we already know that it wasn't dominated.
-	    (when dominatedp
-	      ;; Checking each DP if agent dominates at that DP.
-	      (loop for time across entry-times-0
-		    for act across activations-0
-		    for ret across returns-0
-		    do (let ((datum (gethash time data)))
-			 ;; We're going to add an agent to the agent pool that has a positive DPret (`ret`),
-			 ;; a greater total-return on that DP and a greater than or equal activation than that DP's (and threshold).
-			 (when (and datum
-				    (> ret 0)
-				    (> total-return-0 (gethash :total-return datum))
-				    (>= act
-					(gethash :activation datum)
-					omage.config:*evaluate-agents-activation-threshold*))
-			   ;; Storing what agent got dominated, mainly for logging purposes.
-			   (setf dominated-idx (gethash :agent-idx datum))
-			   ;; Not dominated. Returning from loop.
-			   (setf dominatedp nil)
-			   (return)))))
-	    ;; TODO: Refactor to its own function.
-	    (when logp
-	      (if (>= dominated-idx 0)
-		  ;; Logging what BETA agent our ALPHA dominated (if any).
-		  (let ((dominated-agent (nth dominated-idx agents)))
-		    (log-agent :beta dominated-agent)
-		    (log-agent :alpha agent))
-		  ;; Logging crappy agent who couldn't beat anyone.
-		  (if dominatedp
-		      (log-agent :crap agent)
-		      (log-agent :default agent))))
-	    ;; Returning result.
-	    dominatedp)))))
+  	    ;; Checking if we already know that it wasn't dominated.
+  	    (when dominatedp
+  	      ;; Checking each DP if agent dominates at that DP.
+  	      (loop for time across entry-times-0
+  		    for act across activations-0
+  		    for ret across returns-0
+  		    do (let ((datum (gethash time data)))
+  			 ;; We're going to add an agent to the agent pool that has a positive DPret (`ret`),
+  			 ;; a greater total-return on that DP and a greater than or equal activation than that DP's (and threshold).
+  			 (when (and datum
+  				    (> ret 0)
+  				    (> total-return-0 (gethash :total-return datum))
+  				    (>= act
+  					(gethash :activation datum)
+  					omage.config:*evaluate-agents-activation-threshold*))
+  			   ;; Storing what agent got dominated, mainly for logging purposes.
+  			   (setf dominated-idx (gethash :agent-idx datum))
+  			   ;; Not dominated. Returning from loop.
+  			   (setf dominatedp nil)
+  			   (return)))))
+  	    ;; TODO: Refactor to its own function.
+  	    (when logp
+  	      (if (>= dominated-idx 0)
+  		  ;; Logging what BETA agent our ALPHA dominated (if any).
+  		  (let ((dominated-agent (nth dominated-idx agents)))
+  		    (log-agent :beta dominated-agent)
+  		    (log-agent :alpha agent))
+  		  ;; Logging crappy agent who couldn't beat anyone.
+  		  (if dominatedp
+  		      (log-agent :crap agent)
+  		      (log-agent :default agent))))
+  	    ;; Returning result.
+  	    dominatedp)))))
 
 (defun get-agent (instrument timeframe types agent-id)
   (find agent-id (gethash (list instrument timeframe types) *agents-cache*)
 	:key (lambda (agent) (slot-value agent 'id))
 	:test #'string=))
-;; (get-agent :EUR_USD :H1 '(:BULLISH) "48F3970F-36C1-4A49-9E54-95746CFEA9FE")
-;; (slot-value (first (get-agents :EUR_USD :H1 '(:BULLISH))) 'id)
+;; (get-agent :EUR_USD omage.config:*train-tf* '(:BULLISH) "48F3970F-36C1-4A49-9E54-95746CFEA9FE")
+;; (slot-value (first (get-agents :EUR_USD omage.config:*train-tf* '(:BULLISH))) 'id)
 
 (defun optimization (instrument timeframe types gen-agent-fn rates seconds &key report-fn)
   ;; Checking if we need to initialize the agents collection.
   (let ((agents (if-let ((agents (get-agents instrument timeframe types)))
 		  (update-agents-fitnesses instrument timeframe types agents rates)
-		  (list (evaluate-agent (funcall gen-agent-fn) rates))))
+		  ;; (list (evaluate-agent (funcall gen-agent-fn) rates))
+		  (loop repeat omage.config:*initial-agent-count*
+			collect (evaluate-agent (funcall gen-agent-fn) rates))))
 	(purged-agents))
     (push-to-log (format nil "~a agents retrieved to start optimization." (length agents)))
     (push-to-log (format nil "Performing optimization for ~a seconds." seconds))
     (push-to-agents-log (format nil "<h4>~a (~a, ~a)</h4>~%" instrument (car types) (length agents)))
-    (loop with until-timestamp = (local-time:timestamp+ (local-time:now) seconds :sec)
-	  do (if (local-time:timestamp> (local-time:now) until-timestamp)
+    (loop with first-iteration-p = t
+	  with until-timestamp = (local-time:timestamp+ (local-time:now) seconds :sec)
+	  do (if (and (not first-iteration-p)
+		      (local-time:timestamp> (local-time:now) until-timestamp))
 		 (progn
 		   ;; Inserting new agents in Pareto Frontier.
 		   (push-to-log (format nil "Updating Pareto frontier with ~a agents." (length agents)))
@@ -1892,13 +1945,17 @@
 		   (push-to-log "Pareto frontier updated successfully.")
 		   (return))
 		 (let* ((challenger (list (evaluate-agent (funcall gen-agent-fn) rates)))
-			(is-dominated? (is-agent-dominated? (car challenger) agents t)))
+			(is-dominated? (when omage.config:*optimize-p*
+					 (is-agent-dominated? (car challenger) agents t))))
+		   ;; No longer the first iteration after this.
+		   (setf first-iteration-p nil)
 		   ;; Logging agent direction.
 		   (push-to-agent-directions-log instrument timeframe types (slot-value (first challenger) 'avg-tp))
 		   (unless is-dominated?
 		     ;; Purging agents.
 		     (loop for in-trial in agents
-			   do (if (is-agent-dominated? in-trial challenger)
+			   do (if (and omage.config:*optimize-p*
+				       (is-agent-dominated? in-trial challenger))
 				  (progn
 				    (push-to-log (format nil "Removing agent with ID ~a" (slot-value in-trial 'id)))
 				    (push-to-agents-log (format nil "Removing agent with ID ~a" (slot-value in-trial 'id)))
@@ -1926,7 +1983,7 @@
 							  (:= 'timeframe (format nil "~a" timeframe))
 							  (:in 'type (:set (loop for type in types collect (format nil "~a" type))))))
 		 :alists))))
-;; (get-patterns :EUR_USD :H1 '(:BULLISH (:BEARISH) :STAGNATED))
+;; (get-patterns :EUR_USD omage.config:*train-tf* '(:BULLISH (:BEARISH) :STAGNATED))
 
 (defun get-agent-ids-from-patterns (instrument timeframe types)
   (let* ((types (flatten types))
@@ -1936,8 +1993,8 @@
     ;; 	  collect (slot-value agent 'id))
     (conn (query (:select 'agent-id :from 'agents-patterns :where (:in 'pattern-id (:set (loop for pattern in patterns collect (assoccess pattern :id))))) :column))
     ))
-;; (get-agent-ids-from-patterns :AUD_USD :H1 '(:bullish))
-;; (get-agent-ids-from-patterns :AUD_USD :H1 '((:bullish) (:stagnated)))
+;; (get-agent-ids-from-patterns :AUD_USD omage.config:*train-tf* '(:bullish))
+;; (get-agent-ids-from-patterns :AUD_USD omage.config:*train-tf* '((:bullish) (:stagnated)))
 
 (defun wipe-agents ()
   (conn (query (:delete-from 'agents :where (:= 1 1)))
@@ -1947,8 +2004,8 @@
 (defun get-agents-from-cache (instrument timeframe types)
   (gethash (list instrument timeframe types) *agents-cache*))
 
-;; (get-agents :EUR_JPY :H1 '(:BULLISH))
-;; (get-agents-from-cache :EUR_JPY :H1 '(:BULLISH))
+;; (get-agents :EUR_JPY omage.config:*train-tf* '(:BULLISH))
+;; (get-agents-from-cache :EUR_JPY omage.config:*train-tf* '(:BULLISH))
 
 (defun sync-agents (instrument timeframe types)
   ;; Get agents from database (A1)
@@ -1971,7 +2028,7 @@
 		       (foundp (find id ids :test #'string=)))
 		  (unless foundp
 		    (delete-dao agent))))))))
-;; (time (sync-agents :AUD_USD :H1 '(:BULLISH)))
+;; (time (sync-agents :AUD_USD omage.config:*train-tf* '(:BULLISH)))
 
 (defun get-agents (instrument timeframe types)
   (flatten
@@ -1986,7 +2043,20 @@
 						   (:dao agent)))))
 			 (setf (gethash (list instrument timeframe type) *agents-cache*) agents)
 			 agents)))))))
-;; (get-agents :EUR_USD :H1 '(:bullish))
+
+(defun get-agents (instrument timeframe types)
+  (let (result)
+    (loop for type in (flatten types)
+	  do (let ((type (list type)))
+	       (if-let ((agents (gethash (list instrument timeframe type) *agents-cache*)))
+		 (loop for agent in agents do (push agent result))
+		 (let* ((agent-ids (get-agent-ids-from-patterns instrument timeframe type))
+			(agents (conn (query (:select '* :from 'agents :where (:in 'id (:set agent-ids)))
+					     (:dao agent)))))
+		   (setf (gethash (list instrument timeframe type) *agents-cache*) agents)
+		   (setf result agents)))))
+    result))
+;; (time (get-agents :EUR_USD omage.config:*train-tf* '(:bullish :stagnated)))
 
 (defun format-rr (risk reward)
   (format nil "~a / ~2$"
@@ -2155,7 +2225,7 @@
 		   :key (lambda (agent) (slot-value agent 'id))
 		   :test (lambda (ids id) (find id ids :test #'string=)))
 	  collect (car (third key))))
-;; (get-agent-ids-patterns (list (slot-value (first (get-agents :AUD_USD :H1 '(:bearish))) 'id) (slot-value (first (get-agents :AUD_USD :H1 '(:stagnated))) 'id)))
+;; (get-agent-ids-patterns (list (slot-value (first (get-agents :AUD_USD omage.config:*train-tf* '(:bearish))) 'id) (slot-value (first (get-agents :AUD_USD omage.config:*train-tf* '(:stagnated))) 'id)))
 
 (defun test-agents (instrument timeframe types rates training-dataset testing-dataset &key (test-size 50))
   (multiple-value-bind (tp sl activation agent-ids)
@@ -2252,7 +2322,7 @@
   (defun clear-agent-directions-log ()
     (setf log (make-hash-table :test 'equal))))
 
-;; (push-to-agent-directions-log :AUD_USD :H1 '(:bullish) 1.1)
+;; (push-to-agent-directions-log :AUD_USD omage.config:*train-tf* '(:bullish) 1.1)
 ;; (read-agent-directions-log)
 
 (defun clear-logs ()
@@ -2310,7 +2380,7 @@
 				  :alists)))
 	    (last recent))
     ))
-;; (get-rates-count-big :EUR_USD :H1 10)
+;; (get-rates-count-big :EUR_USD omage.config:*train-tf* 10)
 
 (defun get-random-rates-count-big (instrument timeframe count)
   "Assumes a minimum of 50K rates"
@@ -2322,7 +2392,7 @@
 				  '$1 '$2)
 			  count offset
 			  :alists)))))
-;; (get-random-rates-count-big :EUR_USD :H1 10)
+;; (get-random-rates-count-big :EUR_USD omage.config:*train-tf* 10)
 
 (defun get-rates-range-big (instrument timeframe from to)
   (let ((instrument (format nil "~a" instrument))
@@ -2335,14 +2405,14 @@
 									   (:<= 'time to)))
 				     (:desc 'rates.time))
 			  :alists)))))
-;; (get-rates-range-big :EUR_USD :H1 (unix-to-nano (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 20 :day))) (unix-to-nano (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 10 :day))))
+;; (get-rates-range-big :EUR_USD omage.config:*train-tf* (unix-to-nano (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 20 :day))) (unix-to-nano (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 10 :day))))
 
-;; (get-rates-count-big :EUR_USD :H1 100)
+;; (get-rates-count-big :EUR_USD omage.config:*train-tf* 100)
 
-;; (loop for rate in (get-random-rates-count-big :EUR_USD :H1 200)
+;; (loop for rate in (get-random-rates-count-big :EUR_USD omage.config:*train-tf* 200)
 ;;       do (print (local-time:unix-to-timestamp (/ (read-from-string (assoccess rate :time)) 1000000))))
 
-;; (get-random-rates-count-big :AUD_USD :H1
+;; (get-random-rates-count-big :AUD_USD omage.config:*train-tf*
 ;; 				    6200)
 
 (defun refresh-memory ()
@@ -2473,9 +2543,9 @@
 					       :training (first (flatten types)) instrument timeframe
 					       (multiple-value-bind (from to)
 						   (get-rates-chunk-of-types full-training-dataset types
-									     :slide-step 50
-									     :min-chunk-size 300
-									     :max-chunk-size 700
+									     :slide-step omage.config:*train-slide-step*
+									     :min-chunk-size omage.config:*train-min-chunk-size*
+									     :max-chunk-size omage.config:*train-max-chunk-size*
 									     :stagnation-threshold omage.config:*stagnation-threshold*)
 						 (let ((dataset (subseq full-training-dataset from to)))
 						   (push-to-log (format nil "Training dataset created successfully. Size: ~s. Dataset from ~a to ~a."
@@ -2488,9 +2558,9 @@
 					       :creation (first (flatten types)) instrument timeframe
 					       (multiple-value-bind (from to)
 						   (get-rates-chunk-of-types full-creation-dataset types
-									     :slide-step 50
-									     :min-chunk-size 300
-									     :max-chunk-size 700
+									     :slide-step omage.config:*creation-slide-step*
+									     :min-chunk-size omage.config:*creation-min-chunk-size*
+									     :max-chunk-size omage.config:*creation-max-chunk-size*
 									     :stagnation-threshold omage.config:*stagnation-threshold*)
 						 (let ((dataset (subseq full-creation-dataset from to)))
 						   (push-to-log (format nil "Creation dataset created successfully. Size: ~s. Dataset from ~a to ~a."
@@ -2617,7 +2687,7 @@
 			    (setf winner-types types))))))
     winner-types))
 
-;; (defparameter *rates* (get-random-rates-count-big :EUR_USD :H1 3000))
+;; (defparameter *rates* (get-random-rates-count-big :EUR_USD omage.config:*train-tf* 3000))
 
 (defun con (y x0 x1)
   (let* ((m (/ 1
@@ -2720,63 +2790,41 @@
 	 (lookbehind-count (slot-value agent 'lookbehind-count))
 	 (idxs (remove-duplicates (get-same-direction-outputs-idxs instrument rates num-rules :lookahead-count lookahead-count :lookbehind-count lookbehind-count)))
 	 (chosen-inputs (loop for idx in idxs collect (funcall perception-fn (get-input-dataset rates idx))))
-	 (chosen-outputs (loop for idx in idxs collect (get-tp-sl (get-output-dataset rates idx) lookahead-count)))
-	 ;; (inp-sd (mapcar (lambda (inp) (standard-deviation inp)) (apply #'mapcar #'list chosen-inputs)))
-	 ;; (tps (loop for output in chosen-outputs collect (assoccess output :tp)))
-	 ;; (sls (loop for output in chosen-outputs collect (assoccess output :sl)))
-	 ;; (tp-sd (standard-deviation tps))
-	 ;; (sl-sd (standard-deviation sls))
-	 ;; (mn-inp (- (apply #'min (flatten chosen-inputs)) (apply #'max inp-sd)))
-	 ;; (mx-inp (+ (apply #'max (flatten chosen-inputs)) (apply #'max inp-sd)))
-	 ;; (mn-out-tp (let ((min-chosen (apply #'min tps)))
-	 ;; 	      (if (and (> min-chosen 0) (< (- min-chosen tp-sd) 0))
-	 ;; 		  0.0
-	 ;; 		  (- min-chosen tp-sd))))
-	 ;; (mn-out-sl (let ((min-chosen (apply #'min sls)))
-	 ;; 	      (if (and (> min-chosen 0) (< (- min-chosen sl-sd) 0))
-	 ;; 		  0.0
-	 ;; 		  (- min-chosen sl-sd))))
-	 ;; (mx-out-tp (let ((max-chosen (apply #'max tps)))
-	 ;; 	      (if (and (< max-chosen 0) (> (+ max-chosen tp-sd) 0))
-	 ;; 		  0.0
-	 ;; 		  (+ max-chosen tp-sd))))
-	 ;; (mx-out-sl (let ((max-chosen (apply #'max sls)))
-	 ;; 	      (if (and (< max-chosen 0) (> (+ max-chosen sl-sd) 0))
-	 ;; 		  0.0
-	 ;; 		  (+ max-chosen sl-sd))))
-	 )
+	 (chosen-outputs (loop for idx in idxs collect (get-tp-sl (get-output-dataset rates idx) lookahead-count))))
     (values
-     (let ((v (loop
-		for inputs in (apply #'mapcar #'list chosen-inputs)
-		for idx from 0
-		collect (let ((v (flatten (loop
-					    for input in inputs
-					    collect (list
-						     (vector 0 input)
-						     (vector (* 2 input) input)
-						     )))))
-			  (make-array (length v) :initial-contents v)))))
+     (let* ((v (loop
+		  for inputs in (apply #'mapcar #'list chosen-inputs)
+		  for idx from 0
+		  collect (let* ((min-input (apply #'min inputs))
+				 (max-input (apply #'max inputs))
+				 (v (flatten (loop
+						for input in inputs
+						collect (list
+							 (vector min-input input)
+							 (vector max-input input)
+							 )))))
+			    (make-array (length v) :initial-contents v)))))
        (make-array (length v) :initial-contents v))
      (let* ((one-set-outputs
-	      (flatten (loop for output in chosen-outputs
-			     collect (let* ((tp (assoccess output :tp))
-					    (sl (assoccess output :sl))
-					    ;; (mn-tp (- tp tp-sd))
-					    ;; (mx-tp (+ tp tp-sd))
-					    ;; (mn-sl (- sl sl-sd))
-					    ;; (mx-sl (+ sl sl-sd))
-					    )
-				       ;; Consequent creation.
-				       (list (vector (vector 0 tp)
-						     (vector (* omage.config:*n-times-sl-for-max-sl* sl) sl))
-					     ;; We need to repeat the consequent for the "other side" of the triangle.
-					     (vector (vector 0 tp)
-					     	     (vector (* omage.config:*n-times-sl-for-max-sl* sl) sl))
-					     )))))
+	     (flatten (loop for output in chosen-outputs
+			 collect (let* ((tp (assoccess output :tp))
+					(sl (assoccess output :sl))
+					;; (mn-tp (- tp tp-sd))
+					;; (mx-tp (+ tp tp-sd))
+					;; (mn-sl (- sl sl-sd))
+					;; (mx-sl (+ sl sl-sd))
+					)
+				   ;; Consequent creation.
+				   (list (vector (vector 0 tp)
+						 (vector (* omage.config:*n-times-sl-for-max-sl* sl) sl))
+					 ;; We need to repeat the consequent for the "other side" of the triangle.
+					 (vector (vector 0 tp)
+						 (vector (* omage.config:*n-times-sl-for-max-sl* sl) sl))
+					 )))))
 	    (one-set-outputs-v (make-array (length one-set-outputs) :initial-contents one-set-outputs))
 	    (v (loop repeat (length (first chosen-inputs))
-		     collect one-set-outputs-v)))
+		  collect one-set-outputs-v)))
        (make-array (length v) :initial-contents v)))))
 ;; (make-ifis (gen-agent 3 :EUR_USD *rates* (assoccess (gen-random-beliefs 2) :perception-fns) 10 10) 3 :EUR_USD *rates*)
 ;; (slot-value (gen-agent 2 *rates* (assoccess (gen-random-beliefs 2) :perception-fns) 10 10) 'perception-fns)
-;; (insert-agent (gen-agent 2 *rates* (assoccess (gen-random-beliefs 2) :perception-fns) 10 16) :EUR_USD :H1 '(:BULLISH))
+;; (insert-agent (gen-agent 2 *rates* (assoccess (gen-random-beliefs 2) :perception-fns) 10 16) :EUR_USD omage.config:*train-tf* '(:BULLISH))

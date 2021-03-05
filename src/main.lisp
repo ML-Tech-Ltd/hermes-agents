@@ -22,6 +22,7 @@
 	#:overmind-agents.km
 	#:overmind-agents.utilities)
   (:export #:get-trades
+	   #:get-nested-trades
 	   #:loop-optimize-test
 	   #:read-log
 	   #:read-agents-log
@@ -686,7 +687,86 @@
 	  do (setf ema (+ ema (* smoothing (- (->delta-close rates (+ i offset)) ema)))))
     ema))
 
-;; (describe-trades 1000)
+(defun ->macd-close (rates offset n-short-sma n-short-ema n-long-sma n-long-ema n-signal)
+  (let ((last-macd 0)
+	(signal 0))
+    (loop for off from (1- n-signal) downto 0
+	  do (let* ((short-ema (->ema-close rates (+ off offset) n-short-sma n-short-ema))
+		    (long-ema (->ema-close rates (+ off offset) n-long-sma n-long-ema))
+		    (macd (- short-ema long-ema)))
+	       (incf signal macd)
+	       (setf last-macd macd)))
+    (- last-macd (/ signal n-signal))))
+
+(defparameter *excel*
+  '(((:close-bid . 459.99) (:close-ask . 459.99))
+    ((:close-bid . 448.85) (:close-ask . 448.85))
+    ((:close-bid . 446.06) (:close-ask . 446.06))
+    ((:close-bid . 450.81) (:close-ask . 450.81))
+    ((:close-bid . 442.8) (:close-ask . 442.8))
+    ((:close-bid . 448.97) (:close-ask . 448.97))
+    ((:close-bid . 444.57) (:close-ask . 444.57))
+    ((:close-bid . 441.4) (:close-ask . 441.4))
+    ((:close-bid . 430.47) (:close-ask . 430.47))
+    ((:close-bid . 420.05) (:close-ask . 420.05))
+    ((:close-bid . 431.14) (:close-ask . 431.14))
+    ((:close-bid . 425.66) (:close-ask . 425.66))
+    ((:close-bid . 430.58) (:close-ask . 430.58))
+    ((:close-bid . 431.72) (:close-ask . 431.72))
+    ((:close-bid . 437.87) (:close-ask . 437.87))
+    ((:close-bid . 428.43) (:close-ask . 428.43))
+    ((:close-bid . 428.35) (:close-ask . 428.35))
+    ((:close-bid . 432.5) (:close-ask . 432.5))
+    ((:close-bid . 443.66) (:close-ask . 443.66))
+    ((:close-bid . 455.72) (:close-ask . 455.72))
+    ((:close-bid . 454.49) (:close-ask . 454.49))
+    ((:close-bid . 452.08) (:close-ask . 452.08))
+    ((:close-bid . 452.73) (:close-ask . 452.73))
+    ((:close-bid . 461.91) (:close-ask . 461.91))
+    ((:close-bid . 463.58) (:close-ask . 463.58))
+    ((:close-bid . 461.14) (:close-ask . 461.14))
+    ((:close-bid . 452.08) (:close-ask . 452.08))
+    ((:close-bid . 442.66) (:close-ask . 442.66))
+    ((:close-bid . 428.91) (:close-ask . 428.91))
+    ((:close-bid . 429.79) (:close-ask . 429.79))
+    ((:close-bid . 431.99) (:close-ask . 431.99))
+    ((:close-bid . 427.72) (:close-ask . 427.72))
+    ((:close-bid . 423.2) (:close-ask . 423.2))
+    ((:close-bid . 426.21) (:close-ask . 426.21))
+    ((:close-bid . 426.98) (:close-ask . 426.98))
+    ((:close-bid . 435.69) (:close-ask . 435.69))
+    ((:close-bid . 434.33) (:close-ask . 434.33))
+    ((:close-bid . 429.8) (:close-ask . 429.8))
+    ((:close-bid . 419.85) (:close-ask . 419.85))
+    ((:close-bid . 426.24) (:close-ask . 426.24))
+    ((:close-bid . 402.8) (:close-ask . 402.8))
+    ((:close-bid . 392.05) (:close-ask . 392.05))
+    ((:close-bid . 390.53) (:close-ask . 390.53))
+    ((:close-bid . 398.67) (:close-ask . 398.67))
+    ((:close-bid . 406.13) (:close-ask . 406.13))
+    ((:close-bid . 405.46) (:close-ask . 405.46))
+    ((:close-bid . 408.38) (:close-ask . 408.38))
+    ((:close-bid . 417.2) (:close-ask . 417.2))
+    ((:close-bid . 430.12) (:close-ask . 430.12))
+    ((:close-bid . 442.78) (:close-ask . 442.78))
+    ((:close-bid . 439.29) (:close-ask . 439.29))
+    ((:close-bid . 445.52) (:close-ask . 445.52))
+    ((:close-bid . 449.98) (:close-ask . 449.98))
+    ((:close-bid . 460.71) (:close-ask . 460.71))
+    ((:close-bid . 458.66) (:close-ask . 458.66))
+    ((:close-bid . 463.84) (:close-ask . 463.84))
+    ((:close-bid . 456.77) (:close-ask . 456.77))
+    ((:close-bid . 452.97) (:close-ask . 452.97))
+    ((:close-bid . 454.74) (:close-ask . 454.74))
+    ((:close-bid . 443.86) (:close-ask . 443.86))
+    ((:close-bid . 428.85) (:close-ask . 428.85))
+    ((:close-bid . 434.58) (:close-ask . 434.58))
+    ((:close-bid . 433.26) (:close-ask . 433.26))
+    ((:close-bid . 442.93) (:close-ask . 442.93))
+    ((:close-bid . 439.66) (:close-ask . 439.66))
+    ((:close-bid . 441.35) (:close-ask . 441.35))))
+
+;; (->macd-close *excel* 0 12 12 24 24 9)
 
 (defun ->rsi-close (rates offset n)
   (let ((gain 0)
@@ -732,6 +812,7 @@
      ->wma-close
      ->ema-close
      ->rsi-close
+     ->macd-close
      ;; ->delta-close
      ;; ->high-height
      ;; ->low-height
@@ -754,6 +835,15 @@
 	(n-ema (random-int *rand-gen* 3 25)))
     (values `#(,->ema-close ,offset ,n-sma ,n-ema)
 	    (+ offset n-sma n-ema))))
+(defun random->macd-close ()
+  (let ((offset (random-int *rand-gen* 0 50))
+	(n-short-sma (random-int *rand-gen* 3 25))
+	(n-short-ema (random-int *rand-gen* 3 25))
+	(n-long-sma (random-int *rand-gen* 3 25))
+	(n-long-ema (random-int *rand-gen* 3 25))
+	(n-signal (random-int *rand-gen* 3 25)))
+    (values `#(,->macd-close ,offset ,n-short-sma ,n-short-ema ,n-long-sma ,n-long-ema ,n-signal)
+	    (+ offset (* 2 (max n-short-sma n-short-ema n-long-sma n-long-ema)) n-signal))))
 (defun random->rsi-close ()
   (let ((offset (random-int *rand-gen* 0 50))
 	(n (random-int *rand-gen* 10 20)))
@@ -780,6 +870,7 @@
   (let ((fns-bag `(,#'random->sma-close
 		   ,#'random->wma-close
 		   ,#'random->ema-close
+		   ,#'random->macd-close
 		   ,#'random->rsi-close
 		   ;; ,#'random->high-height
 		   ;; ,#'random->low-height
@@ -1287,7 +1378,9 @@
 				   'trades.sl
 				   'trades.activation
 				   'trades.decision
+				   'trades.result
 				   'trades.entry-price
+				   'trades.entry-time
 				   :distinct-on 'trades.id
 				   :from 'trades
 				   :inner-join 'patterns-trades
@@ -1315,6 +1408,7 @@
 				'trades.decision
 				'trades.result
 				'trades.entry-price
+				'trades.entry-time
 				:distinct-on 'trades.id
 				:from 'trades
 				:inner-join 'patterns-trades
@@ -1324,10 +1418,85 @@
 			      'trades.id
 			      (:desc 'trades.creation-time))
 		   :alists))))
-;; (get-trades 3)
+;; (get-trades 20)
 
-(defun describe-trades (&optional limit)
-  (let* ((trades (get-trades limit))
+(defun -get-nested-trades (nested-limit)
+  (conn (query (:select 
+		   '*
+		 :from
+		 (:as (:select '*
+			(:as (:over (:row-number)
+				    (:partition-by 'instrument 'timeframe
+						   :order-by (:desc 'activation)))
+			 :idx)
+			:from
+			(:as (:select 'patterns.instrument
+			       'patterns.timeframe
+			       'patterns.type
+			       'trades.id
+			       'trades.creation-time
+			       'trades.test-trades-won
+			       'trades.test-trades-lost
+			       'trades.test-avg-revenue
+			       'trades.test-avg-activation
+			       'trades.test-avg-return
+			       'trades.test-total-return
+			       'trades.tp
+			       'trades.sl
+			       'trades.activation
+			       'trades.decision
+			       'trades.entry-price
+			       'trades.entry-time
+			       :distinct-on 'trades.id
+			       :from 'trades
+			       :inner-join 'patterns-trades
+			       :on (:= 'trades.id 'patterns-trades.trade-id)
+			       :inner-join 'patterns
+			       :on (:= 'patterns-trades.pattern-id 'patterns.id))
+			     'full-results))
+		      'idx-results)
+		 :where (:and (:<= 'idx '$1)
+			      (:in 'entry-time (:select (:max 'trades.entry-time)
+						 :from 'trades
+						 :inner-join 'patterns-trades
+						 :on (:= 'trades.id 'patterns-trades.trade-id)
+						 :inner-join 'patterns
+						 :on (:= 'patterns-trades.pattern-id 'patterns.id)
+						 :group-by 'trades.entry-time))))
+	       nested-limit
+	       :alists)))
+
+(defun get-nested-trades (nested-limit)
+  (let (result)
+    (loop for instrument in omage.config:*instruments*
+	  do (let ((trades (remove-if-not (lambda (elt)
+					    (string= elt (format nil "~a" instrument)))
+					  (-get-nested-trades nested-limit)
+					  :key (lambda (elt) (assoccess elt :instrument))))
+		   (bullish)
+		   (bearish))
+	       ;; Separating trades into bearish and bullish.
+	       (loop for trade in trades
+		     do (if (plusp (assoccess trade :tp))
+			    (push trade bullish)
+			    (push trade bearish)))
+	       ;; Creating nests with top activated and rest.
+	       ;; (print (first bullish))
+	       (let ((rbullish (reverse bullish))
+		     (rbearish (reverse bearish)))
+		 (when (first rbullish)
+		   (push `((:first . ,(first rbullish))
+			   (:rest . ,(rest rbullish)))
+			 result))
+		 (when (first rbearish)
+		   (push `((:first . ,(first rbearish))
+			   (:rest . ,(rest rbearish)))
+			 result)))))
+    (nreverse result)))
+;; (get-nested-trades 20)
+
+(defun describe-trades (&optional limit filter-fn)
+  (let* ((trades (remove-if-not filter-fn (get-trades limit)))
 	 (trades-won (loop for trade in trades
 			   summing (assoccess trade :test-trades-won)))
 	 (trades-lost (loop for trade in trades
@@ -1336,21 +1505,33 @@
 			     summing (assoccess trade :test-total-return))))
     (when trades
       (format t "Total trades won: ~a. Total trades lost: ~a. Total trades: ~a. ~%Total return: ~a. Avg return: ~a.~%~%"
-	      trades-won
-	      trades-lost
-	      (+ trades-won trades-lost)
-	      total-return
-	      (/ total-return (+ trades-won trades-lost)))
+      	      trades-won
+      	      trades-lost
+      	      (+ trades-won trades-lost)
+      	      total-return
+      	      (/ total-return (+ trades-won trades-lost)))
+      ;; (/ (loop for trade in trades
+      ;; 	    when (and (not (eq (assoccess trade :result) :null))
+      ;; 		      ;; (not (string= (assoccess trade :instrument) "USD_CNH"))
+      ;; 		      )
+      ;; 	      summing (to-pips
+      ;; 		       (assoccess trade :instrument)
+      ;; 		       (assoccess trade :result)))
+      ;; 	 (length trades))
       (loop for trade in trades
-	    do (format t "market: :~a, test-total-return: ~5$, test-trades-won: ~a, test-trades-lost: ~a, rr: ~a~%"
-		       (assoccess trade :instrument)
-		       (assoccess trade :test-total-return)
-		       (assoccess trade :test-trades-won)
-		       (assoccess trade :test-trades-lost)
-		       (format-rr (assoccess trade :sl)
-				  (assoccess trade :tp)))))))
+      	    do (format t "market: :~a, result: ~a, test-total-return: ~5$, test-trades-won: ~a, test-trades-lost: ~a, rr: ~a~%"
+      		       (assoccess trade :instrument)
+      		       (assoccess trade :result)
+      		       (assoccess trade :test-total-return)
+      		       (assoccess trade :test-trades-won)
+      		       (assoccess trade :test-trades-lost)
+      		       (format-rr (assoccess trade :sl)
+      				  (assoccess trade :tp))))
+      )))
+;; (get-trades 1)
+;; (describe-trades nil (lambda (trade) (> (assoccess trade :activation) 0.0)))
+;; (describe-trades nil (lambda (trade) t))
 
-;; (describe-trades)
 (comment
  (loop for instrument in omage.config:*instruments*
        do (progn
@@ -1358,8 +1539,14 @@
 	    (loop for type in '((:bullish) (:bearish) (:stagnated))
 		  do (format t "~a, " (length (get-agents instrument omage.config:*train-tf* type))))
 	    (format t "~%"))
-       finally (describe-trades))
+       finally (describe-trades nil (lambda (trade) (> (assoccess trade :activation) 0.8))))
  )
+
+(comment
+ (loop for act from 0 to 1 by 0.01
+       do (format t "~a: ~a~%"
+		  act
+		  (describe-trades nil (lambda (trade) (> (assoccess trade :activation) act))))))
 
 (defun read-str (str)
   (read-from-string str))
@@ -1489,6 +1676,27 @@
       ;;  (list (nth (position 0 idxs) ids))
       ;;  )
       )))
+
+(defun get-most-activated-agents (instrument timeframe types &optional (n 10))
+  ;; We're ordering the agents in ascending order to avoid
+  ;; reversing them after `push`ing them to `bullish-agents` and `bearish-agents`.
+  (let ((agents (sort (get-agents instrument timeframe types) #'< :key (lambda (agent) (slot-value agent 'avg-activation))))
+	(bullish-agents)
+	(bearish-agents))
+    (loop for agent in agents
+	  ;; Checking if bullish or bearish agent.
+	  do (if (plusp (slot-value agent 'avg-tp))
+		 (push agent bullish-agents)
+		 (push agent bearish-agents)))
+    (values
+     ;; n bullish.
+     (loop for agent in bullish-agents
+	   for i from 0 below n
+	   collect agent)
+     (loop for agent in bearish-agents
+	   for i from 0 below n
+	   collect agent))))
+;; (get-most-activated-agents :AUD_USD :H1 '(:BULLISH :BEARISH) 10)
 
 (defun -evaluate-agents (&key instrument timeframe types rates agent idx test-size)
   "Used for EVALUATE-AGENT and EVALUATE-AGENTS."
@@ -1742,8 +1950,8 @@
 ;; (ql:system-apropos "math")
 ;; (ql:quickload :cl-mathstats)
 
-(defun evaluate-agent (agent rates)
-  (let ((fitnesses (-evaluate-agents :agent agent :rates rates :idx (slot-value agent 'lookbehind-count))))
+(defun evaluate-agent (agent rates &key test-size (return-fitnesses-p nil))
+  (let ((fitnesses (-evaluate-agents :agent agent :rates rates :idx (slot-value agent 'lookbehind-count) :test-size test-size)))
     ;; (when (> (assoccess fitnesses :total-revenue) 0)
     ;;   (setf *activations* (assoccess fitnesses :activations))
     ;;   (setf *tps* (assoccess fitnesses :tps))
@@ -1764,7 +1972,9 @@
 ;;; and then remove this format + read-from-string.
 	  do (setf (slot-value agent (read-from-string (format nil "~a" (car fitness))))
 		   (if (listp (cdr fitness)) (apply #'vector (cdr fitness)) (cdr fitness))))
-    agent))
+    (if return-fitnesses-p
+	fitnesses
+	agent)))
 ;; (evaluate-agent (gen-agent 3 *rates* (access *beliefs* :perception-fns) 10 55) (subseq *rates* 0 200))
 
 (defun evaluate-agents (instrument timeframe types rates &key (test-size 50))
@@ -2227,8 +2437,9 @@
 	  collect (car (third key))))
 ;; (get-agent-ids-patterns (list (slot-value (first (get-agents :AUD_USD omage.config:*train-tf* '(:bearish))) 'id) (slot-value (first (get-agents :AUD_USD omage.config:*train-tf* '(:stagnated))) 'id)))
 
-(defun test-agents (instrument timeframe types rates training-dataset testing-dataset &key (test-size 50))
+(defun test-agents (instrument timeframe types rates testing-dataset &key (test-size 50))
   (multiple-value-bind (tp sl activation agent-ids)
+      ;; This one gets the final TP and SL.
       (eval-agents instrument timeframe types testing-dataset)
     (let* ( ;; (train-fitnesses (evaluate-agents instrument timeframe types training-dataset))
 	   (test-fitnesses (evaluate-agents instrument timeframe types testing-dataset :test-size test-size)))
@@ -2252,6 +2463,29 @@
 	;; (insert-trade (first agent-ids) instrument timeframe types train-fitnesses test-fitnesses tp sl rates)
 	(insert-trade (first agent-ids) instrument timeframe (first (get-agent-ids-patterns agent-ids)) test-fitnesses test-fitnesses tp sl activation rates)
 	(push-to-log "Trade created successfully.")))))
+
+(defun trade-most-activated-agents (instrument timeframe types agents rates testing-dataset &key (test-size 50))
+  "Used in `test-most-activated-agents`."
+  (loop for agent in agents
+	do (let ((test-fitnesses (evaluate-agent agent testing-dataset :test-size test-size :return-fitnesses-p t))
+		 (agent-id (slot-value agent 'id)))
+	     (when test-fitnesses
+	       (push-to-log "Testing process successful."))
+	     (multiple-value-bind (tp sl activation)
+		 (eval-agent agent testing-dataset)
+	       (push-to-log (format nil "Prediction. TP: ~a, SL: ~a." tp sl))
+	       (when (/= (+ (assoccess test-fitnesses :trades-won)
+			    (assoccess test-fitnesses :trades-lost))
+			 0)
+		 (push-to-log (format nil "Trying to create trade. Agents ID: ~a" agent-id))
+		 (insert-trade agent-id instrument timeframe types test-fitnesses test-fitnesses tp sl activation rates)
+		 (push-to-log "Trade created successfully."))))))
+
+(defun test-most-activated-agents (instrument timeframe types rates testing-dataset &key (test-size 50))
+  (multiple-value-bind (bullish-agents bearish-agents)
+      (get-most-activated-agents instrument timeframe types)
+    (trade-most-activated-agents instrument timeframe '(:BULLISH) bullish-agents rates testing-dataset :test-size test-size)
+    (trade-most-activated-agents instrument timeframe '(:BEARISH) bearish-agents rates testing-dataset :test-size test-size)))
 
 ;; General log.
 (let (log)
@@ -2495,8 +2729,7 @@
 
 (defun -loop-optimize-test (&key
 			      (report-fn nil)
-			      (type-groups '((:bullish) (:bearish) (:stagnated)))
-			      (test-size 50))
+			      (type-groups '((:bullish) (:bearish) (:stagnated))))
   (dolist (instrument omage.config:*instruments*)
     (dolist (timeframe omage.config:*timeframes*)
       (unless (is-market-close)
@@ -2532,7 +2765,9 @@
 		(progn
 		  (push-to-log "<b>SIGNAL.</b><hr/>")
 		  (push-to-log (format nil "Trying to create signal with ~a agents." agents-count))
-		  (test-agents instrument timeframe type-groups rates full-training-dataset testing-dataset :test-size test-size))
+		  (if omage.config:*test-most-activated-agents-p*
+		      (test-most-activated-agents instrument timeframe type-groups rates testing-dataset :test-size omage.config:*test-size*)
+		      (test-agents instrument timeframe type-groups rates testing-dataset :test-size omage.config:*test-size*)))
 		(push-to-log "Not enough agents to create a signal."))
 	    (loop for types in type-groups
 		  ;; (multiple-value-bind (types)
@@ -2588,7 +2823,9 @@
 	    (when (not omage.config:*is-production*)
 	      (push-to-log "<b>SIGNAL.</b><hr/>")
 	      (push-to-log (format nil "Trying to create signal with ~a agents." agents-count))
-	      (test-agents instrument timeframe type-groups rates full-training-dataset testing-dataset :test-size test-size)
+	      (if omage.config:*test-most-activated-agents-p*
+		  (test-most-activated-agents instrument timeframe type-groups rates testing-dataset :test-size omage.config:*test-size*)
+		  (test-agents instrument timeframe type-groups rates testing-dataset :test-size omage.config:*test-size*))
 	      (validate-trades))))
 	(when omage.config:*is-production*
 	  (push-to-log "<b>VALIDATION.</b><hr/>")

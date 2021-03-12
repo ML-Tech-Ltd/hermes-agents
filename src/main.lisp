@@ -170,69 +170,18 @@
        #'<
        :key #'first))
 
+(defun -init-patterns (instrument timeframe)
+  (unless (get-patterns instrument timeframe '(:BULLISH))
+    (insert-pattern instrument timeframe :BULLISH))
+  (unless (get-patterns instrument timeframe '(:BEARISH))
+    (insert-pattern instrument timeframe :BEARISH))
+  (unless (get-patterns instrument timeframe '(:STAGNATED))
+    (insert-pattern instrument timeframe :STAGNATED)))
+
 (defun init-patterns ()
-  (unless (get-patterns :AUD_USD omage.config:*train-tf* '(:BULLISH))
-    (insert-pattern :AUD_USD omage.config:*train-tf* :BULLISH))
-  (unless (get-patterns :AUD_USD omage.config:*train-tf* '(:BEARISH))
-    (insert-pattern :AUD_USD omage.config:*train-tf* :BEARISH))
-  (unless (get-patterns :AUD_USD omage.config:*train-tf* '(:STAGNATED))
-    (insert-pattern :AUD_USD omage.config:*train-tf* :STAGNATED))
-  
-  (unless (get-patterns :EUR_GBP omage.config:*train-tf* '(:BULLISH))
-    (insert-pattern :EUR_GBP omage.config:*train-tf* :BULLISH))
-  (unless (get-patterns :EUR_GBP omage.config:*train-tf* '(:BEARISH))
-    (insert-pattern :EUR_GBP omage.config:*train-tf* :BEARISH))
-  (unless (get-patterns :EUR_GBP omage.config:*train-tf* '(:STAGNATED))
-    (insert-pattern :EUR_GBP omage.config:*train-tf* :STAGNATED))
-
-  (unless (get-patterns :EUR_JPY omage.config:*train-tf* '(:BULLISH))
-    (insert-pattern :EUR_JPY omage.config:*train-tf* :BULLISH))
-  (unless (get-patterns :EUR_JPY omage.config:*train-tf* '(:BEARISH))
-    (insert-pattern :EUR_JPY omage.config:*train-tf* :BEARISH))
-  (unless (get-patterns :EUR_JPY omage.config:*train-tf* '(:STAGNATED))
-    (insert-pattern :EUR_JPY omage.config:*train-tf* :STAGNATED))
-  
-  (unless (get-patterns :EUR_USD omage.config:*train-tf* '(:BULLISH))
-    (insert-pattern :EUR_USD omage.config:*train-tf* :BULLISH))
-  (unless (get-patterns :EUR_USD omage.config:*train-tf* '(:BEARISH))
-    (insert-pattern :EUR_USD omage.config:*train-tf* :BEARISH))
-  (unless (get-patterns :EUR_USD omage.config:*train-tf* '(:STAGNATED))
-    (insert-pattern :EUR_USD omage.config:*train-tf* :STAGNATED))
-
-  (unless (get-patterns :GBP_USD omage.config:*train-tf* '(:BULLISH))
-    (insert-pattern :GBP_USD omage.config:*train-tf* :BULLISH))
-  (unless (get-patterns :GBP_USD omage.config:*train-tf* '(:BEARISH))
-    (insert-pattern :GBP_USD omage.config:*train-tf* :BEARISH))
-  (unless (get-patterns :GBP_USD omage.config:*train-tf* '(:STAGNATED))
-    (insert-pattern :GBP_USD omage.config:*train-tf* :STAGNATED))
-
-  (unless (get-patterns :USD_CAD omage.config:*train-tf* '(:BULLISH))
-    (insert-pattern :USD_CAD omage.config:*train-tf* :BULLISH))
-  (unless (get-patterns :USD_CAD omage.config:*train-tf* '(:BEARISH))
-    (insert-pattern :USD_CAD omage.config:*train-tf* :BEARISH))
-  (unless (get-patterns :USD_CAD omage.config:*train-tf* '(:STAGNATED))
-    (insert-pattern :USD_CAD omage.config:*train-tf* :STAGNATED))
-
-  (unless (get-patterns :USD_CHF omage.config:*train-tf* '(:BULLISH))
-    (insert-pattern :USD_CHF omage.config:*train-tf* :BULLISH))
-  (unless (get-patterns :USD_CHF omage.config:*train-tf* '(:BEARISH))
-    (insert-pattern :USD_CHF omage.config:*train-tf* :BEARISH))
-  (unless (get-patterns :USD_CHF omage.config:*train-tf* '(:STAGNATED))
-    (insert-pattern :USD_CHF omage.config:*train-tf* :STAGNATED))
-
-  (unless (get-patterns :USD_CNH omage.config:*train-tf* '(:BULLISH))
-    (insert-pattern :USD_CNH omage.config:*train-tf* :BULLISH))
-  (unless (get-patterns :USD_CNH omage.config:*train-tf* '(:BEARISH))
-    (insert-pattern :USD_CNH omage.config:*train-tf* :BEARISH))
-  (unless (get-patterns :USD_CNH omage.config:*train-tf* '(:STAGNATED))
-    (insert-pattern :USD_CNH omage.config:*train-tf* :STAGNATED))
-
-  (unless (get-patterns :USD_JPY omage.config:*train-tf* '(:BULLISH))
-    (insert-pattern :USD_JPY omage.config:*train-tf* :BULLISH))
-  (unless (get-patterns :USD_JPY omage.config:*train-tf* '(:BEARISH))
-    (insert-pattern :USD_JPY omage.config:*train-tf* :BEARISH))
-  (unless (get-patterns :USD_JPY omage.config:*train-tf* '(:STAGNATED))
-    (insert-pattern :USD_JPY omage.config:*train-tf* :STAGNATED)))
+  (loop for instrument in omage.config:*instruments*
+	do (loop for timeframe in omage.config:*all-timeframes*
+		 do (-init-patterns instrument timeframe))))
 ;; (init-patterns)
 
 (defun insert-rates (instrument timeframe rates)
@@ -265,7 +214,7 @@
 	  do (loop for timeframe in timeframes
 		   do (let ((rates (get-rates-batches instrument timeframe howmany-batches)))
 			(insert-rates instrument timeframe rates))))))
-;; (init-rates 20 :timeframes '(:M15))
+;; (init-rates 2 :timeframes '(:D))
 
 (defun init-database ()
   "Creates all the necessary tables for Overmind Agents."
@@ -434,7 +383,6 @@
 	      (:primary-key id))))))
 ;; (init-database)
 
-;; TODO: Refactor to use RATE-LOW-BID, RATE-HIGH-ASK, etc.
 (defun get-trade-result (entry-price tp sl rates)
   (let ((low-type (if (plusp tp) :low-bid :low-ask))
 	(high-type (if (plusp tp) :high-bid :high-ask)))
@@ -812,7 +760,7 @@
      ->wma-close
      ->ema-close
      ->rsi-close
-     ->macd-close
+     ;; ->macd-close
      ;; ->delta-close
      ;; ->high-height
      ;; ->low-height
@@ -870,7 +818,7 @@
   (let ((fns-bag `(,#'random->sma-close
 		   ,#'random->wma-close
 		   ,#'random->ema-close
-		   ,#'random->macd-close
+		   ;; ,#'random->macd-close
 		   ,#'random->rsi-close
 		   ;; ,#'random->high-height
 		   ;; ,#'random->low-height
@@ -1078,25 +1026,65 @@
   (:keys id))
 
 (defun get-tp-sl (rates &optional (lookahead-count 10) (symmetricp nil))
-  (let* ((init-rate (rate-close (first rates)))
-	 (max-pos 0)
-	 (max-neg 0))
+  ;; We need to use `rate-open` because we're starting at that price after
+  ;; calculating the inputs before this rate.
+  (let* ((init-rate-ask (rate-open-ask (first rates)))
+	 (init-rate-bid (rate-open-bid (first rates)))
+	 (max-pos-ask 0)
+	 (max-pos-bid 0)
+	 (max-neg-ask 0)
+	 (max-neg-bid 0))
+    (format t "Starting TP-SL: ~a, first-high: ~a, first-low: ~a~%" init-rate-bid
+	    (rate-high-bid (nth 9 rates))
+	    (rate-low-bid (nth 9 rates)))
     (loop for rate in (subseq rates 0 lookahead-count)
-	  do (let ((delta-high (- (rate-high rate) init-rate))
-		   (delta-low (- (rate-low rate) init-rate)))
+	  do (let ((delta-high-ask (- (rate-high-ask rate) init-rate-bid)) ;; Started as sell order, then close as ask.
+		   (delta-high-bid (- (rate-high-bid rate) init-rate-ask)) ;; Started as buy order, then close as bid.
+		   (delta-low-ask (- (rate-low-ask rate) init-rate-bid))
+		   (delta-low-bid (- (rate-low-bid rate) init-rate-ask)))
 	       ;; Checking for possible price stagnation. If true, ignore.
-	       (unless (and (< init-rate delta-high)
-			    (> init-rate delta-low))
-		 (when (> delta-high max-pos)
-		   (setf max-pos delta-high))
-		 (when (< delta-low max-neg)
-		   (setf max-neg delta-low)))))
-    `((:tp . ,(if (>= max-pos (abs max-neg)) max-pos max-neg))
+	       ;; (unless (and (< init-rate delta-high)
+	       ;; 		    (> init-rate delta-low))
+	       ;; 	 (when (> delta-high max-pos)
+	       ;; 	   (setf max-pos delta-high))
+	       ;; 	 (when (< delta-low max-neg)
+	       ;; 	   (setf max-neg delta-low)))
+	       (when (> delta-high-ask max-pos-ask)
+		 (setf max-pos-ask delta-high-ask))
+	       (when (> delta-high-bid max-pos-bid)
+		 (setf max-pos-bid delta-high-bid))
+	       (when (< delta-low-ask max-neg-ask)
+		 (setf max-neg-ask delta-low-ask))
+	       (when (< delta-low-bid max-neg-bid)
+		 (setf max-neg-bid delta-low-bid))))
+    ;; `((:tp . ,(if (>= snd-max-pos (abs snd-max-neg)) snd-max-pos snd-max-neg))
+    ;;   ,(if symmetricp
+    ;; 	   `(:sl . ,(if (>= snd-max-pos (abs snd-max-neg)) (* snd-max-pos -1.0) (* snd-max-neg -1.0)))
+    ;; 	   `(:sl . ,(if (>= snd-max-pos (abs snd-max-neg)) snd-max-neg snd-max-pos))
+    ;; 	   ))
+
+    ;; Can we just use (>= max-pos-ask (abs max-neg-ask)) and totally ignore `-bid` in the condition?
+    `((:tp . ,(if (>= max-pos-ask (abs max-neg-ask)) max-pos-bid max-neg-ask))
       ,(if symmetricp
-	   `(:sl . ,(if (>= max-pos (abs max-neg)) (* max-pos -1.0) (* max-neg -1.0)))
-	   `(:sl . ,(if (>= (abs max-neg) max-pos) max-pos max-neg)))
-      )))
-;; (time (get-tp-sl (get-input-dataset *rates* 400)))
+	   `(:sl . ,(if (>= max-pos-ask (abs max-neg-ask)) (* max-pos-bid -1.0) (* max-neg-ask -1.0)))
+	   `(:sl . ,(if (>= max-pos-ask (abs max-neg-ask)) max-neg-bid max-pos-ask))
+	   ))
+    
+    ;; `((:tp . ,(if (>= max-pos (abs max-neg)) max-pos max-neg))
+    ;;   ,(if symmetricp
+    ;; 	   ;; `(:sl . ,(if (>= max-pos (abs max-neg)) (* max-pos -1.0) (* max-neg -1.0)))
+    ;; 	   `(:sl . ,(if (>= max-pos (abs max-neg))
+    ;; 			(if (> (/ max-pos 2) (abs max-neg))
+    ;; 			    (* -1 (/ max-pos 2))
+    ;; 			    max-neg)
+    ;; 			(if (> (abs (/ max-neg 2)) max-pos)
+    ;; 			    (* -1 (/ max-neg 2))
+    ;; 			    max-pos)))
+    ;; 	   `(:sl . ,(if (>= max-pos (abs max-neg)) max-neg max-pos))
+    ;; 	   ;; `(:sl . ,(if (>= max-pos (abs max-neg)) (* max-pos -1.0) (* max-neg -1.0)))
+    ;; 	   ))
+    ))
+;; (time (get-tp-sl (get-input-dataset *rates* 10)))
 
 (defun get-same-direction-outputs-idxs (instrument rates count &key (lookahead-count 10) (lookbehind-count 10) direction-fn)
   (let* ((r (random-float *rand-gen* 0 1))
@@ -1114,7 +1102,7 @@
 				     (assoccess tp-sl :sl)))
 			     omage.config:*agents-min-rr-creation*)
 			  (or (eq instrument :USD_CNH)
-			   (< (abs (assoccess tp-sl :tp)) (from-pips instrument omage.config:*max-tp*))))
+			      (< (abs (assoccess tp-sl :tp)) (from-pips instrument omage.config:*max-tp*))))
 		 (push idx result))))
     (if (> (length result) 1)
 	result
@@ -1145,71 +1133,86 @@
 (defun evaluate-trade (tp sl rates)
   "Refactorize this."
   (let ((starting-rate (if (plusp tp)
-			   (rate-close-ask (first rates))
-			   (rate-close-bid (first rates))))
+			   ;; We need to use `open` because it's when we start.
+			   (rate-open-ask (first rates))
+			   (rate-open-bid (first rates))))
 	(revenue 0)
 	(max-pos 0)
 	(max-neg 0)
 	(exit-time)
 	;; Needs to be (length rates) in case the trade never finishes.
 	(finish-idx (length rates)))
-    (loop for rate in (rest rates)
-	  for idx from 1 below (length (rest rates))
-	  do (let ((low (if (plusp tp) ;; Used to exit a trade, so buy -> bid, sell -> ask.
-			    (rate-low-bid rate)
-			    (rate-low-ask rate)))
-		   (high (if (plusp tp)
-			     (rate-high-bid rate)
-			     (rate-high-ask rate)))
-		   (time (assoccess rate :time)))
-	       (when (or (= tp 0) (= sl 0))
-		 ;; We move to the next price.
-		 (setf finish-idx 1)
-		 (return))
-	       (if (> tp sl)
-		   ;; Then it's bullish.
-		   (if (<= (- low starting-rate) sl)
-		       ;; Then we lost.
-		       (progn
-			 (setf revenue sl)
-			 (setf finish-idx idx)
-			 (setf exit-time time)
-			 (return))
-		       (when (>= (- high starting-rate) tp)
-			 ;; Then we won.
-			 (setf revenue tp)
-			 (setf finish-idx idx)
-			 (setf exit-time time)
-			 (return)))
-		   ;; Then it's bearish.
-		   (if (>= (- high starting-rate) sl)
-		       ;; Then we lost.
-		       (progn
-			 (setf revenue (- sl))
-			 (setf finish-idx idx)
-			 (setf exit-time time)
-			 (return))
-		       (when (<= (- low starting-rate) tp)
-			 ;; Then we won.
-			 (setf revenue (- tp))
-			 (setf finish-idx idx)
-			 (setf exit-time time)
-			 (return))))
-	       ;; These need to be done after determining if we won or lost.
-	       ;; Otherwise, we'd be reporting max-neg or max-pos that are greater
-	       ;; than the TP or SL.
-	       ;; Updating max-pos.
-	       (when (> (- high starting-rate) max-pos)
-		 (setf max-pos (- high starting-rate)))
-	       ;; Updating max-neg.
-	       (when (< (- low starting-rate) max-neg)
-		 (setf max-neg (- low starting-rate)))))
+    (when (or (= tp 0) (= sl 0))
+      ;; We move to the next price.
+      (setf finish-idx 1))
+    ;; We use the full `rates` dataset because we're starting at open.
+    ;; We need to check the starting candle's low and high.
+    (unless (or (= tp 0) (= sl 0))
+      (loop for rate in rates
+	    for idx from 0 below finish-idx ;; (length (rest rates))
+	    do (let ((low (if (plusp tp) ;; Used to exit a trade, so buy -> bid, sell -> ask.
+			      (rate-low-bid rate)
+			      (rate-low-ask rate)))
+		     (high (if (plusp tp)
+			       (rate-high-bid rate)
+			       (rate-high-ask rate)))
+		     (time (assoccess rate :time)))
+		 (if (> tp 0)
+		     ;; Then it's bullish.
+		     (if (< (- low starting-rate) sl)
+			 ;; Then we lost.
+			 (progn
+			   (format t "meow. idx: ~a, low: ~a, start: ~a, sl: ~a~%" idx low starting-rate sl)
+			   (setf revenue sl)
+			   (setf finish-idx idx)
+			   (setf exit-time time)
+			   (return))
+			 (when (>= (- high starting-rate) tp)
+			   ;; Then we won.
+			   (setf revenue tp)
+			   (setf finish-idx idx)
+			   (setf exit-time time)
+			   (return)))
+		     ;; Then it's bearish.
+		     (if (> (- high starting-rate) sl)
+			 ;; Then we lost.
+			 (progn
+			   (format t "woof. idx: ~a, high: ~a, start: ~a, sl: ~a~%" idx high starting-rate sl)
+			   (setf revenue (- sl))
+			   (setf finish-idx idx)
+			   (setf exit-time time)
+			   (return))
+			 (when (<= (- low starting-rate) tp)
+			   ;; Then we won.
+			   (setf revenue (- tp))
+			   (setf finish-idx idx)
+			   (setf exit-time time)
+			   (return))))
+		 ;; These need to be done after determining if we won or lost.
+		 ;; Otherwise, we'd be reporting max-neg or max-pos that are greater
+		 ;; than the TP or SL.
+		 ;; Updating max-pos.
+		 (when (> (- high starting-rate) max-pos)
+		   (setf max-pos (- high starting-rate)))
+		 ;; Updating max-neg.
+		 (when (< (- low starting-rate) max-neg)
+		   (setf max-neg (- low starting-rate))))))
     `((:revenue . ,revenue)
       (:max-pos . ,max-pos)
       (:max-neg . ,max-neg)
       (:exit-time . ,exit-time)
       (:finish-idx . ,finish-idx))))
-;; (evaluate-trade 0.0010 -0.0010 *rates*)
+;; (evaluate-trade 0.0015 -0.0020 (get-output-dataset *rates* 3))
+;; (get-tp-sl (get-output-dataset *rates* 188))
+
+(comment
+ (length (remove-if-not #'zerop
+			(loop for i from 0 below 9000
+			      collect (let* ((rates (get-output-dataset *rates* i))
+					     (tp-sl (get-tp-sl rates))
+					     (tp (assoccess tp-sl :tp))
+					     (sl (assoccess tp-sl :sl)))
+					(assoccess (evaluate-trade tp sl rates) :revenue))))))
 
 (defun get-agents-count (instrument timeframe types)
   (length (get-agents instrument timeframe types)))
@@ -1418,7 +1421,7 @@
 			      'trades.id
 			      (:desc 'trades.creation-time))
 		   :alists))))
-;; (get-trades 20)
+;; (get-trades)
 
 (defun -get-nested-trades (nested-limit)
   (conn (query (:select 
@@ -1456,13 +1459,14 @@
 			     'full-results))
 		      'idx-results)
 		 :where (:and (:<= 'idx '$1)
-			      (:in 'entry-time (:select (:max 'trades.entry-time)
-						 :from 'trades
-						 :inner-join 'patterns-trades
-						 :on (:= 'trades.id 'patterns-trades.trade-id)
-						 :inner-join 'patterns
-						 :on (:= 'patterns-trades.pattern-id 'patterns.id)
-						 :group-by 'trades.entry-time))))
+			      (:in 'creation-time (:select 
+						      (:max 'trades.creation-time)
+						    :from 'trades
+						    :inner-join 'patterns-trades
+						    :on (:= 'trades.id 'patterns-trades.trade-id)
+						    :inner-join 'patterns
+						    :on (:= 'patterns-trades.pattern-id 'patterns.id)
+						    :group-by 'patterns.instrument))))
 	       nested-limit
 	       :alists)))
 
@@ -1504,33 +1508,40 @@
 	 (total-return (loop for trade in trades
 			     summing (assoccess trade :test-total-return))))
     (when trades
-      (format t "Total trades won: ~a. Total trades lost: ~a. Total trades: ~a. ~%Total return: ~a. Avg return: ~a.~%~%"
-      	      trades-won
-      	      trades-lost
-      	      (+ trades-won trades-lost)
-      	      total-return
-      	      (/ total-return (+ trades-won trades-lost)))
-      ;; (/ (loop for trade in trades
-      ;; 	    when (and (not (eq (assoccess trade :result) :null))
-      ;; 		      ;; (not (string= (assoccess trade :instrument) "USD_CNH"))
-      ;; 		      )
-      ;; 	      summing (to-pips
-      ;; 		       (assoccess trade :instrument)
-      ;; 		       (assoccess trade :result)))
-      ;; 	 (length trades))
-      (loop for trade in trades
-      	    do (format t "market: :~a, result: ~a, test-total-return: ~5$, test-trades-won: ~a, test-trades-lost: ~a, rr: ~a~%"
+      ;; (format t "Total trades won: ~a. Total trades lost: ~a. Total trades: ~a. ~%Total return: ~a. Avg return: ~a.~%~%"
+      ;; 	      trades-won
+      ;; 	      trades-lost
+      ;; 	      (+ trades-won trades-lost)
+      ;; 	      total-return
+      ;; 	      (/ total-return (+ trades-won trades-lost)))
+      (/ (loop for trade in trades
+      	    when (and (not (eq (assoccess trade :result) :null))
+      		      ;; (not (string= (assoccess trade :instrument) "USD_CNH"))
+      		      )
+      	      summing (to-pips
       		       (assoccess trade :instrument)
-      		       (assoccess trade :result)
-      		       (assoccess trade :test-total-return)
-      		       (assoccess trade :test-trades-won)
-      		       (assoccess trade :test-trades-lost)
-      		       (format-rr (assoccess trade :sl)
-      				  (assoccess trade :tp))))
+      		       (assoccess trade :result)))
+      	 (length trades))
+      ;; (loop for trade in trades
+      ;; 	    do (format t "market: :~a, result: ~a, test-total-return: ~5$, test-trades-won: ~a, test-trades-lost: ~a, rr: ~a~%"
+      ;; 		       (assoccess trade :instrument)
+      ;; 		       (assoccess trade :result)
+      ;; 		       (assoccess trade :test-total-return)
+      ;; 		       (assoccess trade :test-trades-won)
+      ;; 		       (assoccess trade :test-trades-lost)
+      ;; 		       (format-rr (assoccess trade :sl)
+      ;; 				  (assoccess trade :tp))))
       )))
 ;; (get-trades 1)
 ;; (describe-trades nil (lambda (trade) (> (assoccess trade :activation) 0.0)))
 ;; (describe-trades nil (lambda (trade) t))
+
+(comment
+ (loop for act from 0 to 1 by 0.1
+       do (format t "~a: ~a~%"
+		  act
+		  (describe-trades nil (lambda (trade) (> (assoccess trade :activation) act)))))
+ )
 
 (comment
  (loop for instrument in omage.config:*instruments*
@@ -1541,12 +1552,6 @@
 	    (format t "~%"))
        finally (describe-trades nil (lambda (trade) (> (assoccess trade :activation) 0.8))))
  )
-
-(comment
- (loop for act from 0 to 1 by 0.01
-       do (format t "~a: ~a~%"
-		  act
-		  (describe-trades nil (lambda (trade) (> (assoccess trade :activation) act))))))
 
 (defun read-str (str)
   (read-from-string str))
@@ -1726,53 +1731,57 @@
 		   (if agent
 		       (eval-agent agent input-dataset)
 		       (eval-agents instrument timeframe types input-dataset))
-		 (let* ((trade (evaluate-trade tp sl output-dataset))
-			(revenue (assoccess trade :revenue))
-			(max-pos (assoccess trade :max-pos))
-			(max-neg (assoccess trade :max-neg))
-			(exit-time (assoccess trade :exit-time))
-			(finish-idx (assoccess trade :finish-idx)))
-		   (if (or (= revenue 0)
-			   (< activation omage.config:*evaluate-agents-activation-threshold*)
-			   (> (abs sl) (abs tp))
-			   (> (* tp sl) 0)
-			   (< (abs (/ tp sl))
-			      omage.config:*agents-min-rr-trading*)
-			   (= tp 0)
-			   (= sl 0)
-			   (< (abs (to-pips instrument sl)) 3)
-			   ;; (> (abs (to-pips instrument sl)) 20)
-			   )
-		       ;; (push-to-log "." :add-newline? nil)
+		 (if (or (/= activation 1.0)
+			 (< activation omage.config:*evaluate-agents-activation-threshold*)
+			 )
+		     (progn
 		       (incf num-datapoints)
-		       (progn
-			 ;; (format t "TP: ~a, SL: ~a, R: ~a~%" tp sl revenue)
-			 ;; (push-to-log "+" :add-newline? nil)
-			 (incf num-datapoints-traded)
-			 (incf num-datapoints)
-			 (if (> revenue 0)
-			     (incf trades-won)
-			     (incf trades-lost))
-			 (push tp tps)
-			 (push sl sls)
-			 (push activation activations)
-			 (push (read-from-string (assoccess (nth idx rates) :time)) entry-times)
-			 (push (read-from-string exit-time) exit-times)
-			 (push (if (plusp tp)
-				   (rate-close-ask (nth idx rates))
-				   (rate-close-bid (nth idx rates)))
-			       entry-prices)
-			 (push (if (plusp tp)
-				   (rate-close-bid (nth finish-idx output-dataset))
-				   (rate-close-ask (nth finish-idx output-dataset)))
-			       exit-prices)
-			 (push max-pos max-poses)
-			 (push max-neg max-negses)
-			 (push revenue revenues)))
-		   (if omage.config:*trade-every-dp-p*
-		       (incf idx)
-		       (incf idx finish-idx))
-		   ))))
+		       (incf idx))
+		     (let* ((trade (evaluate-trade tp sl output-dataset))
+			    (revenue (assoccess trade :revenue))
+			    (max-pos (assoccess trade :max-pos))
+			    (max-neg (assoccess trade :max-neg))
+			    (exit-time (assoccess trade :exit-time))
+			    (finish-idx (assoccess trade :finish-idx)))
+		       (if (or (= revenue 0)
+			       (> (abs sl) (abs tp))
+			       (> (* tp sl) 0)
+			       (< (abs (/ tp sl))
+				  omage.config:*agents-min-rr-trading*)
+			       (= tp 0)
+			       (= sl 0)
+			       (< (abs (to-pips instrument sl)) omage.config:*min-pips-sl*)
+			       (> (abs (to-pips instrument sl)) omage.config:*max-pips-sl*)
+			       )
+			   ;; (push-to-log "." :add-newline? nil)
+			   (incf num-datapoints)
+			   (progn
+			     (incf num-datapoints-traded)
+			     (incf num-datapoints)
+			     (if (> revenue 0)
+				 (incf trades-won)
+				 (incf trades-lost))
+			     (push tp tps)
+			     (push sl sls)
+			     (push activation activations)
+			     (push (read-from-string (assoccess (nth idx rates) :time)) entry-times)
+			     (push (read-from-string exit-time) exit-times)
+			     (push (if (plusp tp)
+				       (rate-close-ask (nth idx rates))
+				       (rate-close-bid (nth idx rates)))
+				   entry-prices)
+			     (push (if (plusp tp)
+				       (rate-close-bid (nth finish-idx output-dataset))
+				       (rate-close-ask (nth finish-idx output-dataset)))
+				   exit-prices)
+			     (push max-pos max-poses)
+			     (push max-neg max-negses)
+			     (push revenue revenues)))
+		       (if omage.config:*trade-every-dp-p*
+			   (incf idx)
+			   (incf idx finish-idx))
+		       ))
+		 )))
     ;; ACTPROOF
     ;; (unless agent
     ;;   (setf *activations* activations)
@@ -1781,50 +1790,51 @@
     (push-to-log (format nil "Traded ~a out of ~a datapoints." num-datapoints-traded num-datapoints))
     (push-to-log "<br/>Agents evaluated successfully.")
     (let* ((returns (loop for revenue in revenues
-			  for tp in tps
-			  for sl in sls
-			  collect (if (or (= tp 0)
-					  (= sl 0))
-				      0
-				      (if (> revenue 0)
-					  (* (/ tp sl) -1) ;; To always get positive number.
-					  -1))))
-	   (total-return (reduce #'+ returns)))
+    			  for tp in tps
+    			  for sl in sls
+    			  collect (if (or (= tp 0)
+    					  (= sl 0))
+    				      0
+    				      (if (> revenue 0)
+    					  (* (/ tp sl) -1) ;; To always get positive number.
+    					  -1))))
+    	   (total-return (reduce #'+ returns)))
       `((:begin-time . ,(read-from-string (assoccess (first rates) :time)))
-	(:end-time . ,(read-from-string (assoccess (last-elt rates) :time)))
-	(:dataset-size . ,(length rates))
-	(:avg-revenue . ,(if (> (length revenues) 0) (mean revenues) 0))
-	(:stdev-revenue . ,(if (> (length revenues) 0) (standard-deviation revenues) 0))
-	(:total-revenue . ,(if (> (length revenues) 0) (reduce #'+ revenues) 0))
-	(:avg-max-pos . ,(if (> (length max-poses) 0) (mean max-poses) 0))
-	(:stdev-max-pos . ,(if (> (length max-poses) 0) (standard-deviation max-poses) 0))
-	(:avg-max-neg . ,(if (> (length max-negses) 0) (mean max-negses) 0))
-	(:stdev-max-neg . ,(if (> (length max-negses) 0) (standard-deviation max-negses) 0))
-	;; (:max-max-pos . ,(if (> (length max-poses) 0) (apply #'max max-poses) 0))
-	;; (:max-max-neg . ,(if (> (length max-negses) 0) (apply #'max max-negses) 0))
-	(:avg-tp . ,(if (> (length tps) 0) (mean tps) 0))
-	(:stdev-tp . ,(if (> (length tps) 0) (standard-deviation tps) 0))
-	(:avg-sl . ,(if (> (length sls) 0) (mean sls) 0))
-	(:stdev-sl . ,(if (> (length sls) 0) (standard-deviation sls) 0))
-	(:avg-activation . ,(if (> (length activations) 0) (mean activations) 0))
-	(:stdev-activation . ,(if (> (length activations) 0) (standard-deviation activations) 0))
-	(:avg-return . ,(if (> (length tps) 0) (/ total-return (length tps)) 0))
-	(:total-return . ,total-return)
-	(:max-tp . ,(if (> (length max-negses) 0) (if (> (first tps) 0) (apply #'max tps) (apply #'min tps)) 0))
-	(:min-tp . ,(if (> (length max-negses) 0) (if (> (first tps) 0) (apply #'min tps) (apply #'max tps)) 0))
-	(:max-sl . ,(if (> (length max-negses) 0) (if (> (first sls) 0) (apply #'max sls) (apply #'min sls)) 0))
-	(:min-sl . ,(if (> (length max-negses) 0) (if (> (first sls) 0) (apply #'min sls) (apply #'max sls)) 0))
-	(:trades-won . ,trades-won)
-	(:trades-lost . ,trades-lost)
-	(:revenues . ,(reverse revenues))
-	(:entry-times . ,(reverse entry-times))
-	(:exit-times . ,(reverse exit-times))
-	(:entry-prices . ,(reverse entry-prices))
-	(:exit-prices . ,(reverse exit-prices))
-	(:tps . ,(reverse tps))
-	(:sls . ,(reverse sls))
-	(:activations . ,(reverse activations))
-	(:returns . ,(reverse returns))))))
+    	(:end-time . ,(read-from-string (assoccess (last-elt rates) :time)))
+    	(:dataset-size . ,(length rates))
+    	(:avg-revenue . ,(if (> (length revenues) 0) (mean revenues) 0))
+    	(:stdev-revenue . ,(if (> (length revenues) 0) (standard-deviation revenues) 0))
+    	(:total-revenue . ,(if (> (length revenues) 0) (reduce #'+ revenues) 0))
+    	(:avg-max-pos . ,(if (> (length max-poses) 0) (mean max-poses) 0))
+    	(:stdev-max-pos . ,(if (> (length max-poses) 0) (standard-deviation max-poses) 0))
+    	(:avg-max-neg . ,(if (> (length max-negses) 0) (mean max-negses) 0))
+    	(:stdev-max-neg . ,(if (> (length max-negses) 0) (standard-deviation max-negses) 0))
+    	;; (:max-max-pos . ,(if (> (length max-poses) 0) (apply #'max max-poses) 0))
+    	;; (:max-max-neg . ,(if (> (length max-negses) 0) (apply #'max max-negses) 0))
+    	(:avg-tp . ,(if (> (length tps) 0) (mean tps) 0))
+    	(:stdev-tp . ,(if (> (length tps) 0) (standard-deviation tps) 0))
+    	(:avg-sl . ,(if (> (length sls) 0) (mean sls) 0))
+    	(:stdev-sl . ,(if (> (length sls) 0) (standard-deviation sls) 0))
+    	(:avg-activation . ,(if (> (length activations) 0) (mean activations) 0))
+    	(:stdev-activation . ,(if (> (length activations) 0) (standard-deviation activations) 0))
+    	(:avg-return . ,(if (> (length tps) 0) (/ total-return (length tps)) 0))
+    	(:total-return . ,total-return)
+    	(:max-tp . ,(if (> (length max-negses) 0) (if (> (first tps) 0) (apply #'max tps) (apply #'min tps)) 0))
+    	(:min-tp . ,(if (> (length max-negses) 0) (if (> (first tps) 0) (apply #'min tps) (apply #'max tps)) 0))
+    	(:max-sl . ,(if (> (length max-negses) 0) (if (> (first sls) 0) (apply #'max sls) (apply #'min sls)) 0))
+    	(:min-sl . ,(if (> (length max-negses) 0) (if (> (first sls) 0) (apply #'min sls) (apply #'max sls)) 0))
+    	(:trades-won . ,trades-won)
+    	(:trades-lost . ,trades-lost)
+    	(:revenues . ,(reverse revenues))
+    	(:entry-times . ,(reverse entry-times))
+    	(:exit-times . ,(reverse exit-times))
+    	(:entry-prices . ,(reverse entry-prices))
+    	(:exit-prices . ,(reverse exit-prices))
+    	(:tps . ,(reverse tps))
+    	(:sls . ,(reverse sls))
+    	(:activations . ,(reverse activations))
+    	(:returns . ,(reverse returns))))
+    ))
 ;; (evaluate-agents :EUR_USD omage.config:*train-tf* '(:BULLISH) *rates*)
 
 (comment
@@ -2193,7 +2203,7 @@
 							  (:= 'timeframe (format nil "~a" timeframe))
 							  (:in 'type (:set (loop for type in types collect (format nil "~a" type))))))
 		 :alists))))
-;; (get-patterns :EUR_USD omage.config:*train-tf* '(:BULLISH (:BEARISH) :STAGNATED))
+;; (get-patterns :EUR_JPY omage.config:*train-tf* '(:BULLISH (:BEARISH) :STAGNATED))
 
 (defun get-agent-ids-from-patterns (instrument timeframe types)
   (let* ((types (flatten types))
@@ -2333,11 +2343,11 @@
 	       (< hour 22))))))
 ;; (is-market-close)
 
-(defun insert-trade (agent-id instrument timeframe types train-fitnesses test-fitnesses tp sl activation rates)
+(defun insert-trade (agent-id instrument timeframe types train-fitnesses test-fitnesses tp sl activation rates creation-time)
   (conn (let ((patterns (get-patterns instrument timeframe types))
 	      (trade (make-dao 'trade
 			       :agent-id agent-id
-			       :creation-time (local-time:timestamp-to-unix (local-time:now))
+			       :creation-time creation-time
 			       :decision (if (or (= sl 0) (= tp 0))
 					     "HOLD"
 					     (if (> tp 0)
@@ -2426,6 +2436,7 @@
 ;; (sb-sprof:reset)
 ;; (sb-sprof:report :type :flat)
 ;; (sb-sprof:report)
+;; (sb-sprof:stop-profiling)
 
 (defun get-agent-ids-patterns (agent-ids)
   "AGENT-IDS are the IDs of agents that participated in the creation of a signal. We retrieve a list of patterns associated to these AGENT-IDS."
@@ -2461,10 +2472,10 @@
 		     0))
 	(push-to-log (format nil "Trying to create trade. Agents IDs: ~a" agent-ids))
 	;; (insert-trade (first agent-ids) instrument timeframe types train-fitnesses test-fitnesses tp sl rates)
-	(insert-trade (first agent-ids) instrument timeframe (first (get-agent-ids-patterns agent-ids)) test-fitnesses test-fitnesses tp sl activation rates)
+	(insert-trade (first agent-ids) instrument timeframe (first (get-agent-ids-patterns agent-ids)) test-fitnesses test-fitnesses tp sl activation rates (local-time:timestamp-to-unix (local-time:now)))
 	(push-to-log "Trade created successfully.")))))
 
-(defun trade-most-activated-agents (instrument timeframe types agents rates testing-dataset &key (test-size 50))
+(defun trade-most-activated-agents (instrument timeframe types agents rates testing-dataset creation-time &key (test-size 50))
   "Used in `test-most-activated-agents`."
   (loop for agent in agents
 	do (let ((test-fitnesses (evaluate-agent agent testing-dataset :test-size test-size :return-fitnesses-p t))
@@ -2478,14 +2489,15 @@
 			    (assoccess test-fitnesses :trades-lost))
 			 0)
 		 (push-to-log (format nil "Trying to create trade. Agents ID: ~a" agent-id))
-		 (insert-trade agent-id instrument timeframe types test-fitnesses test-fitnesses tp sl activation rates)
+		 (insert-trade agent-id instrument timeframe types test-fitnesses test-fitnesses tp sl activation rates creation-time)
 		 (push-to-log "Trade created successfully."))))))
 
 (defun test-most-activated-agents (instrument timeframe types rates testing-dataset &key (test-size 50))
-  (multiple-value-bind (bullish-agents bearish-agents)
-      (get-most-activated-agents instrument timeframe types)
-    (trade-most-activated-agents instrument timeframe '(:BULLISH) bullish-agents rates testing-dataset :test-size test-size)
-    (trade-most-activated-agents instrument timeframe '(:BEARISH) bearish-agents rates testing-dataset :test-size test-size)))
+  (let ((creation-time (local-time:timestamp-to-unix (local-time:now))))
+    (multiple-value-bind (bullish-agents bearish-agents)
+	(get-most-activated-agents instrument timeframe types)
+      (trade-most-activated-agents instrument timeframe '(:BULLISH) bullish-agents rates testing-dataset creation-time :test-size test-size)
+      (trade-most-activated-agents instrument timeframe '(:BEARISH) bearish-agents rates testing-dataset creation-time :test-size test-size))))
 
 ;; General log.
 (let (log)
@@ -2809,11 +2821,11 @@
 				     (lambda () (let ((beliefs (gen-random-beliefs omage.config:*number-of-agent-inputs*)))
 						  (gen-agent omage.config:*number-of-agent-rules*
 							     instrument
-							     creation-dataset
+							     testing-dataset
 							     (assoccess beliefs :perception-fns)
 							     (assoccess beliefs :lookahead-count)
 							     (assoccess beliefs :lookbehind-count))))
-				     training-dataset
+				     testing-dataset
 				     omage.config:*seconds-to-optimize-per-pattern*
 				     :report-fn report-fn)
 		       (push-to-log "Optimization process completed.")
@@ -2924,7 +2936,7 @@
 			    (setf winner-types types))))))
     winner-types))
 
-;; (defparameter *rates* (get-random-rates-count-big :EUR_USD omage.config:*train-tf* 3000))
+;; (defparameter *rates* (get-random-rates-count-big :AUD_USD omage.config:*train-tf* 10000))
 
 (defun con (y x0 x1)
   (let* ((m (/ 1
@@ -3001,67 +3013,78 @@
 ;; Tipping problem.
 ;; Food Q, Service Q
 ;; (loop for f from 0 upto 10
-;;    do (progn
-;; 	(loop for s from 0 upto 10
-;; 	 do (let ((inputs `(,f ,s))
-;; 		  (input-antecedents (vector (vector #(0 4)
-;; 						     #(3 7)
-;; 						     #(6 10))
-;; 					     (vector #(0 4)
-;; 						     #(3 7)
-;; 						     #(6 10))
-;; 					     ))
-;; 		  (input-consequents (vector (vector (vector #(0 5) #(0 1))
-;; 						     (vector #(5 10) #(0 1))
-;; 						     (vector #(10 15) #(0 1)))
-;; 					     (vector (vector #(0 0.01) #(0 1))
-;; 						     (vector #(5 10) #(0 1))
-;; 						     (vector #(10 15) #(0 1))))))
-;; 	      (format t "~2$, " (float (eval-ifis inputs input-antecedents input-consequents)))))
-;; 	(format t "~%")))
+;;       do (progn
+;; 	   (loop for s from 0 upto 10
+;; 		 do (let ((inputs `(,f ,s))
+;; 			  (input-antecedents (vector (vector #(0 4)
+;; 							     #(3 7)
+;; 							     #(6 10))
+;; 						     (vector #(0 4)
+;; 							     #(3 7)
+;; 							     #(6 10))
+;; 						     ))
+;; 			  (input-consequents (vector (vector (vector #(0 5) #(0 1))
+;; 							     (vector #(5 10) #(0 1))
+;; 							     (vector #(10 15) #(0 1)))
+;; 						     (vector (vector #(0 0.01) #(0 1))
+;; 							     (vector #(5 10) #(0 1))
+;; 							     (vector #(10 15) #(0 1))))))
+;; 		      (format t "~2$, " (float (eval-ifis inputs input-antecedents input-consequents)))))
+;; 	   (format t "~%")))
 
 (defun make-ifis (agent num-rules instrument rates)
   "Analytical version."
   (let* ((perception-fn (get-perception-fn agent))
 	 (lookahead-count (slot-value agent 'lookahead-count))
 	 (lookbehind-count (slot-value agent 'lookbehind-count))
-	 (idxs (remove-duplicates (get-same-direction-outputs-idxs instrument rates num-rules :lookahead-count lookahead-count :lookbehind-count lookbehind-count)))
+	 (idxs (sort (remove-duplicates (get-same-direction-outputs-idxs instrument rates num-rules :lookahead-count lookahead-count :lookbehind-count lookbehind-count)) #'<))
 	 (chosen-inputs (loop for idx in idxs collect (funcall perception-fn (get-input-dataset rates idx))))
 	 (chosen-outputs (loop for idx in idxs collect (get-tp-sl (get-output-dataset rates idx) lookahead-count))))
+    
     (values
      (let* ((v (loop
-		  for inputs in (apply #'mapcar #'list chosen-inputs)
-		  for idx from 0
-		  collect (let* ((min-input (apply #'min inputs))
-				 (max-input (apply #'max inputs))
-				 (v (flatten (loop
-						for input in inputs
-						collect (list
-							 (vector min-input input)
-							 (vector max-input input)
-							 )))))
-			    (make-array (length v) :initial-contents v)))))
+		 for inputs in (apply #'mapcar #'list chosen-inputs)
+		 for idx from 0
+		 collect (let* ((min-input (apply #'min inputs))
+				(max-input (apply #'max inputs))
+				(v (flatten (loop
+					      for input in inputs
+					      collect (list
+						       (vector min-input input)
+						       (vector max-input input)
+						       )))))
+			   (make-array (length v) :initial-contents v)))))
        (make-array (length v) :initial-contents v))
      (let* ((one-set-outputs
-	     (flatten (loop for output in chosen-outputs
-			 collect (let* ((tp (assoccess output :tp))
-					(sl (assoccess output :sl))
-					;; (mn-tp (- tp tp-sd))
-					;; (mx-tp (+ tp tp-sd))
-					;; (mn-sl (- sl sl-sd))
-					;; (mx-sl (+ sl sl-sd))
-					)
-				   ;; Consequent creation.
-				   (list (vector (vector 0 tp)
-						 (vector (* omage.config:*n-times-sl-for-max-sl* sl) sl))
-					 ;; We need to repeat the consequent for the "other side" of the triangle.
-					 (vector (vector 0 tp)
-						 (vector (* omage.config:*n-times-sl-for-max-sl* sl) sl))
-					 )))))
+	      (flatten (loop for output in chosen-outputs
+			     collect (let* ((tp (assoccess output :tp))
+					    (sl (assoccess output :sl))
+					    ;; (mn-tp (- tp tp-sd))
+					    ;; (mx-tp (+ tp tp-sd))
+					    ;; (mn-sl (- sl sl-sd))
+					    ;; (mx-sl (+ sl sl-sd))
+					    )
+				       ;; Consequent creation.
+				       (list (vector (vector 0 tp)
+						     (vector (* omage.config:*n-times-sl-for-max-sl* sl) sl))
+					     ;; We need to repeat the consequent for the "other side" of the triangle.
+					     (vector (vector 0 tp)
+						     (vector (* omage.config:*n-times-sl-for-max-sl* sl) sl))
+					     )))))
 	    (one-set-outputs-v (make-array (length one-set-outputs) :initial-contents one-set-outputs))
 	    (v (loop repeat (length (first chosen-inputs))
-		  collect one-set-outputs-v)))
+		     collect one-set-outputs-v)))
        (make-array (length v) :initial-contents v)))))
 ;; (make-ifis (gen-agent 3 :EUR_USD *rates* (assoccess (gen-random-beliefs 2) :perception-fns) 10 10) 3 :EUR_USD *rates*)
+;; (time
+;;  (evaluate-agent (let ((beliefs (gen-random-beliefs omage.config:*number-of-agent-inputs*)))
+;; 		   (gen-agent omage.config:*number-of-agent-rules*
+;; 			      :AUD_USD
+;; 			      *rates*
+;; 			      (assoccess beliefs :perception-fns)
+;; 			      (assoccess beliefs :lookahead-count)
+;; 			      (assoccess beliefs :lookbehind-count)))
+;; 		 *rates* :return-fitnesses-p t))
+
 ;; (slot-value (gen-agent 2 *rates* (assoccess (gen-random-beliefs 2) :perception-fns) 10 10) 'perception-fns)
 ;; (insert-agent (gen-agent 2 *rates* (assoccess (gen-random-beliefs 2) :perception-fns) 10 16) :EUR_USD omage.config:*train-tf* '(:BULLISH))

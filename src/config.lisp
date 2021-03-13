@@ -71,14 +71,14 @@
 
 (defparameters
     (("Should the service run in production mode?"
-      *is-production* nil)
+      *is-production* t)
      ("Should we keep a log of what's going on in the algorithm?"
       *is-log* t)
 
      ;; Lookahead.
      ("How many datapoints to look ahead to determine TP/SL when creating
      agents."
-      *lookahead* 50)
+      *lookahead* 40)
      ("Should we use a random value for `*lookahead*`?"
       *random-lookahead-p* nil)
      ("Minimum value of a random `*lookahead*`."

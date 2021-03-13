@@ -17,16 +17,16 @@
 ;; For sqlite3.
 (defparameter *db-path* "")
 
-(defmacro with-postgres-connection (&rest body)
-  (when datafly:*connection*
-    (datafly:disconnect-toplevel))
-  `(let ((datafly:*connection* (datafly:connect-cached :postgres :database-name ,*db-name* :username ,*db-user* :password ,*db-pass*)))
-     ,@body))
+;; (defmacro with-postgres-connection (&rest body)
+;;   (when datafly:*connection*
+;;     (datafly:disconnect-toplevel))
+;;   `(let ((datafly:*connection* (datafly:connect-cached :postgres :database-name ,*db-name* :username ,*db-user* :password ,*db-pass*)))
+;;      ,@body))
 
-(defmacro with-sqlite-connection (&rest body)
-  ;; `datafly` could be connected to another database. Disconnecting.
-  (when datafly:*connection*
-    (datafly:disconnect-toplevel))
-  ;; Connecting to Overmind Agents database.
-  (datafly:connect-toplevel :sqlite3 :database-name *db-path*)
-  `(progn ,@body))
+;; (defmacro with-sqlite-connection (&rest body)
+;;   ;; `datafly` could be connected to another database. Disconnecting.
+;;   (when datafly:*connection*
+;;     (datafly:disconnect-toplevel))
+;;   ;; Connecting to Overmind Agents database.
+;;   (datafly:connect-toplevel :sqlite3 :database-name *db-path*)
+;;   `(progn ,@body))

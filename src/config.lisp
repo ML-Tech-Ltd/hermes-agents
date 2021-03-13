@@ -60,6 +60,7 @@
 	   #:*all-timeframes*
 	   #:*min-pips-sl*
 	   #:*max-pips-sl*
+	   #:*test-same-dataset*
 	   )
   (:nicknames #:omage.config))
 (in-package :overmind-agents.config)
@@ -118,7 +119,7 @@ the SL read from the creation dataset)."
      (""
       *initial-agent-count* 5)
      (""
-      *optimize-p* nil)
+      *optimize-p* t)
      (""
       *min-agent-avg-return* 0.0)
      (""
@@ -142,7 +143,7 @@ the SL read from the creation dataset)."
      (""
       *test-most-activated-agents-p* t)
      (""
-      *test-same-dataset* t)
+      *test-same-dataset* nil)
 
      (""
       *trade-every-dp-p* t)
@@ -170,11 +171,11 @@ the SL read from the creation dataset)."
      (""
       *timeframes* `(,*train-tf*))
      (""
-      *instruments* nil)))
+      *instruments* (if *is-production*
+			(setf *instruments* ominp:*forex*)
+			(setf *instruments* '(:AUD_USD :EUR_GBP))))))
 
-(if *is-production*
-    (setf *instruments* ominp:*forex*)
-    (setf *instruments* '(:AUD_USD :EUR_GBP)))
+
 
 (setf (config-env-var) "APP_ENV")
 

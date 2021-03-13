@@ -8,6 +8,4 @@
 .#*
 db.lisp
 #*#
-config/*
-!config/default.lisp
-!config/general.lisp
+src/config.lisp

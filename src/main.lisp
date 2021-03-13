@@ -646,76 +646,6 @@
 	       (setf last-macd macd)))
     (- last-macd (/ signal n-signal))))
 
-(defparameter *excel*
-  '(((:close-bid . 459.99) (:close-ask . 459.99))
-    ((:close-bid . 448.85) (:close-ask . 448.85))
-    ((:close-bid . 446.06) (:close-ask . 446.06))
-    ((:close-bid . 450.81) (:close-ask . 450.81))
-    ((:close-bid . 442.8) (:close-ask . 442.8))
-    ((:close-bid . 448.97) (:close-ask . 448.97))
-    ((:close-bid . 444.57) (:close-ask . 444.57))
-    ((:close-bid . 441.4) (:close-ask . 441.4))
-    ((:close-bid . 430.47) (:close-ask . 430.47))
-    ((:close-bid . 420.05) (:close-ask . 420.05))
-    ((:close-bid . 431.14) (:close-ask . 431.14))
-    ((:close-bid . 425.66) (:close-ask . 425.66))
-    ((:close-bid . 430.58) (:close-ask . 430.58))
-    ((:close-bid . 431.72) (:close-ask . 431.72))
-    ((:close-bid . 437.87) (:close-ask . 437.87))
-    ((:close-bid . 428.43) (:close-ask . 428.43))
-    ((:close-bid . 428.35) (:close-ask . 428.35))
-    ((:close-bid . 432.5) (:close-ask . 432.5))
-    ((:close-bid . 443.66) (:close-ask . 443.66))
-    ((:close-bid . 455.72) (:close-ask . 455.72))
-    ((:close-bid . 454.49) (:close-ask . 454.49))
-    ((:close-bid . 452.08) (:close-ask . 452.08))
-    ((:close-bid . 452.73) (:close-ask . 452.73))
-    ((:close-bid . 461.91) (:close-ask . 461.91))
-    ((:close-bid . 463.58) (:close-ask . 463.58))
-    ((:close-bid . 461.14) (:close-ask . 461.14))
-    ((:close-bid . 452.08) (:close-ask . 452.08))
-    ((:close-bid . 442.66) (:close-ask . 442.66))
-    ((:close-bid . 428.91) (:close-ask . 428.91))
-    ((:close-bid . 429.79) (:close-ask . 429.79))
-    ((:close-bid . 431.99) (:close-ask . 431.99))
-    ((:close-bid . 427.72) (:close-ask . 427.72))
-    ((:close-bid . 423.2) (:close-ask . 423.2))
-    ((:close-bid . 426.21) (:close-ask . 426.21))
-    ((:close-bid . 426.98) (:close-ask . 426.98))
-    ((:close-bid . 435.69) (:close-ask . 435.69))
-    ((:close-bid . 434.33) (:close-ask . 434.33))
-    ((:close-bid . 429.8) (:close-ask . 429.8))
-    ((:close-bid . 419.85) (:close-ask . 419.85))
-    ((:close-bid . 426.24) (:close-ask . 426.24))
-    ((:close-bid . 402.8) (:close-ask . 402.8))
-    ((:close-bid . 392.05) (:close-ask . 392.05))
-    ((:close-bid . 390.53) (:close-ask . 390.53))
-    ((:close-bid . 398.67) (:close-ask . 398.67))
-    ((:close-bid . 406.13) (:close-ask . 406.13))
-    ((:close-bid . 405.46) (:close-ask . 405.46))
-    ((:close-bid . 408.38) (:close-ask . 408.38))
-    ((:close-bid . 417.2) (:close-ask . 417.2))
-    ((:close-bid . 430.12) (:close-ask . 430.12))
-    ((:close-bid . 442.78) (:close-ask . 442.78))
-    ((:close-bid . 439.29) (:close-ask . 439.29))
-    ((:close-bid . 445.52) (:close-ask . 445.52))
-    ((:close-bid . 449.98) (:close-ask . 449.98))
-    ((:close-bid . 460.71) (:close-ask . 460.71))
-    ((:close-bid . 458.66) (:close-ask . 458.66))
-    ((:close-bid . 463.84) (:close-ask . 463.84))
-    ((:close-bid . 456.77) (:close-ask . 456.77))
-    ((:close-bid . 452.97) (:close-ask . 452.97))
-    ((:close-bid . 454.74) (:close-ask . 454.74))
-    ((:close-bid . 443.86) (:close-ask . 443.86))
-    ((:close-bid . 428.85) (:close-ask . 428.85))
-    ((:close-bid . 434.58) (:close-ask . 434.58))
-    ((:close-bid . 433.26) (:close-ask . 433.26))
-    ((:close-bid . 442.93) (:close-ask . 442.93))
-    ((:close-bid . 439.66) (:close-ask . 439.66))
-    ((:close-bid . 441.35) (:close-ask . 441.35))))
-
-;; (->macd-close *excel* 0 12 12 24 24 9)
-
 (defun ->rsi-close (rates offset n)
   (let ((gain 0)
 	(loss 0))
@@ -1034,9 +964,6 @@
 	 (max-pos-bid 0)
 	 (max-neg-ask 0)
 	 (max-neg-bid 0))
-    (format t "Starting TP-SL: ~a, first-high: ~a, first-low: ~a~%" init-rate-bid
-	    (rate-high-bid (nth 9 rates))
-	    (rate-low-bid (nth 9 rates)))
     (loop for rate in (subseq rates 0 lookahead-count)
 	  do (let ((delta-high-ask (- (rate-high-ask rate) init-rate-bid)) ;; Started as sell order, then close as ask.
 		   (delta-high-bid (- (rate-high-bid rate) init-rate-ask)) ;; Started as buy order, then close as bid.
@@ -1162,7 +1089,6 @@
 		     (if (< (- low starting-rate) sl)
 			 ;; Then we lost.
 			 (progn
-			   (format t "meow. idx: ~a, low: ~a, start: ~a, sl: ~a~%" idx low starting-rate sl)
 			   (setf revenue sl)
 			   (setf finish-idx idx)
 			   (setf exit-time time)
@@ -1177,7 +1103,6 @@
 		     (if (> (- high starting-rate) sl)
 			 ;; Then we lost.
 			 (progn
-			   (format t "woof. idx: ~a, high: ~a, start: ~a, sl: ~a~%" idx high starting-rate sl)
 			   (setf revenue (- sl))
 			   (setf finish-idx idx)
 			   (setf exit-time time)
@@ -2821,11 +2746,15 @@
 				     (lambda () (let ((beliefs (gen-random-beliefs omage.config:*number-of-agent-inputs*)))
 						  (gen-agent omage.config:*number-of-agent-rules*
 							     instrument
-							     testing-dataset
+							     (if omage.config:*test-same-dataset*
+								 testing-dataset
+								 creation-dataset)
 							     (assoccess beliefs :perception-fns)
 							     (assoccess beliefs :lookahead-count)
 							     (assoccess beliefs :lookbehind-count))))
-				     testing-dataset
+				     (if omage.config:*test-same-dataset*
+					 testing-dataset
+					 training-dataset)
 				     omage.config:*seconds-to-optimize-per-pattern*
 				     :report-fn report-fn)
 		       (push-to-log "Optimization process completed.")

@@ -1,7 +1,13 @@
 (defpackage overmind-agents.utilities
   (:use :cl :json)
-  (:export :*json-false*))
+  (:export #:*json-false*
+	   #:*defparameters*)
+  (:nicknames #:omage.utils))
 (in-package :overmind-agents.utilities)
+
+(defmacro defparameters (exprs)
+  `(progn ,@(loop for (doc name exp) in exprs
+                  collect `(defparameter ,name ,exp ,doc))))
 
 (defclass json-false ()
   ())

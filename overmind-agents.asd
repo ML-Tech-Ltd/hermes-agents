@@ -45,7 +45,7 @@
 			 (:file "km")
 			 (:file "plotly-utils")
 			 (:file "utilities")
-			 (:file "config")
+			 (:file "config" :depends-on ("utilities"))
 			 (:file "db")))
 	       (:module "datasets"
 			:components

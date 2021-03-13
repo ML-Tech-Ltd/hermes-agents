@@ -60,6 +60,7 @@
 	   #:*all-timeframes*
 	   #:*min-pips-sl*
 	   #:*max-pips-sl*
+	   #:*test-same-dataset*
 	   )
   (:nicknames #:omage.config))
 (in-package :overmind-agents.config)
@@ -72,21 +73,21 @@
     (("Should the service run in production mode?"
       *is-production* nil)
      ("Should we keep a log of what's going on in the algorithm?"
-      *is-log* t)
+      *is-log* nil)
 
      ;; Lookahead.
      ("How many datapoints to look ahead to determine TP/SL when creating
      agents."
-      *lookahead* 50)
+      *lookahead* 10)
      ("Should we use a random value for `*lookahead*`?"
       *random-lookahead-p* nil)
      ("Minimum value of a random `*lookahead*`."
       *random-lookahead-min* 10)
      ("Maximum value of a random `*lookahead*`."
-      *random-lookahead-max* 30)
+      *random-lookahead-max* 20)
 
      ("Maximum TP we can have for any pairing. The number represents PIPs."
-      *max-tp* 100)
+      *max-tp* 0)
      ("Minimum SL we can have for any pairing. The number represents PIPs."
       *min-sl* 0)
 
@@ -110,11 +111,11 @@ the SL read from the creation dataset)."
      ("The maximum size for the testing dataset."
       *max-testing-dataset-size* 200)
      (""
-      *min-num-trades-training* 7)
+      *min-num-trades-training* 0)
      (""
-      *number-of-agent-rules* 20)
+      *number-of-agent-rules* 2)
      (""
-      *number-of-agent-inputs* 5)
+      *number-of-agent-inputs* 2)
      (""
       *initial-agent-count* 5)
      (""
@@ -124,15 +125,15 @@ the SL read from the creation dataset)."
      (""
       *stagnation-threshold* 0.5)
      (""
-      *min-pips-sl* 3)
+      *min-pips-sl* 0)
      (""
-      *max-pips-sl* 20)
+      *max-pips-sl* 100)
      ("For example, if you want a R/R of 1:2, then 2 is the value
      you're looking for."
-      *agents-min-rr-creation* 3)
+      *agents-min-rr-creation* 0)
      ("For example, if you want a R/R of 1:2, then 2 is the value
      you're looking for."
-      *agents-min-rr-trading* 2)
+      *agents-min-rr-trading* 0)
      ("Number of agents that must agree on direction in order to
      accept a trade."
       *consensus-threshold* 1)
@@ -140,12 +141,12 @@ the SL read from the creation dataset)."
      metrics generated during agent pool evaluation."
       *evaluate-agents-activation-threshold* 0.0)
      (""
-      *test-most-activated-agents-p* t)
+      *test-most-activated-agents-p* nil)
      (""
       *test-same-dataset* t)
 
      (""
-      *trade-every-dp-p* t)
+      *trade-every-dp-p* nil)
 
      (""
       *test-size* 100)
@@ -170,11 +171,11 @@ the SL read from the creation dataset)."
      (""
       *timeframes* `(,*train-tf*))
      (""
-      *instruments* nil)))
+      *instruments* (if *is-production*
+			(setf *instruments* ominp:*forex*)
+			(setf *instruments* '(:AUD_USD :EUR_GBP))))))
 
-(if *is-production*
-    (setf *instruments* ominp:*forex*)
-    (setf *instruments* '(:AUD_USD :EUR_GBP)))
+
 
 (setf (config-env-var) "APP_ENV")
 

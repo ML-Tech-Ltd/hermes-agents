@@ -571,13 +571,13 @@
 (defun re-validate-trades (&optional (older-than 0) (last-n-days 30))
   (let ((trades (conn (query (:order-by (:select '*
 					  :from (:as (:order-by (:select 'trades.* 'patterns.*
-								  :distinct-on 'trades.id
-								  :from 'trades
-								  :inner-join 'patterns-trades
-								  :on (:= 'trades.id 'patterns-trades.trade-id)
-								  :inner-join 'patterns
-								  :on (:= 'patterns.id 'patterns-trades.pattern-id)
-								  :where (:> :creation-time (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) last-n-days :day))))
+									 :distinct-on 'trades.id
+									 :from 'trades
+									 :inner-join 'patterns-trades
+									 :on (:= 'trades.id 'patterns-trades.trade-id)
+									 :inner-join 'patterns
+									 :on (:= 'patterns.id 'patterns-trades.pattern-id)
+									 :where (:> :creation-time (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) last-n-days :day))))
 								'trades.id)
 						     'results))
 					(:desc 'creation-time))
@@ -588,14 +588,14 @@
 (defun validate-trades (&optional (older-than 1))
   (let ((trades (conn (query (:order-by (:select '*
 					  :from (:as (:order-by (:select 'trades.* 'patterns.*
-								  :distinct-on 'trades.id
-								  :from 'trades
-								  :inner-join 'patterns-trades
-								  :on (:= 'trades.id 'patterns-trades.trade-id)
-								  :inner-join 'patterns
-								  :on (:= 'patterns.id 'patterns-trades.pattern-id)
-								  ;; :where (:not (:is-null 'trades.result))
-								  :where (:is-null 'trades.result))
+									 :distinct-on 'trades.id
+									 :from 'trades
+									 :inner-join 'patterns-trades
+									 :on (:= 'trades.id 'patterns-trades.trade-id)
+									 :inner-join 'patterns
+									 :on (:= 'patterns.id 'patterns-trades.pattern-id)
+									 ;; :where (:not (:is-null 'trades.result))
+									 :where (:is-null 'trades.result))
 								'trades.id)
 						     'results))
 					(:desc 'creation-time))
@@ -1440,12 +1440,12 @@
       ;; 	      total-return
       ;; 	      (/ total-return (+ trades-won trades-lost)))
       (/ (loop for trade in trades
-      	    when (and (not (eq (assoccess trade :result) :null))
-      		      ;; (not (string= (assoccess trade :instrument) "USD_CNH"))
-      		      )
-      	      summing (to-pips
-      		       (assoccess trade :instrument)
-      		       (assoccess trade :result)))
+	       when (and (not (eq (assoccess trade :result) :null))
+			 ;; (not (string= (assoccess trade :instrument) "USD_CNH"))
+			 )
+		 summing (to-pips
+			  (assoccess trade :instrument)
+			  (assoccess trade :result)))
       	 (length trades))
       ;; (loop for trade in trades
       ;; 	    do (format t "market: :~a, result: ~a, test-total-return: ~5$, test-trades-won: ~a, test-trades-lost: ~a, rr: ~a~%"
@@ -1581,7 +1581,7 @@
       		 ;;   (setf tp 0)
       		 ;;   (setf sl 0)
       		 ;;   (return))
-	      
+		 
       		 ;; (when (or (= tp 0) (< (abs nth-tp) (abs tp)))
       		 ;; 	(setf tp nth-tp))
       		 ;; (when (or (= sl 0) (< (abs nth-sl) (abs sl)))
@@ -1806,7 +1806,7 @@
      ;; 		 (> (second (last-elt sorted)) 0))
      ;; 	    *proof*))
 
-    
+     
      ;; Chunks.
      (let* ((step (floor (/ (length sorted) 2)))
 	    (idx0 0)
@@ -1843,8 +1843,8 @@
 
 
 
-    
-    
+     
+     
      ;; (ignore-errors
      ;;  (let* ((first-half (subseq sorted (* (round (/ (length sorted) 10)) 0) (* (round (/ (length sorted) 10)) 5)))
      ;; 	    (second-half (subseq sorted (* (round (/ (length sorted) 10)) 5)))
@@ -1854,7 +1854,7 @@
 
      ;; 	    (first-half-losses (remove-if-not #'minusp first-half :key #'second))
      ;; 	    (second-half-losses (remove-if-not #'minusp second-half :key #'second))
-	   
+     
      ;; 	    (first-half-avg-revenue (/ (reduce #'+ first-half :key #'second) (length first-half)))
      ;; 	    (second-half-avg-revenue (/ (reduce #'+ second-half :key #'second) (length second-half)))
 
@@ -1872,7 +1872,7 @@
      ;;    ;; (format t "~a, ~a~%" second-half-wins-avg-revenue first-half-wins-avg-revenue)
      ;;    ;; (push (> second-half-wins-avg-revenue first-half-wins-avg-revenue) *proof*)
      ;;    ;; (push (> second-half-losses-avg-revenue first-half-losses-avg-revenue) *proof*)
-      
+     
      ;;    ;; (format t "~a ~a ~a~%"
      ;;    ;; 	      (> second-act first-act)
      ;;    ;; 	      first-act
@@ -2806,12 +2806,12 @@
   (let* ((results (loop for i from 0 below (- (length rates) lookahead)
 			collect (get-tp-sl (get-output-dataset rates i) lookahead)))
 	 (rrs (remove nil (loop for result in results collect (if (= (assoccess result :tp) 0)
-						      nil
-						      (* (/ (assoccess result :sl)
-							(assoccess result :tp))
-						     (if (plusp (assoccess result :tp))
-							 -1
-							 1))))))
+								  nil
+								  (* (/ (assoccess result :sl)
+									(assoccess result :tp))
+								     (if (plusp (assoccess result :tp))
+									 -1
+									 1))))))
 	 (stagnated (count-if (lambda (elt) (>= (abs elt) stagnation-threshold)) rrs))
 	 (uptrend (count-if (lambda (elt) (and (< (abs elt) stagnation-threshold)
 					       (plusp elt)))

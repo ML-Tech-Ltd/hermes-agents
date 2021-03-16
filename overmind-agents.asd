@@ -3,10 +3,10 @@
   :author ""
   :license ""
   :depends-on (:lparallel
-	       :random-state
                ;; :datafly
 	       ;; :dbi
                :cl-mathstats
+	       :clerk
                ;; :magicl
 	       :cl-csv
                :computable-reals
@@ -39,7 +39,10 @@
 	       :overmind-input
 	       :overmind-perception
 	       )
-  :components ((:module "src"
+  :components ((:module "vendor/fare-memoization-20180430-git"
+			:components
+			((:file "memoization")))
+	       (:module "src"
 			:components
 			((:file "main" :depends-on ("config" "db" "km" "utilities"))
 			 (:file "km")

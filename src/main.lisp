@@ -11,7 +11,6 @@
 	#:postmodern
 	#:alexandria
 	#:computable-reals
-	#:random-state
 	#:defenum
 	#:fare-mop
 	#:overmind-code
@@ -37,18 +36,31 @@
   (:nicknames #:omage))
 (in-package :overmind-agents)
 
-(defparameter *rand-gen* (make-generator :mersenne-twister-32))
-(defparameter *agents-cache* (make-hash-table :test 'equal))
-;; (progn (drop-database) (init-database) (init-patterns) (clear-log))
-(defparameter *creation-training-datasets* (make-hash-table :test 'equal))
+(defparameter *agents-cache* (make-hash-table :test 'equal :synchronized t))
+;; (progn (drop-database) (init-database) (init-patterns) (clear-log) (when omage.config:*is-production* (clear-jobs)))
+(defparameter *creation-training-datasets* (make-hash-table :test 'equal :synchronized t))
 (defparameter +CELL-FORMATS+ '(:left   "~vA"
 			       :center "~v:@<~A~>"
 			       :right  "~v@A"))
+
+;; FARE-MEMOIZATION configuration.
+(setf fare-memoization::*memoized* (make-hash-table :test #'equal :synchronized t))
+
+;; (describe fare-memoization::*memoized*)
+;; (refresh-memory)
 
 (setf lparallel:*kernel* (lparallel:make-kernel
 			  (let ((ideal-cores-count (1- (cl-cpus:get-number-of-processors))))
 			    (if (/= ideal-cores-count 0)
 				ideal-cores-count 1))))
+
+(setf cl:*random-state* (make-random-state t))
+
+(defun random-int (from to)
+  (+ from (random (- (1+ to) from))))
+
+(defun random-float (from to)
+  (+ from (random (- to (float from)))))
 
 (defun log-stack (c)
   (with-open-file (str (merge-pathnames #P"omage-stack.log" #P"~/")
@@ -134,6 +146,12 @@
      ,@body))
 ;; (conn (get-dao 'pattern :instrument "EUR_USD" :timeframe "H1" :type "BULLISH"))
 
+(defun clear-jobs ()
+  (when (> (length clerk:*jobs*) 0)
+    (ignore-errors
+     (clerk:stop)
+     (clerk:empty-jobs-queue))))
+
 (defun drop-database ()
   (conn
    ;; (drop-table 'datasets)
@@ -214,7 +232,7 @@
 	  do (loop for timeframe in timeframes
 		   do (let ((rates (get-rates-batches instrument timeframe howmany-batches)))
 			(insert-rates instrument timeframe rates))))))
-;; (init-rates 2 :timeframes '(:D))
+;; (init-rates 2 :timeframes '(:M1))
 
 (defun init-database ()
   "Creates all the necessary tables for Overmind Agents."
@@ -616,6 +634,26 @@
 	   summing (->delta-close rates (+ i offset)))
      n))
 
+(defun ->sma-close-strategy-1 (rates offset n)
+  (let ((close-0 (->delta-close rates offset))
+	(close-1 (->delta-close rates (1+ offset)))
+	(sma (->sma-close rates offset n)))
+    (if (or (and (< close-0 sma)
+		 (> close-1 sma))
+	    (and (> close-0 sma)
+		 (< close-1 sma)))
+	(- sma close-0)
+	0)))
+(defun ->sma-close-strategy-2 (rates offset n-short-sma n-long-sma)
+  (let ((short-sma-0 (->sma-close rates offset (min n-short-sma n-long-sma)))
+	(short-sma-1 (->sma-close rates (1+ offset) (min n-short-sma n-long-sma)))
+	(long-sma (->sma-close rates offset (max n-short-sma n-long-sma))))
+    (if (or (and (< short-sma-0 long-sma)
+		 (> short-sma-1 long-sma))
+	    (and (> short-sma-0 long-sma)
+		 (< short-sma-1 long-sma)))
+	(- short-sma-0 long-sma)
+	0)))
 (defun ->wma-close (rates offset n)
   (/ (loop
        for i below n
@@ -687,9 +725,12 @@
 
 (defenum perceptions
     (->sma-close
+     ->sma-close-strategy-1
+     ->sma-close-strategy-2
      ->wma-close
      ->ema-close
      ->rsi-close
+
      ;; ->macd-close
      ;; ->delta-close
      ;; ->high-height
@@ -698,58 +739,71 @@
      ))
 
 (defun random->sma-close ()
-  (let ((offset (random-int *rand-gen* 0 50))
-	(n (random-int *rand-gen* 3 50)))
+  (let ((offset (random-int 0 50))
+	(n (random-int 3 50)))
     (values `#(,->sma-close ,offset ,n)
 	    (+ offset n))))
+(defun random->sma-close-strategy-1 ()
+  (let ((offset (random-int 0 50))
+	(n (random-int 3 50)))
+    (values `#(,->sma-close-strategy-1 ,offset ,n)
+	    (+ offset n 1))))
+(defun random->sma-close-strategy-2 ()
+  (let ((offset (random-int 0 50))
+	(n-short-sma (random-int 3 50))
+	(n-long-sma (random-int 3 50)))
+    (values `#(,->sma-close-strategy-2 ,offset ,n-short-sma ,n-long-sma)
+	    (+ offset n-short-sma n-long-sma 1))))
 (defun random->wma-close ()
-  (let ((offset (random-int *rand-gen* 0 50))
-	(n (random-int *rand-gen* 3 50)))
+  (let ((offset (random-int 0 50))
+	(n (random-int 3 50)))
     (values `#(,->wma-close ,offset ,n)
 	    (+ offset n))))
 (defun random->ema-close ()
-  (let ((offset (random-int *rand-gen* 0 50))
-	(n-sma (random-int *rand-gen* 3 25))
-	(n-ema (random-int *rand-gen* 3 25)))
+  (let ((offset (random-int 0 50))
+	(n-sma (random-int 3 25))
+	(n-ema (random-int 3 25)))
     (values `#(,->ema-close ,offset ,n-sma ,n-ema)
 	    (+ offset n-sma n-ema))))
 (defun random->macd-close ()
-  (let ((offset (random-int *rand-gen* 0 50))
-	(n-short-sma (random-int *rand-gen* 3 25))
-	(n-short-ema (random-int *rand-gen* 3 25))
-	(n-long-sma (random-int *rand-gen* 3 25))
-	(n-long-ema (random-int *rand-gen* 3 25))
-	(n-signal (random-int *rand-gen* 3 25)))
+  (let ((offset (random-int 0 50))
+	(n-short-sma (random-int 3 25))
+	(n-short-ema (random-int 3 25))
+	(n-long-sma (random-int 3 25))
+	(n-long-ema (random-int 3 25))
+	(n-signal (random-int 3 25)))
     (values `#(,->macd-close ,offset ,n-short-sma ,n-short-ema ,n-long-sma ,n-long-ema ,n-signal)
 	    (+ offset (* 2 (max n-short-sma n-short-ema n-long-sma n-long-ema)) n-signal))))
 (defun random->rsi-close ()
-  (let ((offset (random-int *rand-gen* 0 50))
-	(n (random-int *rand-gen* 10 20)))
+  (let ((offset (random-int 0 50))
+	(n (random-int 10 20)))
     (values `#(,->rsi-close ,offset ,n)
 	    (+ offset n))))
 (defun random->high-height ()
-  (let ((offset (random-int *rand-gen* 0 50)))
+  (let ((offset (random-int 0 50)))
     (values `#(,->high-height ,offset)
 	    offset)))
 (defun random->low-height ()
-  (let ((offset (random-int *rand-gen* 0 50)))
+  (let ((offset (random-int 0 50)))
     (values `#(,->low-height ,offset)
 	    offset)))
 (defun random->candle-height ()
-  (let ((offset (random-int *rand-gen* 0 50)))
+  (let ((offset (random-int 0 50)))
     (values `#(,->candle-height ,offset)
 	    offset)))
 (defun random->delta-close ()
-  (let ((offset (random-int *rand-gen* 0 50)))
+  (let ((offset (random-int 0 50)))
     (values `#(,->delta-close ,offset)
 	    offset)))
 
 (defun gen-random-beliefs (fns-count)
   (let ((fns-bag `(,#'random->sma-close
+		   ,#'random->sma-close-strategy-1
+		   ,#'random->sma-close-strategy-2
 		   ,#'random->wma-close
 		   ,#'random->ema-close
-		   ;; ,#'random->macd-close
 		   ,#'random->rsi-close
+		   ;; ,#'random->macd-close
 		   ;; ,#'random->high-height
 		   ;; ,#'random->low-height
 		   ;; ,#'random->candle-height
@@ -765,9 +819,9 @@
 		    (push perc perceptions)))
     `((:perception-fns . ,(make-array (length perceptions) :initial-contents perceptions))
       (:lookahead-count . ,(if omage.config:*random-lookahead-p*
-			       (random-int *rand-gen*
-					   omage.config:*random-lookahead-min*
-					   omage.config:*random-lookahead-max*)
+			       (random-int
+				omage.config:*random-lookahead-min*
+				omage.config:*random-lookahead-max*)
 			       omage.config:*lookahead*))
       (:lookbehind-count . ,(+ 10 max-lookbehind)))))
 ;; (gen-random-beliefs 30)
@@ -1014,7 +1068,7 @@
 ;; (time (get-tp-sl (get-input-dataset *rates* 10)))
 
 (defun get-same-direction-outputs-idxs (instrument rates count &key (lookahead-count 10) (lookbehind-count 10) direction-fn)
-  (let* ((r (random-float *rand-gen* 0 1))
+  (let* ((r (random-float 0 1))
 	 (pred (if direction-fn direction-fn (if (> r 0.5) #'plusp #'minusp)))
 	 (opposite-pred (if (> r 0.5) #'minusp #'plusp))
 	 (idxs (shuffle (iota (- (length rates) lookahead-count lookbehind-count) :start lookbehind-count)))
@@ -1354,8 +1408,8 @@
 		 :from
 		 (:as (:select '*
 			(:as (:over (:row-number)
-				    (:partition-by 'instrument 'timeframe
-						   :order-by (:desc 'activation)))
+				    (:partition-by 'instrument 'timeframe 'decision
+				     :order-by (:desc 'creation-time)))
 			 :idx)
 			:from
 			(:as (:select 'patterns.instrument
@@ -1385,15 +1439,17 @@
 		      'idx-results)
 		 :where (:and (:<= 'idx '$1)
 			      (:in 'creation-time (:select 
-						      (:max 'trades.creation-time)
-						    :from 'trades
-						    :inner-join 'patterns-trades
-						    :on (:= 'trades.id 'patterns-trades.trade-id)
-						    :inner-join 'patterns
-						    :on (:= 'patterns-trades.pattern-id 'patterns.id)
-						    :group-by 'patterns.instrument))))
+			      			      (:max 'trades.creation-time)
+			      			    :from 'trades
+			      			    :inner-join 'patterns-trades
+			      			    :on (:= 'trades.id 'patterns-trades.trade-id)
+			      			    :inner-join 'patterns
+			      			    :on (:= 'patterns-trades.pattern-id 'patterns.id)
+			      			    :group-by 'patterns.instrument))
+			      ))
 	       nested-limit
 	       :alists)))
+;; (length (-get-nested-trades 20))
 
 (defun get-nested-trades (nested-limit)
   (let (result)
@@ -1440,12 +1496,15 @@
       ;; 	      total-return
       ;; 	      (/ total-return (+ trades-won trades-lost)))
       (/ (loop for trade in trades
-	       when (and (not (eq (assoccess trade :result) :null))
-			 ;; (not (string= (assoccess trade :instrument) "USD_CNH"))
-			 )
-		 summing (to-pips
-			  (assoccess trade :instrument)
-			  (assoccess trade :result)))
+	       ;; when (and (not (eq (assoccess trade :result) :null))
+	       ;; 		 ;; (not (string= (assoccess trade :instrument) "USD_CNH"))
+	       ;; 		 )
+	       ;; summing (to-pips
+	       ;; 	  (assoccess trade :instrument)
+	       ;; 	  (assoccess trade :result))
+	       summing (to-pips
+			(assoccess trade :instrument)
+			(assoccess trade :test-avg-revenue)))
       	 (length trades))
       ;; (loop for trade in trades
       ;; 	    do (format t "market: :~a, result: ~a, test-total-return: ~5$, test-trades-won: ~a, test-trades-lost: ~a, rr: ~a~%"
@@ -1656,9 +1715,7 @@
 		   (if agent
 		       (eval-agent agent input-dataset)
 		       (eval-agents instrument timeframe types input-dataset))
-		 (if (or (/= activation 1.0)
-			 (< activation omage.config:*evaluate-agents-activation-threshold*)
-			 )
+		 (if (< activation omage.config:*evaluate-agents-activation-threshold*)
 		     (progn
 		       (incf num-datapoints)
 		       (incf idx))
@@ -1672,7 +1729,7 @@
 			       (> (abs sl) (abs tp))
 			       (> (* tp sl) 0)
 			       (< (abs (/ tp sl))
-				  omage.config:*agents-min-rr-trading*)
+			       	  omage.config:*agents-min-rr-trading*)
 			       (= tp 0)
 			       (= sl 0)
 			       (< (abs (to-pips instrument sl)) omage.config:*min-pips-sl*)
@@ -2064,7 +2121,32 @@
 ;; (get-agent :EUR_USD omage.config:*train-tf* '(:BULLISH) "48F3970F-36C1-4A49-9E54-95746CFEA9FE")
 ;; (slot-value (first (get-agents :EUR_USD omage.config:*train-tf* '(:BULLISH))) 'id)
 
-(defun optimization (instrument timeframe types gen-agent-fn rates seconds &key report-fn)
+;; (comment
+;;  (defmacro every-n-secs-run (seconds &rest body)
+;;    )
+
+;;  (ql:system-apropos "clerk")
+;;  (ql:quickload :clerk)
+;;  (clerk:*jobs*)
+;;  (clerk:calendar)
+;;  (clerk:empty-jobs-queue)
+;;  (clerk:job "Creating signals" every 2.minutes (print "Hi"))
+;;  (clerk:job "Creating signals" every 2.seconds (print "Hi"))
+
+;;  (create-signals-job omage.config:*seconds-interval-testing*)
+
+;;  (clerk:start)
+;;  (clerk:stop)
+
+;;  ;; (let ((now (local-time:now)))
+;;  ;;   (loop when (local-time:timestamp- )))
+;; )
+
+(defun create-signals-job (seconds)
+  (eval `(clerk:job "Creating signals" every ,(read-from-string (format nil "~a.seconds" seconds)) (-loop-test-all)))
+  (clerk:start))
+
+(defun optimization (instrument timeframe types gen-agent-fn rates seconds)
   ;; Checking if we need to initialize the agents collection.
   (let ((agents (if-let ((agents (get-agents instrument timeframe types)))
 		  (update-agents-fitnesses instrument timeframe types agents rates)
@@ -2112,8 +2194,7 @@
 		     )
 		   ;; (push-to-log (format nil "Inserting new agent with ID ~a" (slot-value agent 'id)))
 		   ;; (add-agent agent instrument timeframe types)
-		   (when report-fn
-		     (funcall report-fn (get-agents instrument timeframe types) rates)))))))
+		   )))))
 
 (defun insert-pattern (instrument timeframe type)
   (conn (make-dao 'pattern :type (format nil "~a" type)
@@ -2373,7 +2454,7 @@
 	  collect (car (third key))))
 ;; (get-agent-ids-patterns (list (slot-value (first (get-agents :AUD_USD omage.config:*train-tf* '(:bearish))) 'id) (slot-value (first (get-agents :AUD_USD omage.config:*train-tf* '(:stagnated))) 'id)))
 
-(defun test-agents (instrument timeframe types rates testing-dataset &key (test-size 50))
+(defun test-agents (instrument timeframe types testing-dataset &key (test-size 50))
   (multiple-value-bind (tp sl activation agent-ids)
       ;; This one gets the final TP and SL.
       (eval-agents instrument timeframe types testing-dataset)
@@ -2396,11 +2477,10 @@
 			(assoccess test-fitnesses :trades-lost))
 		     0))
 	(push-to-log (format nil "Trying to create trade. Agents IDs: ~a" agent-ids))
-	;; (insert-trade (first agent-ids) instrument timeframe types train-fitnesses test-fitnesses tp sl rates)
-	(insert-trade (first agent-ids) instrument timeframe (first (get-agent-ids-patterns agent-ids)) test-fitnesses test-fitnesses tp sl activation rates (local-time:timestamp-to-unix (local-time:now)))
+	(insert-trade (first agent-ids) instrument timeframe (first (get-agent-ids-patterns agent-ids)) test-fitnesses test-fitnesses tp sl activation testing-dataset (local-time:timestamp-to-unix (local-time:now)))
 	(push-to-log "Trade created successfully.")))))
 
-(defun trade-most-activated-agents (instrument timeframe types agents rates testing-dataset creation-time &key (test-size 50))
+(defun trade-most-activated-agents (instrument timeframe types agents testing-dataset creation-time &key (test-size 50))
   "Used in `test-most-activated-agents`."
   (loop for agent in agents
 	do (let ((test-fitnesses (evaluate-agent agent testing-dataset :test-size test-size :return-fitnesses-p t))
@@ -2414,15 +2494,15 @@
 			    (assoccess test-fitnesses :trades-lost))
 			 0)
 		 (push-to-log (format nil "Trying to create trade. Agents ID: ~a" agent-id))
-		 (insert-trade agent-id instrument timeframe types test-fitnesses test-fitnesses tp sl activation rates creation-time)
+		 (insert-trade agent-id instrument timeframe types test-fitnesses test-fitnesses tp sl activation testing-dataset creation-time)
 		 (push-to-log "Trade created successfully."))))))
 
-(defun test-most-activated-agents (instrument timeframe types rates testing-dataset &key (test-size 50))
+(defun test-most-activated-agents (instrument timeframe types testing-dataset &key (test-size 50))
   (let ((creation-time (local-time:timestamp-to-unix (local-time:now))))
     (multiple-value-bind (bullish-agents bearish-agents)
 	(get-most-activated-agents instrument timeframe types)
-      (trade-most-activated-agents instrument timeframe '(:BULLISH) bullish-agents rates testing-dataset creation-time :test-size test-size)
-      (trade-most-activated-agents instrument timeframe '(:BEARISH) bearish-agents rates testing-dataset creation-time :test-size test-size))))
+      (trade-most-activated-agents instrument timeframe '(:BULLISH) bullish-agents testing-dataset creation-time :test-size test-size)
+      (trade-most-activated-agents instrument timeframe '(:BEARISH) bearish-agents testing-dataset creation-time :test-size test-size))))
 
 ;; General log.
 (let (log)
@@ -2555,7 +2635,7 @@
 
 (defun get-random-rates-count-big (instrument timeframe count)
   "Assumes a minimum of 50K rates"
-  (let* ((offset (random-int *rand-gen* 0 (- 50000 count))))
+  (let* ((offset (random-int 0 (- 50000 count))))
     (reverse (conn (query (:limit (:order-by (:select '* :from 'rates :where (:and (:= 'instrument (format nil "~a" instrument))
 										   (:= 'timeframe (format nil "~a" timeframe))))
 					     ;; TODO: It's not a good idea to sort by time, considering it's a string. The good news is that we don't have to worry about this until year ~2200.
@@ -2624,13 +2704,6 @@
 		 (list (assoccess dataset :begin-time)
 		       (assoccess dataset :end-time)))))
 
-(defun get-dataset (type pattern instrument timeframe rates)
-  (if-let ((begin-end (gethash (list instrument timeframe pattern type) *creation-training-datasets*)))
-    (let ((begin-time (first begin-end))
-	  (end-time (second begin-end)))
-      (get-rates-range-big instrument timeframe begin-time end-time))
-    rates))
-
 (defun get-datasets ()
   (let ((datasets (alexandria:hash-table-alist *creation-training-datasets*)))
     (if datasets
@@ -2664,116 +2737,137 @@
 	  )))))
 ;; (format-datasets)
 
-(defun -loop-optimize-test (&key
-			      (report-fn nil)
-			      (type-groups '((:bullish) (:bearish) (:stagnated))))
+(defun -loop-validate ()
+  (when omage.config:*is-production*
+    (push-to-log "<b>VALIDATION.</b><hr/>")
+    (push-to-log "Validating trades older than 24 hours.")
+    (validate-trades)))
+
+(defun -loop-test (instrument timeframe type-groups testing-dataset)
+  (push-to-log "<b>SIGNAL.</b><hr/>")
+  (push-to-log (format nil "Trying to create signal for ~a ~a." instrument timeframe))
+  (if omage.config:*use-nested-signals-p*
+      (test-most-activated-agents instrument timeframe type-groups testing-dataset :test-size omage.config:*test-size*)
+      (test-agents instrument timeframe type-groups testing-dataset :test-size omage.config:*test-size*)))
+
+;; TODO: Rename everywhere from TYPE -> STAGE where applicable (type being :creation, :training or :testing).
+;; Most of the time TYPE is '(:BULLISH), for example.
+;; TODO: Rename everywhere from TYPE/TYPES to PATTERN/PATTERNS.
+(defun -loop-get-dataset (instrument timeframe types stage dataset)
+  "Stage can be :training or :creation."
+  (let ((type (first (flatten types))))
+    (if-let ((begin-end (gethash (list instrument timeframe type stage) *creation-training-datasets*)))
+      (let ((begin-time (first begin-end))
+	    (end-time (second begin-end)))
+	(get-rates-range-big instrument timeframe begin-time end-time))
+      (multiple-value-bind (from to)
+	  (get-rates-chunk-of-types dataset types
+				    :slide-step (if (eq stage :training)
+						    omage.config:*train-slide-step*
+						    omage.config:*creation-slide-step*)
+				    :min-chunk-size (if (eq stage :training)
+							omage.config:*train-min-chunk-size*
+							omage.config:*creation-min-chunk-size*)
+				    :max-chunk-size (if (eq stage :training)
+							omage.config:*train-max-chunk-size*
+							omage.config:*creation-max-chunk-size*)
+				    :stagnation-threshold omage.config:*stagnation-threshold*)
+	(let ((ds (subseq dataset from to)))
+	  (push-to-log (format nil "~a dataset created successfully. Size: ~s. Dataset from ~a to ~a."
+			       stage
+			       (length ds)
+			       (local-time:unix-to-timestamp (/ (read-from-string (assoccess (first ds) :time)) 1000000))
+			       (local-time:unix-to-timestamp (/ (read-from-string (assoccess (last-elt ds) :time)) 1000000))))
+	  ds)))))
+
+(defun -loop-optimize (instrument timeframe types full-creation-dataset full-training-dataset agents-count)
+  (let* ((training-dataset (-loop-get-dataset instrument timeframe types :training full-training-dataset))
+	 (creation-dataset (-loop-get-dataset instrument timeframe types :creation full-creation-dataset)))
+    (push-to-log "<b>OPTIMIZATION.</b><hr/>")
+    (push-to-log (format nil "~a agents retrieved for pattern ~s." agents-count types))
+    (optimization instrument timeframe types
+		  (lambda () (let ((beliefs (gen-random-beliefs omage.config:*number-of-agent-inputs*)))
+			       (gen-agent omage.config:*number-of-agent-rules*
+					  instrument
+					  creation-dataset
+					  (assoccess beliefs :perception-fns)
+					  (assoccess beliefs :lookahead-count)
+					  (assoccess beliefs :lookbehind-count))))
+		  training-dataset
+		  omage.config:*seconds-to-optimize-per-pattern*)
+    (push-to-log "Optimization process completed.")
+    (push-to-log "Syncing agents.")
+    (sync-agents instrument timeframe types)))
+
+(defun -loop-log-testing-dataset (dataset)
+  (push-to-log (format nil "Testing dataset created successfully. Size: ~s. Dataset from ~a to ~a."
+		       (length dataset)
+		       (local-time:unix-to-timestamp (/ (read-from-string (assoccess (first dataset) :time)) 1000000))
+		       (local-time:unix-to-timestamp (/ (read-from-string (assoccess (last-elt dataset) :time)) 1000000)))))
+
+(defun -loop-get-rates (instrument timeframe)
+  ;; We don't want our data feed provider to ban us.
+  (sleep 1)
+  (if omage.config:*is-production*
+      (get-rates-count-big instrument timeframe
+			   (+ omage.config:*max-creation-dataset-size* omage.config:*max-training-dataset-size* omage.config:*max-testing-dataset-size*))
+      (get-random-rates-count-big instrument timeframe
+				  (+ omage.config:*max-creation-dataset-size* omage.config:*max-training-dataset-size* omage.config:*max-testing-dataset-size*))))
+
+(defun -loop-test-all ()
+  "We run this every `omage.config:*seconds-interval-testing*` seconds."
   (dolist (instrument omage.config:*instruments*)
     (dolist (timeframe omage.config:*timeframes*)
+      omage.config:*max-testing-dataset-size*
       (unless (is-market-close)
-	(push-to-log (format nil "<br/><b>STARTING ~s ~s.</b><hr/>" instrument timeframe))
-	(let* ((rates (if omage.config:*is-production*
-			  (get-rates-count-big instrument timeframe
-					       (+ omage.config:*max-creation-dataset-size* omage.config:*max-training-dataset-size* omage.config:*max-testing-dataset-size*))
-			  (get-random-rates-count-big instrument timeframe
-						      (+ omage.config:*max-creation-dataset-size* omage.config:*max-training-dataset-size* omage.config:*max-testing-dataset-size*))))
-	       (dataset-size (length rates)))
-	  (push-to-log "Retrieved rates successfully.")
-	  (let ((full-training-dataset (subseq rates
-					       (- dataset-size
-						  omage.config:*max-testing-dataset-size*
-						  omage.config:*max-training-dataset-size*)
-					       (- dataset-size
-						  omage.config:*max-testing-dataset-size*)))
-		(full-creation-dataset (subseq rates
-					       0
-					       (- dataset-size
-						  omage.config:*max-testing-dataset-size*
-						  omage.config:*max-training-dataset-size*)))
-		(testing-dataset (let ((dataset (subseq rates
-							(- dataset-size
-							   omage.config:*max-testing-dataset-size*))))
-				   (push-to-log (format nil "Testing dataset created successfully. Size: ~s. Dataset from ~a to ~a."
-							(length dataset)
-							(local-time:unix-to-timestamp (/ (read-from-string (assoccess (first dataset) :time)) 1000000))
-							(local-time:unix-to-timestamp (/ (read-from-string (assoccess (last-elt dataset) :time)) 1000000))))
-				   dataset))
-		(agents-count (get-agents-count instrument timeframe type-groups)))
-	    (if (and omage.config:*is-production* (> agents-count 0))
-		(progn
-		  (push-to-log "<b>SIGNAL.</b><hr/>")
-		  (push-to-log (format nil "Trying to create signal with ~a agents." agents-count))
-		  (if omage.config:*test-most-activated-agents-p*
-		      (test-most-activated-agents instrument timeframe type-groups rates testing-dataset :test-size omage.config:*test-size*)
-		      (test-agents instrument timeframe type-groups rates testing-dataset :test-size omage.config:*test-size*)))
-		(push-to-log "Not enough agents to create a signal."))
-	    (loop for types in type-groups
-		  ;; (multiple-value-bind (types)
-		  ;;     (winning-type-output-dataset rates type-groups
-		  ;;    :min-dataset-size omage.config:*max-testing-dataset-size*
-		  ;;    :max-dataset-size omage.config:*max-testing-dataset-size*)
-		  do (let* ((training-dataset (get-dataset
-					       :training (first (flatten types)) instrument timeframe
-					       (multiple-value-bind (from to)
-						   (get-rates-chunk-of-types full-training-dataset types
-									     :slide-step omage.config:*train-slide-step*
-									     :min-chunk-size omage.config:*train-min-chunk-size*
-									     :max-chunk-size omage.config:*train-max-chunk-size*
-									     :stagnation-threshold omage.config:*stagnation-threshold*)
-						 (let ((dataset (subseq full-training-dataset from to)))
-						   (push-to-log (format nil "Training dataset created successfully. Size: ~s. Dataset from ~a to ~a."
-									(length dataset)
-									(local-time:unix-to-timestamp (/ (read-from-string (assoccess (first dataset) :time)) 1000000))
-									(local-time:unix-to-timestamp (/ (read-from-string (assoccess (last-elt dataset) :time)) 1000000))
-									))
-						   dataset))))
-			    (creation-dataset (get-dataset
-					       :creation (first (flatten types)) instrument timeframe
-					       (multiple-value-bind (from to)
-						   (get-rates-chunk-of-types full-creation-dataset types
-									     :slide-step omage.config:*creation-slide-step*
-									     :min-chunk-size omage.config:*creation-min-chunk-size*
-									     :max-chunk-size omage.config:*creation-max-chunk-size*
-									     :stagnation-threshold omage.config:*stagnation-threshold*)
-						 (let ((dataset (subseq full-creation-dataset from to)))
-						   (push-to-log (format nil "Creation dataset created successfully. Size: ~s. Dataset from ~a to ~a."
-									(length dataset)
-									(local-time:unix-to-timestamp (/ (read-from-string (assoccess (first dataset) :time)) 1000000))
-									(local-time:unix-to-timestamp (/ (read-from-string (assoccess (last-elt dataset) :time)) 1000000))))
-						   dataset)))))
-		       (push-to-log "<b>OPTIMIZATION.</b><hr/>")
-		       (push-to-log (format nil "~a agents retrieved for pattern ~s." agents-count types))
-		       (optimization instrument timeframe types
-				     (lambda () (let ((beliefs (gen-random-beliefs omage.config:*number-of-agent-inputs*)))
-						  (gen-agent omage.config:*number-of-agent-rules*
-							     instrument
-							     (if omage.config:*test-same-dataset*
-								 testing-dataset
-								 creation-dataset)
-							     (assoccess beliefs :perception-fns)
-							     (assoccess beliefs :lookahead-count)
-							     (assoccess beliefs :lookbehind-count))))
-				     (if omage.config:*test-same-dataset*
-					 testing-dataset
-					 training-dataset)
-				     omage.config:*seconds-to-optimize-per-pattern*
-				     :report-fn report-fn)
-		       (push-to-log "Optimization process completed.")
-		       (push-to-log "Syncing agents.")
-		       (sync-agents instrument timeframe types)
-		       ))
-	    (when (not omage.config:*is-production*)
-	      (push-to-log "<b>SIGNAL.</b><hr/>")
-	      (push-to-log (format nil "Trying to create signal with ~a agents." agents-count))
-	      (if omage.config:*test-most-activated-agents-p*
-		  (test-most-activated-agents instrument timeframe type-groups rates testing-dataset :test-size omage.config:*test-size*)
-		  (test-agents instrument timeframe type-groups rates testing-dataset :test-size omage.config:*test-size*))
-	      (validate-trades))))
-	(when omage.config:*is-production*
-	  (push-to-log "<b>VALIDATION.</b><hr/>")
-	  (push-to-log "Validating trades older than 24 hours.")
-	  (validate-trades)))
-      (refresh-memory)
-      (sync-datasets-to-database)))
+	(let ((agents-count (get-agents-count instrument timeframe omage.config:*type-groups*)))
+	  (when (> agents-count 0)
+	    (let* ((testing-dataset (get-rates-count-big instrument timeframe
+							 omage.config:*max-testing-dataset-size*)))
+	      (-loop-test instrument timeframe omage.config:*type-groups* testing-dataset))))
+	;; We don't want our data feed provider to ban us.
+	;; We also want to go easy on those database reads (`agents-count`).
+	(sleep 1)))))
+
+(defun -loop-optimize-test-validate ()
+  ;; Signal creation. Production. We create a cron job for this to be
+  ;; run every `omage.config:*seconds-interval-testing*` seconds.
+  (when omage.config:*is-production*
+    (create-signals-job omage.config:*seconds-interval-testing*))
+  (pmap nil (lambda (instrument)
+	      (dolist (timeframe omage.config:*timeframes*)
+		(unless (is-market-close)
+		  (push-to-log (format nil "<br/><b>STARTING ~s ~s.</b><hr/>" instrument timeframe))
+		  (let* ((rates (-loop-get-rates instrument timeframe))
+			 (dataset-size (length rates)))
+		    (let ((full-training-dataset (subseq rates
+							 (- dataset-size
+							    omage.config:*max-testing-dataset-size*
+							    omage.config:*max-training-dataset-size*)
+							 (- dataset-size
+							    omage.config:*max-testing-dataset-size*)))
+			  (full-creation-dataset (subseq rates
+							 0
+							 (- dataset-size
+							    omage.config:*max-testing-dataset-size*
+							    omage.config:*max-training-dataset-size*)))
+			  (testing-dataset (when (not omage.config:*is-production*)
+					     (let ((dataset (subseq rates
+								    (- dataset-size
+								       omage.config:*max-testing-dataset-size*))))
+					       (-loop-log-testing-dataset dataset)
+					       dataset)))
+			  (agents-count (get-agents-count instrument timeframe omage.config:*type-groups*)))
+		      ;; Optimization.
+		      (loop for types in omage.config:*type-groups*
+			    do (-loop-optimize instrument timeframe types full-creation-dataset full-training-dataset agents-count))
+		      ;; Signal creation. Development.
+		      (when (not omage.config:*is-production*)
+			(-loop-test instrument timeframe omage.config:*type-groups* testing-dataset))))
+		  (-loop-validate))
+		(refresh-memory)
+		(sync-datasets-to-database)))
+	omage.config:*instruments*)
   (unless omage.config:*is-production*
     (wipe-agents)))
 
@@ -2786,7 +2880,7 @@
     (refresh-memory)
     (sync-datasets-from-database)
     (loop (unless (is-market-close))
-	  (-loop-optimize-test))))
+	  (-loop-optimize-test-validate))))
 
 (defun sorted-indexes (list &optional (sort-fn #'<))
   (loop
@@ -2864,8 +2958,6 @@
 			    (setf winner-chunk-size chunk-size)
 			    (setf winner-types types))))))
     winner-types))
-
-;; (defparameter *rates* (get-random-rates-count-big :AUD_USD omage.config:*train-tf* 10000))
 
 (defun con (y x0 x1)
   (let* ((m (/ 1
@@ -3004,6 +3096,8 @@
 	    (v (loop repeat (length (first chosen-inputs))
 		     collect one-set-outputs-v)))
        (make-array (length v) :initial-contents v)))))
+
+;; (defparameter *rates* (get-random-rates-count-big :AUD_USD omage.config:*train-tf* 1000))
 ;; (make-ifis (gen-agent 3 :EUR_USD *rates* (assoccess (gen-random-beliefs 2) :perception-fns) 10 10) 3 :EUR_USD *rates*)
 ;; (time
 ;;  (evaluate-agent (let ((beliefs (gen-random-beliefs omage.config:*number-of-agent-inputs*)))

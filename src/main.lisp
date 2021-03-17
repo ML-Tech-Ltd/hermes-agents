@@ -2504,6 +2504,12 @@
       (trade-most-activated-agents instrument timeframe '(:BULLISH) bullish-agents testing-dataset creation-time :test-size test-size)
       (trade-most-activated-agents instrument timeframe '(:BEARISH) bearish-agents testing-dataset creation-time :test-size test-size))))
 
+(defun get-clerk-jobs ()
+  (with-open-stream (s (make-string-output-stream))
+    (clerk:calendar s)
+    (get-output-stream-string s)))
+;; (get-clerk-jobs)
+
 ;; General log.
 (let (log)
   (defun push-to-log (msg &key (add-newline? t) (size 5000))
@@ -2514,7 +2520,8 @@
       (when (> (length log) size)
 	(setf log (butlast log)))))
   (defun read-log ()
-    (format nil "<h3>LOG.</h3><hr/><br/>~{~a~%~}"
+    (format nil "<h3>CRON JOBS.</h3><hr/><br/>~a<h3>LOG.</h3><hr/><br/>~{~a~%~}"
+	    (get-clerk-jobs)
 	    (reverse log)
 	    ))
   (defun clear-log ()

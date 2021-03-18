@@ -2470,6 +2470,8 @@
 		 (> (abs tp) (abs sl))
 		 (/= sl 0)
 		 (< (* tp sl) 0)
+		 (> (abs (/ tp sl))
+		    omage.config:*agents-min-rr-signal*)
 		 (> (abs (to-pips instrument sl)) 3)
 		 ;; (< (to-pips instrument (abs sl)) 20)
 		 (/= (assoccess test-fitnesses :trades-won) 0)

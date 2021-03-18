@@ -1,6 +1,5 @@
 (defpackage overmind-agents.config
-  (:use :cl
-	:random-state)
+  (:use :cl)
   (:import-from :envy
                 :config-env-var
                 :defconfig)
@@ -12,7 +11,6 @@
            :*template-directory*
            :*plots-directory*
            :*data-directory*
-	   :*rand-gen*
            :appenv
            :developmentp
            :productionp
@@ -48,6 +46,7 @@
 	   #:*agents-min-rr*
 	   #:*agents-min-rr-creation*
 	   #:*agents-min-rr-trading*
+	   #:*agents-min-rr-signal*
 	   #:*min-num-trades-training*
 	   #:*optimize-p*
 	   #:*random-lookahead-p*
@@ -55,12 +54,13 @@
 	   #:*random-lookahead-max*
 	   #:*train-tf*
 	   #:*initial-agent-count*
-	   #:*test-most-activated-agents-p*
+	   #:*use-nested-signals-p*
 	   #:*test-size*
 	   #:*all-timeframes*
 	   #:*min-pips-sl*
 	   #:*max-pips-sl*
-	   #:*test-same-dataset*
+	   #:*type-groups*
+	   #:*seconds-interval-testing*
 	   )
   (:nicknames #:omage.config))
 (in-package :overmind-agents.config)
@@ -134,6 +134,9 @@ the SL read from the creation dataset)."
      ("For example, if you want a R/R of 1:2, then 2 is the value
      you're looking for."
       *agents-min-rr-trading* 0)
+      ("For example, if you want a R/R of 1:2, then 2 is the value
+     you're looking for."
+       *agents-min-rr-signal* 0)
      ("Number of agents that must agree on direction in order to
      accept a trade."
       *consensus-threshold* 1)

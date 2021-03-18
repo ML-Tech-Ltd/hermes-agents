@@ -2837,10 +2837,6 @@
 	(sleep 1)))))
 
 (defun -loop-optimize-test-validate ()
-  ;; Signal creation. Production. We create a cron job for this to be
-  ;; run every `omage.config:*seconds-interval-testing*` seconds.
-  (when omage.config:*is-production*
-    (create-signals-job omage.config:*seconds-interval-testing*))
   (pmap nil (lambda (instrument)
 	      (dolist (timeframe omage.config:*timeframes*)
 		(unless (is-market-close)
@@ -2886,6 +2882,10 @@
     (clear-logs)
     (refresh-memory)
     (sync-datasets-from-database)
+    ;; Signal creation. Production. We create a cron job for this to be
+    ;; run every `omage.config:*seconds-interval-testing*` seconds.
+    (when omage.config:*is-production*
+      (create-signals-job omage.config:*seconds-interval-testing*))
     (loop (unless (is-market-close))
 	  (-loop-optimize-test-validate))))
 

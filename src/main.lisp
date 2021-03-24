@@ -621,22 +621,100 @@
     (-validate-trades trades older-than)))
 ;; (validate-trades)
 
-(defun ->delta-close (rates offset)
+(defun ->diff-close (rates offset)
   (let* ((lrates (length rates))
 	 (last-candle (nth (- lrates offset 1) rates))
 	 (penultimate-candle (nth (- lrates (1+ offset) 1) rates)))
     (- (rate-close last-candle)
        (rate-close penultimate-candle))))
-;; (->delta-close *rates*)
+;; (->diff-close *rates* 0)
+
+(defun -get-weight-ffd (d thresh lim)
+  "Used by fracdiff."
+  (let ((w '(1.0)))
+    (loop for k from 1
+	  repeat (1- lim)
+	  do (let ((-w (* (/ (- (first w)) k)
+			  (+ d (- k) 1))))
+	       (when (< (abs -w) thresh)
+	       	 (return))
+	       (push -w w)
+	       ))
+    w))
+;; (-get-weight-ffd omage.config:*fracdiff-d* omage.config:*fracdiff-threshold* 10)
+
+(defun dot-product (a b)
+  (apply #'+ (mapcar #'* (coerce a 'list) (coerce b 'list))))
+
+;; (dot-product (transpose '(1 2 3)) '(4 5 6))
+
+(defun transpose (m)
+  (apply #'mapcar #'list m))
+
+(defun fracdiff (rates)
+  (let* ((w (-get-weight-ffd omage.config:*fracdiff-d* omage.config:*fracdiff-threshold* (length rates)))
+	 (width (1- (length w)))
+	 (output (make-list width :initial-element 0.0)))
+    (loop for i in (iota (- (length rates) width) :start width)
+    	  do (let ((x (mapcar #'log (mapcar #'rate-close (subseq rates (- i width) (1+ i))))))
+	       (push (dot-product w x) output)))
+    (reverse output)
+    ))
+;; (subseq (fracdiff *rates* 0) 1500)
+
+;; Borrar todos estos comentarios funciones.
+;; Determinar on-the-fly fracdiff (queremos variar d).
+;; ->fracdiff-close solo extrae el fracdiff-close o algo así de los rates.
+;;; Aplicar fracdiff sobre mean(close-bid close-ask)
+;; Añadir ->fracdiff-close como funcion input (va a ser interesanton, ya que tiene más significancia que ->diff-close)
+
+;; (loop for rate in (subseq (fracdiff (subseq *rates* 6000) 0) 1500) ;; d = 0.4
+;;       do (print rate))
+
+;; (loop for rate in (fracdiff (subseq *rates* 8500) 0) ;; d = 0.4
+;;       do (print rate))
+
+;; (time (fracdiff (subseq *rates* 7500) 0))
+;; (length (time (remove-if #'zerop (fracdiff (subseq *rates* 0) 0))))
+
+;; (length *rates*)
+
+;; (defun init-fracdiff-rates ())
+
+;; (loop for rate in (subseq (fracdiff *rates* 0) 4100) ;; d = 0.1
+;;       do (print rate))
+
+;; (loop for rate in (subseq (fracdiff *rates* 0) 3400) ;; d = 0.2
+;;       do (print rate))
+
+;; (loop for rate in (subseq (fracdiff *rates* 0) 3400) ;; d = 1.0
+;;       do (print rate))
+
+;; (loop for rate in (subseq *rates* 1500) ;; d = 0.4
+;;       do (print (+ 0.374 (log (rate-close rate)))))
+
+;; (loop for rate in (subseq *rates* 4100) ;; d = 0.1
+;;       do (print (+ 0.235 (log (rate-close rate)))))
+
+;; (loop for rate in (subseq *rates* 3400) ;; d = 0.2
+;;       do (print (+ 0.32 (log (rate-close rate)))))
+
+;; (loop for rate in (subseq *rates* 3400) ;; d = 1.0
+;;       do (print (+ 0.377 (log (rate-close rate)))))
+
+;; (iota (- 101 100) :start 100)
+
+;; (loop for x in (mapcar #'log (mapcar #'1+ (iota 100)))
+;;       do (format t "~$10~%" x))
 
 (defun ->sma-close (rates offset n)
   (/ (loop for i below n
-	   summing (->delta-close rates (+ i offset)))
+	   summing (->diff-close rates (+ i offset)))
      n))
 
 (defun ->sma-close-strategy-1 (rates offset n)
-  (let ((close-0 (->delta-close rates offset))
-	(close-1 (->delta-close rates (1+ offset)))
+  (let ((close-0 (->diff-close rates offset))
+	(close-1 (->diff-close rates (1+ offset)))
 	(sma (->sma-close rates offset n)))
     (if (or (and (< close-0 sma)
 		 (> close-1 sma))
@@ -658,7 +736,7 @@
   (/ (loop
        for i below n
        for j from n above 0
-       summing (* j (->delta-close rates (+ i offset))))
+       summing (* j (->diff-close rates (+ i offset))))
      (* n (1+ n) 1/2)))
 
 (defun ->close (rates offset)
@@ -670,7 +748,7 @@
   (let ((smoothing (/ 2 (1+ n-ema)))
 	(ema (->sma-close rates (+ offset n-ema) n-sma)))
     (loop for i from (1- n-ema) downto 1
-	  do (setf ema (+ ema (* smoothing (- (->delta-close rates (+ i offset)) ema)))))
+	  do (setf ema (+ ema (* smoothing (- (->diff-close rates (+ i offset)) ema)))))
     ema))
 
 (defun ->macd-close (rates offset n-short-sma n-short-ema n-long-sma n-long-ema n-signal)
@@ -688,7 +766,7 @@
   (let ((gain 0)
 	(loss 0))
     (loop for i from 0 below n
-	  do (let ((delta (->delta-close rates (+ offset i))))
+	  do (let ((delta (->diff-close rates (+ offset i))))
 	       (if (plusp delta)
 		   (incf gain delta)
 		   (incf loss (abs delta)))))
@@ -721,7 +799,7 @@
     (abs (- (rate-close last-candle)
 	    (rate-open last-candle)))))
 
-;; (->delta-close-bid *rates* :offset 1)
+;; (->diff-close-bid *rates* :offset 1)
 
 (defenum perceptions
     (->sma-close
@@ -732,7 +810,7 @@
      ->rsi-close
 
      ;; ->macd-close
-     ;; ->delta-close
+     ;; ->diff-close
      ;; ->high-height
      ;; ->low-height
      ;; ->candle-height
@@ -791,9 +869,9 @@
   (let ((offset (random-int 0 50)))
     (values `#(,->candle-height ,offset)
 	    offset)))
-(defun random->delta-close ()
+(defun random->diff-close ()
   (let ((offset (random-int 0 50)))
-    (values `#(,->delta-close ,offset)
+    (values `#(,->diff-close ,offset)
 	    offset)))
 
 (defun gen-random-beliefs (fns-count)
@@ -807,7 +885,7 @@
 		   ;; ,#'random->high-height
 		   ;; ,#'random->low-height
 		   ;; ,#'random->candle-height
-		   ;; ,#'random->delta-close
+		   ;; ,#'random->diff-close
 		   ))
 	(max-lookbehind 0)
 	(perceptions))
@@ -2492,9 +2570,19 @@
 	     (multiple-value-bind (tp sl activation)
 		 (eval-agent agent testing-dataset)
 	       (push-to-log (format nil "Prediction. TP: ~a, SL: ~a." tp sl))
-	       (when (/= (+ (assoccess test-fitnesses :trades-won)
-			    (assoccess test-fitnesses :trades-lost))
-			 0)
+	       (when (and (/= tp 0)
+			  ;; (if (not (eq instrument :USD_CNH)) (< (assoccess prediction :tp) 100) t)
+			  (> (abs tp) (abs sl))
+			  (/= sl 0)
+			  (< (* tp sl) 0)
+			  (> (abs (/ tp sl))
+			     omage.config:*agents-min-rr-signal*)
+			  (> (abs (to-pips instrument sl)) 3)
+			  ;; (< (to-pips instrument (abs sl)) 20)
+			  (/= (assoccess test-fitnesses :trades-won) 0)
+			  (/= (+ (assoccess test-fitnesses :trades-won)
+				 (assoccess test-fitnesses :trades-lost))
+			      0))
 		 (push-to-log (format nil "Trying to create trade. Agents ID: ~a" agent-id))
 		 (insert-trade agent-id instrument timeframe types test-fitnesses test-fitnesses tp sl activation testing-dataset creation-time)
 		 (push-to-log "Trade created successfully."))))))
@@ -3106,7 +3194,7 @@
 		     collect one-set-outputs-v)))
        (make-array (length v) :initial-contents v)))))
 
-;; (defparameter *rates* (get-random-rates-count-big :AUD_USD omage.config:*train-tf* 1000))
+;; (defparameter *rates* (get-random-rates-count-big :AUD_USD omage.config:*train-tf* 10000))
 ;; (make-ifis (gen-agent 3 :EUR_USD *rates* (assoccess (gen-random-beliefs 2) :perception-fns) 10 10) 3 :EUR_USD *rates*)
 ;; (time
 ;;  (evaluate-agent (let ((beliefs (gen-random-beliefs omage.config:*number-of-agent-inputs*)))

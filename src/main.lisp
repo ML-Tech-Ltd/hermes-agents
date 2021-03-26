@@ -1530,8 +1530,7 @@
 			     'full-results))
 		      'idx-results)
 		 :where (:and (:<= 'idx '$1)
-		 	      (:in 'creation-time (:select 
-		 	      			      (:max 'trades.creation-time)
+		 	      (:in 'creation-time (:select (:max 'trades.creation-time)
 		 	      			    :from 'trades
 		 	      			    :inner-join 'patterns-trades
 		 	      			    :on (:= 'trades.id 'patterns-trades.trade-id)
@@ -1540,6 +1539,7 @@
 		 	      			    :group-by 'patterns.instrument))))
 	       nested-limit
 	       :alists)))
+	       
 ;; (length (-get-nested-trades 20))
 
 (defun get-nested-trades (nested-limit)
@@ -1559,8 +1559,8 @@
 			    (push trade bearish)))
 	       ;; Creating nests with top activated and rest.
 	       ;; (print (first bullish))
-	       (let ((rbullish (reverse bullish))
-		     (rbearish (reverse bearish)))
+	       (let ((rbullish (sort bullish #'> :key (lambda (elt) (assoccess elt :activation))))
+		     (rbearish (sort bearish #'> :key (lambda (elt) (assoccess elt :activation)))))
 		 (when (first rbullish)
 		   (push `((:first . ,(first rbullish))
 			   (:rest . ,(rest rbullish)))

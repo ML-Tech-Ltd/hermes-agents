@@ -64,6 +64,7 @@
 	   #:*fracdiff-d*
 	   #:*fracdiff-threshold*
 	   #:*trades-sort-by*
+	   #:*validation-timeframe*
 	   )
   (:nicknames #:omage.config))
 (in-package :overmind-agents.config)
@@ -91,6 +92,10 @@
      ("The returned signals should be sorted by *TRADES-SORT-BY*. This
      parameter is used by GET-NESTED-SIGNALS."
       *trades-sort-by* :activation)
+
+     ("Timeframe used to query rates for VALIDATE-TRADES."
+      *validation-timeframe* :M1)
+     
 
      ("Maximum TP we can have for any pairing. The number represents PIPs."
       *max-tp* 100)

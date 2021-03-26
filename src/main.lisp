@@ -240,166 +240,166 @@
   (conn
    (unless (table-exists-p 'datasets)
      (query (:create-table 'datasets
-		((id :type string)
-		 (begin-time :type int8)
-		 (end-time :type int8))
-	      (:primary-key id))))
+			   ((id :type string)
+			    (begin-time :type int8)
+			    (end-time :type int8))
+			   (:primary-key id))))
    (unless (table-exists-p 'rates)
      (query (:create-table 'rates
-		((time :type string)
-		 (instrument :type string)
-		 (timeframe :type string)
-		 (open-bid :type double-float)
-		 (open-ask :type double-float)
-		 (high-bid :type double-float)
-		 (high-ask :type double-float)
-		 (low-bid :type double-float)
-		 (low-ask :type double-float)
-		 (close-bid :type double-float)
-		 (close-ask :type double-float)
-		 (volume :type int))
-	      (:primary-key time instrument timeframe))))
+			   ((time :type string)
+			    (instrument :type string)
+			    (timeframe :type string)
+			    (open-bid :type double-float)
+			    (open-ask :type double-float)
+			    (high-bid :type double-float)
+			    (high-ask :type double-float)
+			    (low-bid :type double-float)
+			    (low-ask :type double-float)
+			    (close-bid :type double-float)
+			    (close-ask :type double-float)
+			    (volume :type int))
+			   (:primary-key time instrument timeframe))))
    (unless (table-exists-p 'agents)
      (query (:create-table 'agents
-		((id :type string)
-		 (perception-fns :type string)
-		 (lookahead-count :type integer)
-		 (lookbehind-count :type integer)
-		 (antecedents :type string)
-		 (consequents :type string)
-		 (creation-begin-time :type (or db-null int8))
-		 (creation-end-time :type (or db-null int8))
-		 (begin-time :type (or db-null int8))
-		 (end-time :type (or db-null int8))
-		 (dataset-size :type (or db-null integer))
-		 (avg-revenue :type (or db-null double-float))
-		 (stdev-revenue :type (or db-null double-float))
-		 (total-revenue :type (or db-null double-float))
-		 (avg-return :type (or db-null double-float))
-		 (total-return :type (or db-null double-float))
-		 (avg-max-pos :type (or db-null double-float))
-		 (stdev-max-pos :type (or db-null double-float))
-		 (avg-max-neg :type (or db-null double-float))
-		 (stdev-max-neg :type (or db-null double-float))
-		 (avg-tp :type (or db-null double-float))
-		 (stdev-tp :type (or db-null double-float))
-		 (avg-sl :type (or db-null double-float))
-		 (stdev-sl :type (or db-null double-float))
-		 (avg-activation :type (or db-null double-float))
-		 (stdev-activation :type (or db-null double-float))
-		 (max-tp :type (or db-null double-float))
-		 (min-tp :type (or db-null double-float))
-		 (max-sl :type (or db-null double-float))
-		 (min-sl :type (or db-null double-float))
-		 (trades-won :type (or db-null integer))
-		 (trades-lost :type (or db-null integer))
-		 (revenues :type (or db-null float[]))
-		 (entry-times :type (or db-null int8[]))
-		 (exit-times :type (or db-null int8[]))
-		 (entry-prices :type (or db-null float[]))
-		 (exit-prices :type (or db-null float[]))
-		 (tps :type (or db-null float[]))
-		 (sls :type (or db-null float[]))
-		 (activations :type (or db-null float[]))
-		 (returns :type (or db-null float[])))
-	      (:primary-key id))))
+			   ((id :type string)
+			    (perception-fns :type string)
+			    (lookahead-count :type integer)
+			    (lookbehind-count :type integer)
+			    (antecedents :type string)
+			    (consequents :type string)
+			    (creation-begin-time :type (or db-null int8))
+			    (creation-end-time :type (or db-null int8))
+			    (begin-time :type (or db-null int8))
+			    (end-time :type (or db-null int8))
+			    (dataset-size :type (or db-null integer))
+			    (avg-revenue :type (or db-null double-float))
+			    (stdev-revenue :type (or db-null double-float))
+			    (total-revenue :type (or db-null double-float))
+			    (avg-return :type (or db-null double-float))
+			    (total-return :type (or db-null double-float))
+			    (avg-max-pos :type (or db-null double-float))
+			    (stdev-max-pos :type (or db-null double-float))
+			    (avg-max-neg :type (or db-null double-float))
+			    (stdev-max-neg :type (or db-null double-float))
+			    (avg-tp :type (or db-null double-float))
+			    (stdev-tp :type (or db-null double-float))
+			    (avg-sl :type (or db-null double-float))
+			    (stdev-sl :type (or db-null double-float))
+			    (avg-activation :type (or db-null double-float))
+			    (stdev-activation :type (or db-null double-float))
+			    (max-tp :type (or db-null double-float))
+			    (min-tp :type (or db-null double-float))
+			    (max-sl :type (or db-null double-float))
+			    (min-sl :type (or db-null double-float))
+			    (trades-won :type (or db-null integer))
+			    (trades-lost :type (or db-null integer))
+			    (revenues :type (or db-null float[]))
+			    (entry-times :type (or db-null int8[]))
+			    (exit-times :type (or db-null int8[]))
+			    (entry-prices :type (or db-null float[]))
+			    (exit-prices :type (or db-null float[]))
+			    (tps :type (or db-null float[]))
+			    (sls :type (or db-null float[]))
+			    (activations :type (or db-null float[]))
+			    (returns :type (or db-null float[])))
+			   (:primary-key id))))
    (unless (table-exists-p 'agents-patterns)
      (query (:create-table 'agents-patterns
-		((agent-id :type string)
-		 (pattern-id :type string))
-	      (:primary-key agent-id pattern-id))))
+			   ((agent-id :type string)
+			    (pattern-id :type string))
+			   (:primary-key agent-id pattern-id))))
    (unless (table-exists-p 'patterns)
      (query (:create-table 'patterns
-		((id :type string)
-		 (type :type string)
-		 (instrument :type string)
-		 (timeframe :type string))
-	      (:primary-key id)
-	      (:unique type instrument timeframe))))
+			   ((id :type string)
+			    (type :type string)
+			    (instrument :type string)
+			    (timeframe :type string))
+			   (:primary-key id)
+			   (:unique type instrument timeframe))))
    (unless (table-exists-p 'patterns-trades)
      (query (:create-table 'patterns-trades
-		((pattern-id :type string)
-		 (trade-id :type string))
-	      (:primary-key pattern-id trade-id))))
+			   ((pattern-id :type string)
+			    (trade-id :type string))
+			   (:primary-key pattern-id trade-id))))
    (unless (table-exists-p 'trades)
      (query (:create-table 'trades
-		((id :type string)
-		 (agent-id :type (or db-null string))
-		 (creation-time :type integer)
-		 (decision :type string)
-		 (result :type (or db-null double-float))
-		 (tp :type double-float)
-		 (sl :type double-float)
-		 (activation :type double-float)
-		 (entry-price :type double-float)
-		 (entry-time :type (or db-null integer))
-		 (train-begin-time :type int8)
-		 (train-end-time :type int8)
-		 (test-begin-time :type int8)
-		 (test-end-time :type int8)
-		 (train-dataset-size :type integer)
-		 (test-dataset-size :type integer)
-		 (train-avg-revenue :type double-float)
-		 (test-avg-revenue :type double-float)
-		 (train-avg-return :type (or db-null double-float))
-		 (test-avg-return :type (or db-null double-float))
-		 (train-total-return :type (or db-null double-float))
-		 (test-total-return :type (or db-null double-float))
-		 (train-stdev-revenue :type double-float)
-		 (test-stdev-revenue :type double-float)
-		 (train-total-revenue :type double-float)
-		 (test-total-revenue :type double-float)
-		 (train-avg-max-pos :type double-float)
-		 (test-avg-max-pos :type double-float)
-		 (train-stdev-max-pos :type double-float)
-		 (test-stdev-max-pos :type double-float)
-		 (train-avg-max-neg :type double-float)
-		 (test-avg-max-neg :type double-float)
-		 (train-stdev-max-neg :type double-float)
-		 (test-stdev-max-neg :type double-float)
-		 (train-avg-tp :type double-float)
-		 (test-avg-tp :type double-float)
-		 (train-stdev-tp :type double-float)
-		 (test-stdev-tp :type double-float)
-		 (train-avg-sl :type double-float)
-		 (test-avg-sl :type double-float)
-		 (train-avg-activation :type double-float)
-		 (test-avg-activation :type double-float)
-		 (train-stdev-activation :type double-float)
-		 (test-stdev-activation :type double-float)
-		 (train-stdev-sl :type double-float)
-		 (test-stdev-sl :type double-float)
-		 (train-max-tp :type double-float)
-		 (test-max-tp :type double-float)
-		 (train-min-tp :type double-float)
-		 (test-min-tp :type double-float)
-		 (train-max-sl :type double-float)
-		 (test-max-sl :type double-float)
-		 (train-min-sl :type double-float)
-		 (test-min-sl :type double-float)
-		 (train-trades-won :type integer)
-		 (test-trades-won :type integer)
-		 (train-trades-lost :type integer)
-		 (test-trades-lost :type integer)
-		 (train-revenues :type float[])
-		 (test-revenues :type float[])
-		 (train-entry-times :type int8[])
-		 (test-entry-times :type int8[])
-		 (train-exit-times :type int8[])
-		 (test-exit-times :type int8[])
-		 (train-entry-prices :type float[])
-		 (test-entry-prices :type float[])
-		 (train-exit-prices :type float[])
-		 (test-exit-prices :type float[])
-		 (train-tps :type float[])
-		 (test-tps :type float[])
-		 (train-sls :type float[])
-		 (test-sls :type float[])
-		 (train-activations :type (or db-null float[]))
-		 (test-activations :type (or db-null float[]))
-		 (train-returns :type (or db-null float[]))
-		 (test-returns :type (or db-null float[])))
-	      (:primary-key id))))))
+			   ((id :type string)
+			    (agent-id :type (or db-null string))
+			    (creation-time :type integer)
+			    (decision :type string)
+			    (result :type (or db-null double-float))
+			    (tp :type double-float)
+			    (sl :type double-float)
+			    (activation :type double-float)
+			    (entry-price :type double-float)
+			    (entry-time :type (or db-null integer))
+			    (train-begin-time :type int8)
+			    (train-end-time :type int8)
+			    (test-begin-time :type int8)
+			    (test-end-time :type int8)
+			    (train-dataset-size :type integer)
+			    (test-dataset-size :type integer)
+			    (train-avg-revenue :type double-float)
+			    (test-avg-revenue :type double-float)
+			    (train-avg-return :type (or db-null double-float))
+			    (test-avg-return :type (or db-null double-float))
+			    (train-total-return :type (or db-null double-float))
+			    (test-total-return :type (or db-null double-float))
+			    (train-stdev-revenue :type double-float)
+			    (test-stdev-revenue :type double-float)
+			    (train-total-revenue :type double-float)
+			    (test-total-revenue :type double-float)
+			    (train-avg-max-pos :type double-float)
+			    (test-avg-max-pos :type double-float)
+			    (train-stdev-max-pos :type double-float)
+			    (test-stdev-max-pos :type double-float)
+			    (train-avg-max-neg :type double-float)
+			    (test-avg-max-neg :type double-float)
+			    (train-stdev-max-neg :type double-float)
+			    (test-stdev-max-neg :type double-float)
+			    (train-avg-tp :type double-float)
+			    (test-avg-tp :type double-float)
+			    (train-stdev-tp :type double-float)
+			    (test-stdev-tp :type double-float)
+			    (train-avg-sl :type double-float)
+			    (test-avg-sl :type double-float)
+			    (train-avg-activation :type double-float)
+			    (test-avg-activation :type double-float)
+			    (train-stdev-activation :type double-float)
+			    (test-stdev-activation :type double-float)
+			    (train-stdev-sl :type double-float)
+			    (test-stdev-sl :type double-float)
+			    (train-max-tp :type double-float)
+			    (test-max-tp :type double-float)
+			    (train-min-tp :type double-float)
+			    (test-min-tp :type double-float)
+			    (train-max-sl :type double-float)
+			    (test-max-sl :type double-float)
+			    (train-min-sl :type double-float)
+			    (test-min-sl :type double-float)
+			    (train-trades-won :type integer)
+			    (test-trades-won :type integer)
+			    (train-trades-lost :type integer)
+			    (test-trades-lost :type integer)
+			    (train-revenues :type float[])
+			    (test-revenues :type float[])
+			    (train-entry-times :type int8[])
+			    (test-entry-times :type int8[])
+			    (train-exit-times :type int8[])
+			    (test-exit-times :type int8[])
+			    (train-entry-prices :type float[])
+			    (test-entry-prices :type float[])
+			    (train-exit-prices :type float[])
+			    (test-exit-prices :type float[])
+			    (train-tps :type float[])
+			    (test-tps :type float[])
+			    (train-sls :type float[])
+			    (test-sls :type float[])
+			    (train-activations :type (or db-null float[]))
+			    (test-activations :type (or db-null float[]))
+			    (train-returns :type (or db-null float[]))
+			    (test-returns :type (or db-null float[])))
+			   (:primary-key id))))))
 ;; (init-database)
 
 (defun get-trade-result (entry-price tp sl rates)
@@ -453,51 +453,51 @@
 (defun get-global-revenue (&key from to)
   (let ((trades (conn (if (and from to)
 			  (query (:order-by (:select '*
-					      :from (:as (:order-by (:select
-									'trades.result
-								      'trades.decision
-								      'trades.creation-time
-								      'patterns.*
-								      :distinct-on 'trades.id
-								      :from 'trades
-								      :inner-join 'patterns-trades
-								      :on (:= 'trades.id 'patterns-trades.trade-id)
-								      :inner-join 'patterns
-								      :on (:= 'patterns.id 'patterns-trades.pattern-id)
-								      :where (:and (:not (:is-null 'trades.result))
-										   (:>= 'creation-time from)
-										   ;; (:not (:= 'patterns.instrument "USD_CNH"))
-										   ;; (:not (:= 'patterns.type "STAGNATED"))
-										   ;; (:= 'patterns.type "STAGNATED")
-										   ;; (:= 'patterns.instrument "USD_CNH")
-										   (:<= 'creation-time to)
-										   ))
-								    'trades.id)
-							 'results))
+					     :from (:as (:order-by (:select
+								    'trades.result
+								    'trades.decision
+								    'trades.creation-time
+								    'patterns.*
+								    :distinct-on 'trades.id
+								    :from 'trades
+								    :inner-join 'patterns-trades
+								    :on (:= 'trades.id 'patterns-trades.trade-id)
+								    :inner-join 'patterns
+								    :on (:= 'patterns.id 'patterns-trades.pattern-id)
+								    :where (:and (:not (:is-null 'trades.result))
+										 (:>= 'creation-time from)
+										 ;; (:not (:= 'patterns.instrument "USD_CNH"))
+										 ;; (:not (:= 'patterns.type "STAGNATED"))
+										 ;; (:= 'patterns.type "STAGNATED")
+										 ;; (:= 'patterns.instrument "USD_CNH")
+										 (:<= 'creation-time to)
+										 ))
+								   'trades.id)
+							'results))
 					    (:desc 'creation-time))
 				 :alists)
 			  (query (:order-by (:select '*
-					      :from (:as (:order-by (:select
-									'trades.result
-								      'trades.decision
-								      'trades.creation-time
-								      'patterns.*
-								      :distinct-on 'trades.id
-								      :from 'trades
-								      :inner-join 'patterns-trades
-								      :on (:= 'trades.id 'patterns-trades.trade-id)
-								      :inner-join 'patterns
-								      :on (:= 'patterns.id 'patterns-trades.pattern-id)
-								      :where (:and (:not (:is-null 'trades.result))
-										   ;; (:>= 'creation-time from)
-										   ;; (:not (:= 'patterns.instrument "USD_CNH"))
-										   ;; (:not (:= 'patterns.type "STAGNATED"))
-										   ;; (:= 'patterns.type "STAGNATED")
-										   ;; (:= 'patterns.instrument "USD_CNH")
-										   ;; (:<= 'creation-time to)
-										   ))
-								    'trades.id)
-							 'results))
+					     :from (:as (:order-by (:select
+								    'trades.result
+								    'trades.decision
+								    'trades.creation-time
+								    'patterns.*
+								    :distinct-on 'trades.id
+								    :from 'trades
+								    :inner-join 'patterns-trades
+								    :on (:= 'trades.id 'patterns-trades.trade-id)
+								    :inner-join 'patterns
+								    :on (:= 'patterns.id 'patterns-trades.pattern-id)
+								    :where (:and (:not (:is-null 'trades.result))
+										 ;; (:>= 'creation-time from)
+										 ;; (:not (:= 'patterns.instrument "USD_CNH"))
+										 ;; (:not (:= 'patterns.type "STAGNATED"))
+										 ;; (:= 'patterns.type "STAGNATED")
+										 ;; (:= 'patterns.instrument "USD_CNH")
+										 ;; (:<= 'creation-time to)
+										 ))
+								   'trades.id)
+							'results))
 					    (:desc 'creation-time))
 				 :alists)
 			  ))))
@@ -548,11 +548,6 @@
 	  (loop for rate in rates do (print (assoccess rate :high-ask)))
 	  (loop for rate in rates do (print (assoccess rate :high-bid)))))))
 
-;; What's the oldest time in `trades`
-;; What's the earliest time in `trades`
-;; Get the range of candles between oldest - earliest
-;; 
-
 (defun -get-trade-time (trade)
   "Used in `-validate-trades`."
   (let ((entry-time (assoccess trade :entry-time))
@@ -567,72 +562,79 @@
 			creation-time))
 		1000000))))
 
-(defun -validate-trades (trades older-than)
+;; What's the oldest time in `trades`
+;; What's the earliest time in `trades`
+;; Get the range of candles between oldest - earliest
+;; 
+
+(defun -validate-trades (instrument trades older-than)
   "We use `older-than` to determine what trades to ignore due to possible lack of prices for validation."
   (push-to-log (format nil "Trying to validate ~a trades." (length trades)))
-  (let ((oldest nil))
+  (let* ((oldest (sort (copy-sequence 'list trades) #'< :key #'-get-trade-time))
+	 (newest (sort (copy-sequence 'list trades) #'> :key #'-get-trade-time))
+	 (rates (get-rates-range-big instrument omage.config:*validation-timeframe*
+				     (-get-trade-time oldest)
+				     (-get-trade-time newest))))
     (loop for trade in trades
-	  do (let* ((from (-get-trade-time trade))
-		    (from-timestamp (local-time:unix-to-timestamp (ceiling (/ from 1000000)))))
+	  do (let* ((idx (position (-get-trade-time trade) rates :test #'= :key #'-get-trade-time))
+		    (sub-rates (subseq rates idx))
+		    (from-timestamp (local-time:unix-to-timestamp (ceiling (/ (-get-trade-time trade) 1000000)))))
 	       (when (or (not omage.config:*is-production*)
 			 (local-time:timestamp< from-timestamp
 						(local-time:timestamp- (local-time:now) older-than :day)))
 		 (push-to-log (format nil "Using minute rates from ~a to ~a to validate trade."
 				      from-timestamp
 				      (local-time:timestamp+ from-timestamp 3 :day)))
-		 (let* ((instrument (make-keyword (assoccess trade :instrument)))
-			(timeframe :M1)
-			;; (to (* (local-time:timestamp-to-unix (local-time:timestamp+ from-timestamp 3 :day)) 1000000))
-			;; (rates (get-rates-range instrument timeframe from to :provider :oanda :type :fx))
-			(rates (get-rates-count-from-big instrument timeframe 50000 from))
-			(result (get-trade-result (assoccess trade :entry-price)
+		 (let* ((result (get-trade-result (assoccess trade :entry-price)
 						  (assoccess trade :tp)
 						  (assoccess trade :sl)
-						  rates)))
+						  sub-rates)))
 		   (push-to-log (format nil "Result obtained for trade: ~a." result))
 		   (when result
 		     (conn
 		      (let ((dao (get-dao 'trade (assoccess trade :id))))
 			(setf (slot-value dao 'result) result)
 			(update-dao dao))))
-		   (sleep 1)))))))
+		   ))))
+    (sleep 1)))
 
 (defun re-validate-trades (&optional (older-than 0) (last-n-days 30))
-  (let ((trades (conn (query (:order-by (:select '*
-					  :from (:as (:order-by (:select 'trades.* 'patterns.*
-									 :distinct-on 'trades.id
-									 :from 'trades
-									 :inner-join 'patterns-trades
-									 :on (:= 'trades.id 'patterns-trades.trade-id)
-									 :inner-join 'patterns
-									 :on (:= 'patterns.id 'patterns-trades.pattern-id)
-									 :where (:> :creation-time (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) last-n-days :day))))
-								'trades.id)
-						     'results))
-					(:desc 'creation-time))
-			     :alists))))
-    (-validate-trades trades older-than)))
+  (loop for instrument in omage.config:*instruments*
+	do (let ((trades (conn (query (:order-by (:select '*
+						  :from (:as (:order-by (:select 'trades.* 'patterns.*
+										 :distinct-on 'trades.id
+										 :from 'trades
+										 :inner-join 'patterns-trades
+										 :on (:= 'trades.id 'patterns-trades.trade-id)
+										 :inner-join 'patterns
+										 :on (:= 'patterns.id 'patterns-trades.pattern-id)
+										 :where (:> :creation-time (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) last-n-days :day))))
+									'trades.id)
+							     'results))
+						 (:desc 'creation-time))
+				      :alists))))
+	     (-validate-trades instrument trades older-than))))
 ;; (re-validate-trades 0 1)
 
 (defun validate-trades (&optional (older-than 1))
   (loop for instrument in omage.config:*instruments*
 	do (let ((trades (conn (query (:order-by (:select '*
-						   :from (:as (:order-by (:select 'trades.* 'patterns.*
-										  :distinct-on 'trades.id
-										  :from 'trades
-										  :inner-join 'patterns-trades
-										  :on (:= 'trades.id 'patterns-trades.trade-id)
-										  :inner-join 'patterns
-										  :on (:= 'patterns.id 'patterns-trades.pattern-id)
-										  ;; :where (:not (:is-null 'trades.result))
-										  :where (:and
-											  (:= 'patterns.instrument instrument)
-											  (:is-null 'trades.result)))
-									 'trades.id)
-							      'results))
+						  :from (:as (:order-by (:select 'trades.* 'patterns.*
+										 :distinct-on 'trades.id
+										 :from 'trades
+										 :inner-join 'patterns-trades
+										 :on (:= 'trades.id 'patterns-trades.trade-id)
+										 :inner-join 'patterns
+										 :on (:= 'patterns.id 'patterns-trades.pattern-id)
+										 ;; :where (:not (:is-null 'trades.result))
+										 :where (:and
+											 (:= 'patterns.instrument (format nil "~a" instrument))
+											 (:is-null 'trades.result)))
+									'trades.id)
+							     'results))
 						 (:desc 'creation-time))
 				      :alists))))
-	     (-validate-trades trades older-than))))
+	     (-validate-trades instrument trades older-than))))
 ;; (validate-trades)
 
 (defun ->diff-close (rates offset)
@@ -1429,66 +1431,66 @@
 (defun get-trades (&optional limit)
   (if limit
       (conn (query (:select 
-		       '*
-		     :from
-		     (:as (:select '*
-			    (:as (:over (:row-number)
-					(:partition-by 'instrument 'timeframe
-						       :order-by (:desc 'creation-time)))
-			     :idx)
-			    :from
-			    (:as (:select 'patterns.instrument
-				   'patterns.timeframe
-				   'patterns.type
-				   'trades.id
-				   'trades.creation-time
-				   'trades.test-trades-won
-				   'trades.test-trades-lost
-				   'trades.test-avg-revenue
-				   'trades.test-avg-activation
-				   'trades.test-avg-return
-				   'trades.test-total-return
-				   'trades.tp
-				   'trades.sl
-				   'trades.activation
-				   'trades.decision
-				   'trades.result
-				   'trades.entry-price
-				   'trades.entry-time
-				   :distinct-on 'trades.id
-				   :from 'trades
-				   :inner-join 'patterns-trades
-				   :on (:= 'trades.id 'patterns-trades.trade-id)
-				   :inner-join 'patterns
-				   :on (:= 'patterns-trades.pattern-id 'patterns.id))
-				 'full-results))
-			  'idx-results)
-		     :where (:<= 'idx '$1))
+		    '*
+		    :from
+		    (:as (:select '*
+				  (:as (:over (:row-number)
+					      (:partition-by 'instrument 'timeframe
+							     :order-by (:desc 'creation-time)))
+				   :idx)
+				  :from
+				  (:as (:select 'patterns.instrument
+						'patterns.timeframe
+						'patterns.type
+						'trades.id
+						'trades.creation-time
+						'trades.test-trades-won
+						'trades.test-trades-lost
+						'trades.test-avg-revenue
+						'trades.test-avg-activation
+						'trades.test-avg-return
+						'trades.test-total-return
+						'trades.tp
+						'trades.sl
+						'trades.activation
+						'trades.decision
+						'trades.result
+						'trades.entry-price
+						'trades.entry-time
+						:distinct-on 'trades.id
+						:from 'trades
+						:inner-join 'patterns-trades
+						:on (:= 'trades.id 'patterns-trades.trade-id)
+						:inner-join 'patterns
+						:on (:= 'patterns-trades.pattern-id 'patterns.id))
+				       'full-results))
+			 'idx-results)
+		    :where (:<= 'idx '$1))
 		   limit
 		   :alists))
       (conn (query (:order-by (:select 'patterns.instrument
-				'patterns.timeframe
-				'patterns.type
-				'trades.creation-time
-				'trades.test-trades-won
-				'trades.test-trades-lost
-				'trades.test-avg-revenue
-				'trades.test-avg-activation
-				'trades.test-avg-return
-				'trades.test-total-return
-				'trades.tp
-				'trades.sl
-				'trades.activation
-				'trades.decision
-				'trades.result
-				'trades.entry-price
-				'trades.entry-time
-				:distinct-on 'trades.id
-				:from 'trades
-				:inner-join 'patterns-trades
-				:on (:= 'trades.id 'patterns-trades.trade-id)
-				:inner-join 'patterns
-				:on (:= 'patterns-trades.pattern-id 'patterns.id))
+				       'patterns.timeframe
+				       'patterns.type
+				       'trades.creation-time
+				       'trades.test-trades-won
+				       'trades.test-trades-lost
+				       'trades.test-avg-revenue
+				       'trades.test-avg-activation
+				       'trades.test-avg-return
+				       'trades.test-total-return
+				       'trades.tp
+				       'trades.sl
+				       'trades.activation
+				       'trades.decision
+				       'trades.result
+				       'trades.entry-price
+				       'trades.entry-time
+			       :distinct-on 'trades.id
+			       :from 'trades
+			       :inner-join 'patterns-trades
+			       :on (:= 'trades.id 'patterns-trades.trade-id)
+			       :inner-join 'patterns
+			       :on (:= 'patterns-trades.pattern-id 'patterns.id))
 			      'trades.id
 			      (:desc 'trades.creation-time))
 		   :alists))))
@@ -1496,50 +1498,50 @@
 
 (defun -get-nested-trades (nested-limit)
   (conn (query (:select 
-		   '*
-		 :from
-		 (:as (:select '*
-			(:as (:over (:row-number)
-				    (:partition-by 'instrument 'timeframe 'decision
-				     :order-by (:desc 'creation-time)))
-			 :idx)
-			:from
-			(:as (:select 'patterns.instrument
-			       'patterns.timeframe
-			       'patterns.type
-			       'trades.id
-			       'trades.creation-time
-			       'trades.test-trades-won
-			       'trades.test-trades-lost
-			       'trades.test-avg-revenue
-			       'trades.test-avg-activation
-			       'trades.test-avg-return
-			       'trades.test-total-return
-			       'trades.tp
-			       'trades.sl
-			       'trades.activation
-			       'trades.decision
-			       'trades.entry-price
-			       'trades.entry-time
-			       :distinct-on 'trades.id
-			       :from 'trades
-			       :inner-join 'patterns-trades
-			       :on (:= 'trades.id 'patterns-trades.trade-id)
-			       :inner-join 'patterns
-			       :on (:= 'patterns-trades.pattern-id 'patterns.id))
-			     'full-results))
-		      'idx-results)
-		 :where (:and (:<= 'idx '$1)
-		 	      (:in 'creation-time (:select (:max 'trades.creation-time)
-		 	      			    :from 'trades
-		 	      			    :inner-join 'patterns-trades
-		 	      			    :on (:= 'trades.id 'patterns-trades.trade-id)
-		 	      			    :inner-join 'patterns
-		 	      			    :on (:= 'patterns-trades.pattern-id 'patterns.id)
-		 	      			    :group-by 'patterns.instrument))))
+		'*
+		:from
+		(:as (:select '*
+			      (:as (:over (:row-number)
+					  (:partition-by 'instrument 'timeframe 'decision
+					   :order-by (:desc 'creation-time)))
+			       :idx)
+			      :from
+			      (:as (:select 'patterns.instrument
+					    'patterns.timeframe
+					    'patterns.type
+					    'trades.id
+					    'trades.creation-time
+					    'trades.test-trades-won
+					    'trades.test-trades-lost
+					    'trades.test-avg-revenue
+					    'trades.test-avg-activation
+					    'trades.test-avg-return
+					    'trades.test-total-return
+					    'trades.tp
+					    'trades.sl
+					    'trades.activation
+					    'trades.decision
+					    'trades.entry-price
+					    'trades.entry-time
+				    :distinct-on 'trades.id
+				    :from 'trades
+				    :inner-join 'patterns-trades
+				    :on (:= 'trades.id 'patterns-trades.trade-id)
+				    :inner-join 'patterns
+				    :on (:= 'patterns-trades.pattern-id 'patterns.id))
+				   'full-results))
+		     'idx-results)
+		:where (:and (:<= 'idx '$1)
+			     (:in 'creation-time (:select (:max 'trades.creation-time)
+						  :from 'trades
+						  :inner-join 'patterns-trades
+						  :on (:= 'trades.id 'patterns-trades.trade-id)
+						  :inner-join 'patterns
+						  :on (:= 'patterns-trades.pattern-id 'patterns.id)
+						  :group-by 'patterns.instrument))))
 	       nested-limit
 	       :alists)))
-	       
+
 ;; (length (-get-nested-trades 20))
 
 (defun get-nested-trades (nested-limit)
@@ -1559,8 +1561,8 @@
 			    (push trade bearish)))
 	       ;; Creating nests with top activated and rest.
 	       ;; (print (first bullish))
-	       (let ((rbullish (sort bullish #'> :key (lambda (elt) (assoccess elt :activation))))
-		     (rbearish (sort bearish #'> :key (lambda (elt) (assoccess elt :activation)))))
+	       (let ((rbullish (sort bullish #'> :key (lambda (elt) (assoccess elt omage.config:*trades-sort-by*))))
+		     (rbearish (sort bearish #'> :key (lambda (elt) (assoccess elt omage.config:*trades-sort-by*)))))
 		 (when (first rbullish)
 		   (push `((:first . ,(first rbullish))
 			   (:rest . ,(rest rbullish)))

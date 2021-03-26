@@ -637,6 +637,24 @@
 	     (-validate-trades instrument trades older-than))))
 ;; (validate-trades)
 
+(defun delete-trades (from to)
+  (conn
+   (with-transaction ()
+     ;; Deleting patterns-trades.
+     (execute (:delete-from 'patterns-trades
+	       :where (:in 'pattern-id
+			   (:select 'id :from 'trades :where (:and (:>= 'creation-time from)
+								   (:<= 'creation-time to))))))
+     ;; Deleting the actual trades.
+     (execute (:delete-from 'trades
+	       :where (:and (:>= 'creation-time from)
+			    (:<= 'creation-time to)))))))
+
+;; (delete-trades (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 5 :hour))
+;; 	       (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 4 :hour)))
+
+;; (conn (query (:select (:count 'id) :from 'trades)))
+
 (defun ->diff-close (rates offset)
   (let* ((lrates (length rates))
 	 (last-candle (nth (- lrates offset 1) rates))

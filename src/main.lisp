@@ -233,7 +233,7 @@
 	  do (loop for timeframe in timeframes
 		   do (let ((rates (get-rates-batches instrument timeframe howmany-batches)))
 			(insert-rates instrument timeframe rates))))))
-;; (init-rates 2 :timeframes '(:M1))
+;; (init-rates 1 :timeframes '(:M1))
 
 (defun init-database ()
   "Creates all the necessary tables for Overmind Agents."
@@ -518,7 +518,7 @@
 ;; (loop for i from 0 below 72 do (format t "~a: ~a~%" i (get-global-revenue :to (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 0 :day)) :from (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) i :hour)))))
 
 ;; Per day.
-;; (loop for i from 0 below 1000 do (format t "~a: ~a~%" i (get-global-revenue :to (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) i :day)) :from (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) (1+ i) :day)))))
+;; (loop for i from 0 below 10 do (format t "~a: ~a~%" i (get-global-revenue :to (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) i :day)) :from (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) (1+ i) :day)))))
 
 (defun debug-trade ()
   (let* ((trade (nth 5 (conn (query (:select 'trades.* 'patterns.*
@@ -562,41 +562,40 @@
 			creation-time))
 		1000000))))
 
-;; What's the oldest time in `trades`
-;; What's the earliest time in `trades`
-;; Get the range of candles between oldest - earliest
-;; 
-
 (defun -validate-trades (instrument trades older-than)
   "We use `older-than` to determine what trades to ignore due to possible lack of prices for validation."
-  (push-to-log (format nil "Trying to validate ~a trades." (length trades)))
-  (let* ((oldest (sort (copy-sequence 'list trades) #'< :key #'-get-trade-time))
-	 (newest (sort (copy-sequence 'list trades) #'> :key #'-get-trade-time))
-	 (rates (get-rates-range-big instrument omage.config:*validation-timeframe*
-				     (-get-trade-time oldest)
-				     (-get-trade-time newest))))
-    (loop for trade in trades
-	  do (let* ((idx (position (-get-trade-time trade) rates :test #'= :key #'-get-trade-time))
-		    (sub-rates (subseq rates idx))
-		    (from-timestamp (local-time:unix-to-timestamp (ceiling (/ (-get-trade-time trade) 1000000)))))
-	       (when (or (not omage.config:*is-production*)
-			 (local-time:timestamp< from-timestamp
-						(local-time:timestamp- (local-time:now) older-than :day)))
-		 (push-to-log (format nil "Using minute rates from ~a to ~a to validate trade."
-				      from-timestamp
-				      (local-time:timestamp+ from-timestamp 3 :day)))
-		 (let* ((result (get-trade-result (assoccess trade :entry-price)
-						  (assoccess trade :tp)
-						  (assoccess trade :sl)
-						  sub-rates)))
-		   (push-to-log (format nil "Result obtained for trade: ~a." result))
-		   (when result
-		     (conn
-		      (let ((dao (get-dao 'trade (assoccess trade :id))))
-			(setf (slot-value dao 'result) result)
-			(update-dao dao))))
-		   ))))
-    (sleep 1)))
+  (when (> (length trades) 0)
+    (push-to-log (format nil "Trying to validate ~a trades." (length trades)))
+    (let* ((oldest (first (sort (copy-sequence 'list trades) #'< :key #'-get-trade-time)))
+	   ;; (newest (first (sort (copy-sequence 'list trades) #'> :key #'-get-trade-time)))
+	   (rates (get-rates-range-big instrument omage.config:*validation-timeframe*
+				       (-get-trade-time oldest)
+				       ;; (-get-trade-time newest)
+				       (* (local-time:timestamp-to-unix (local-time:now)) 1000000)
+				       )))
+      (loop for trade in trades
+	    do (let* ((idx (position (-get-trade-time trade) rates :test #'> :key (lambda (rate) (read-from-string (assoccess rate :time))))))
+		 (when idx
+		   (let ((sub-rates (subseq rates idx))
+			 (from-timestamp (local-time:unix-to-timestamp (ceiling (/ (-get-trade-time trade) 1000000)))))
+		     (when (or (not omage.config:*is-production*)
+			       (local-time:timestamp< from-timestamp
+						      (local-time:timestamp- (local-time:now) older-than :day)))
+		       (push-to-log (format nil "Using minute rates from ~a to ~a to validate trade."
+					    from-timestamp
+					    (local-time:timestamp+ from-timestamp 3 :day)))
+		       (let* ((result (get-trade-result (assoccess trade :entry-price)
+							(assoccess trade :tp)
+							(assoccess trade :sl)
+							sub-rates)))
+			 (push-to-log (format nil "Result obtained for trade: ~a." result))
+			 (when result
+			   (conn
+			    (let ((dao (get-dao 'trade (assoccess trade :id))))
+			      (setf (slot-value dao 'result) result)
+			      (update-dao dao))))
+			 ))))))
+      (sleep 1))))
 
 (defun re-validate-trades (&optional (older-than 0) (last-n-days 30))
   (loop for instrument in omage.config:*instruments*
@@ -608,13 +607,15 @@
 										 :on (:= 'trades.id 'patterns-trades.trade-id)
 										 :inner-join 'patterns
 										 :on (:= 'patterns.id 'patterns-trades.pattern-id)
-										 :where (:> :creation-time (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) last-n-days :day))))
+										 :where (:and
+											 (:= 'patterns.instrument (format nil "~a" instrument))
+											 (:> :creation-time (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) last-n-days :day)))))
 									'trades.id)
 							     'results))
 						 (:desc 'creation-time))
 				      :alists))))
 	     (-validate-trades instrument trades older-than))))
-;; (re-validate-trades 0 1)
+;; (time (re-validate-trades 0 3))
 
 (defun validate-trades (&optional (older-than 1))
   (loop for instrument in omage.config:*instruments*
@@ -634,7 +635,8 @@
 							     'results))
 						 (:desc 'creation-time))
 				      :alists))))
-	     (-validate-trades instrument trades older-than))))
+	     (when trades
+	       (-validate-trades instrument trades older-than)))))
 ;; (validate-trades)
 
 (defun delete-trades (from to)
@@ -1607,17 +1609,20 @@
       ;; 	      (+ trades-won trades-lost)
       ;; 	      total-return
       ;; 	      (/ total-return (+ trades-won trades-lost)))
-      (/ (loop for trade in trades
-	       ;; when (and (not (eq (assoccess trade :result) :null))
-	       ;; 		 ;; (not (string= (assoccess trade :instrument) "USD_CNH"))
-	       ;; 		 )
-	       ;; summing (to-pips
-	       ;; 	  (assoccess trade :instrument)
-	       ;; 	  (assoccess trade :result))
+      (values
+       (/ (loop for trade in trades
+	       when (and (not (eq (assoccess trade :result) :null))
+	       		 ;; (not (string= (assoccess trade :instrument) "USD_CNH"))
+	       		 )
 	       summing (to-pips
-			(assoccess trade :instrument)
-			(assoccess trade :test-avg-revenue)))
-      	 (length trades))
+	       	  (assoccess trade :instrument)
+	       	  (assoccess trade :result))
+	       ;; summing (to-pips
+	       ;; 		(assoccess trade :instrument)
+	       ;; 		(assoccess trade :test-avg-revenue))
+	       )
+	  (length trades))
+       (length trades))
       ;; (loop for trade in trades
       ;; 	    do (format t "market: :~a, result: ~a, test-total-return: ~5$, test-trades-won: ~a, test-trades-lost: ~a, rr: ~a~%"
       ;; 		       (assoccess trade :instrument)
@@ -1629,14 +1634,34 @@
       ;; 				  (assoccess trade :tp))))
       )))
 ;; (get-trades 1)
-;; (describe-trades nil (lambda (trade) (> (assoccess trade :activation) 0.0)))
+;; (describe-trades 200 (lambda (trade) (> (assoccess trade :activation) 0.0)))
 ;; (describe-trades nil (lambda (trade) t))
 
 (comment
- (loop for act from 0 to 1 by 0.1
-       do (format t "~a: ~a~%"
-		  act
-		  (describe-trades nil (lambda (trade) (> (assoccess trade :activation) act)))))
+ (let ((step 0.1))
+   (loop for instrument in omage.config:*instruments*
+	 do (progn
+	      (format t "~a~%" instrument)
+	      (loop for act from 0 to 1 by step
+		    do (multiple-value-bind (avg len)
+			   (describe-trades 1000 (lambda (trade) (and (not (eq (assoccess trade :activation) :null))
+								      (string= (assoccess trade :instrument)
+									       (format nil "~a" instrument))
+								      ;; (> (abs (/ (assoccess trade :tp)
+								      ;; 		 (assoccess trade :sl)))
+								      ;; 	 (+ 1 act))
+								      ;; (< (abs (/ (assoccess trade :tp)
+								      ;; 		 (assoccess trade :sl)))
+								      ;; 	 (+ 1 act step))
+								      (> (assoccess trade :activation) act)
+								      (< (assoccess trade :activation) (+ act step))
+								      )))
+			 (format t "~$: ~a: ~a~%"
+				 act
+				 len
+				 avg)))
+	      (format t "~%")
+	      )))
  )
 
 (comment
@@ -1646,7 +1671,8 @@
 	    (loop for type in '((:bullish) (:bearish) (:stagnated))
 		  do (format t "~a, " (length (get-agents instrument omage.config:*train-tf* type))))
 	    (format t "~%"))
-       finally (describe-trades nil (lambda (trade) (> (assoccess trade :activation) 0.8))))
+       finally (describe-trades 300 (lambda (trade) (and (not (eq (assoccess trade :activation) :null))
+							 (> (assoccess trade :activation) 0.8)))))
  )
 
 (defun read-str (str)
@@ -2777,16 +2803,19 @@
 ;; (get-random-rates-count-big :EUR_USD omage.config:*train-tf* 10)
 
 (defun get-rates-range-big (instrument timeframe from to)
-  (let ((instrument (format nil "~a" instrument))
-	(timeframe (format nil "~a" timeframe))
-	(from (format nil "~a" from))
-	(to (format nil "~a" to)))
-    (reverse (conn (query (:order-by (:select '* :from 'rates :where (:and (:= 'instrument instrument)
-									   (:= 'timeframe timeframe)
-									   (:>= 'time from)
-									   (:<= 'time to)))
-				     (:desc 'rates.time))
-			  :alists)))))
+  (let ((recent (get-rates-count instrument timeframe 100)))
+    ;; Updating DB.
+    (insert-rates instrument timeframe recent)
+    (let ((instrument (format nil "~a" instrument))
+	  (timeframe (format nil "~a" timeframe))
+	  (from (format nil "~a" from))
+	  (to (format nil "~a" to)))
+      (reverse (conn (query (:order-by (:select '* :from 'rates :where (:and (:= 'instrument instrument)
+									     (:= 'timeframe timeframe)
+									     (:>= 'time from)
+									     (:<= 'time to)))
+				       (:desc 'rates.time))
+			    :alists))))))
 ;; (get-rates-range-big :EUR_USD omage.config:*train-tf* (unix-to-nano (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 20 :day))) (unix-to-nano (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 10 :day))))
 
 ;; (get-rates-count-big :EUR_USD omage.config:*train-tf* 100)

@@ -11,7 +11,7 @@
                   collect `(defparameter ,name ,exp ,doc))))
 
 (defun dbg (&rest args)
-  (format t "~{~a~^, ~}~%" args))
+  (format t "~{~a~^ ~}~%" args))
 
 (defclass json-false ()
   ())

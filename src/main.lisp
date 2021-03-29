@@ -574,7 +574,7 @@
 				       (* (local-time:timestamp-to-unix (local-time:now)) 1000000)
 				       )))
       (loop for trade in trades
-	    do (let* ((idx (position (-get-trade-time trade) rates :test #'> :key (lambda (rate) (read-from-string (assoccess rate :time))))))
+	    do (let* ((idx (position (-get-trade-time trade) rates :test #'<= :key (lambda (rate) (read-from-string (assoccess rate :time))))))
 		 (when idx
 		   (let ((sub-rates (subseq rates idx))
 			 (from-timestamp (local-time:unix-to-timestamp (ceiling (/ (-get-trade-time trade) 1000000)))))
@@ -1611,16 +1611,16 @@
       ;; 	      (/ total-return (+ trades-won trades-lost)))
       (values
        (/ (loop for trade in trades
-	       when (and (not (eq (assoccess trade :result) :null))
-	       		 ;; (not (string= (assoccess trade :instrument) "USD_CNH"))
-	       		 )
-	       summing (to-pips
-	       	  (assoccess trade :instrument)
-	       	  (assoccess trade :result))
-	       ;; summing (to-pips
-	       ;; 		(assoccess trade :instrument)
-	       ;; 		(assoccess trade :test-avg-revenue))
-	       )
+		;; when (and (not (eq (assoccess trade :result) :null))
+		;; 		 ;; (not (string= (assoccess trade :instrument) "USD_CNH"))
+		;; 		 )
+		;; summing (to-pips
+		;; 	  (assoccess trade :instrument)
+		;; 	  (assoccess trade :result))
+		summing (to-pips
+			 (assoccess trade :instrument)
+			 (assoccess trade :test-avg-revenue))
+		)
 	  (length trades))
        (length trades))
       ;; (loop for trade in trades

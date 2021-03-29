@@ -405,20 +405,21 @@
 (defun get-trade-result (entry-price tp sl rates)
   (let ((low-type (if (plusp tp) :low-bid :low-ask))
 	(high-type (if (plusp tp) :high-bid :high-ask)))
-    (loop for rate in rates do (progn
-				 ;; Then it's a buy. Lose.
-				 (when (and (> tp 0) (< (- (assoccess rate low-type) entry-price) sl))
-				   (return sl))
-				 ;; Then it's a sell. Lose.
-				 (when (and (< tp 0) (> (- (assoccess rate high-type) entry-price) sl))
-				   (return (- sl)))
-				 ;; Then it's a buy. Win.
-				 (when (and (> tp 0) (> (- (assoccess rate high-type) entry-price) tp))
-				   (return tp))
-				 ;; Then it's a sell. Win.
-				 (when (and (< tp 0) (< (- (assoccess rate low-type) entry-price) tp))
-				   (return (abs tp)))
-				 ))))
+    (loop for rate in rates do
+      (progn
+	;; Then it's a buy. Lose.
+	(when (and (> tp 0) (< (- (assoccess rate low-type) entry-price) sl))
+	  (return sl))
+	;; Then it's a sell. Lose.
+	(when (and (< tp 0) (> (- (assoccess rate high-type) entry-price) sl))
+	  (return (- sl)))
+	;; Then it's a buy. Win.
+	(when (and (> tp 0) (> (- (assoccess rate high-type) entry-price) tp))
+	  (return tp))
+	;; Then it's a sell. Win.
+	(when (and (< tp 0) (< (- (assoccess rate low-type) entry-price) tp))
+	  (return (abs tp)))
+	))))
 
 ;; (get-trade-result 0.72274 -0.0018100000000000893 0.0013900000000000026 )
 
@@ -589,11 +590,10 @@
 							(assoccess trade :sl)
 							sub-rates)))
 			 (push-to-log (format nil "Result obtained for trade: ~a." result))
-			 (when result
-			   (conn
-			    (let ((dao (get-dao 'trade (assoccess trade :id))))
-			      (setf (slot-value dao 'result) result)
-			      (update-dao dao))))
+			 (conn
+			  (let ((dao (get-dao 'trade (assoccess trade :id))))
+			    (setf (slot-value dao 'result) (if result result :NULL))
+			    (update-dao dao)))
 			 ))))))
       (sleep 1))))
 
@@ -615,7 +615,7 @@
 						 (:desc 'creation-time))
 				      :alists))))
 	     (-validate-trades instrument trades older-than))))
-;; (time (re-validate-trades 0 3))
+;; (time (re-validate-trades 0 5))
 
 (defun validate-trades (&optional (older-than 1))
   (loop for instrument in omage.config:*instruments*

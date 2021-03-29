@@ -140,7 +140,7 @@ the SL read from the creation dataset)."
      (""
       *min-pips-sl* 3)
      (""
-      *max-pips-sl* 20)
+      *max-pips-sl* cl:most-positive-fixnum)
      ("For example, if you want a R/R of 1:2, then 2 is the value
      you're looking for."
       *agents-min-rr-creation* 3)
@@ -209,8 +209,8 @@ the SL read from the creation dataset)."
      ("The instruments we'll use to generate signals."
       *instruments* (if *is-production*
 			(setf *instruments* ominp:*forex*)
-			(setf *instruments* '(:AUD_USD :EUR_GBP :EUR_JPY :EUR_USD :GBP_USD :USD_CAD :USD_CHF :USD_CNH
- :USD_JPY))))))
+			(setf *instruments* '(:AUD_USD :EUR_GBP :EUR_JPY :EUR_USD :GBP_USD :USD_CAD :USD_CHF :USD_CNH :USD_JPY))
+			))))
 
 (setf (config-env-var) "APP_ENV")
 

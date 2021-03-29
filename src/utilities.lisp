@@ -11,7 +11,8 @@
                   collect `(defparameter ,name ,exp ,doc))))
 
 (defun dbg (&rest args)
-  (format t "~{~a~^ ~}~%" args))
+  (format t "~{~a~^ ~}~%" args)
+  (alexandria:last-elt args))
 
 (defclass json-false ()
   ())

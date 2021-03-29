@@ -1456,7 +1456,9 @@
 		    (:as (:select '*
 				  (:as (:over (:row-number)
 					      (:partition-by 'instrument 'timeframe
-							     :order-by (:desc 'creation-time)))
+							     :order-by
+							     (:desc 'creation-time)
+							     (:desc 'activation)))
 				   :idx)
 				  :from
 				  (:as (:select 'patterns.instrument

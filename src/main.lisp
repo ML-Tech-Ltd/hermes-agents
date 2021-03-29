@@ -2082,8 +2082,8 @@
 ;; (ql:system-apropos "math")
 ;; (ql:quickload :cl-mathstats)
 
-(defun evaluate-agent (agent rates &key test-size (return-fitnesses-p nil))
-  (let ((fitnesses (-evaluate-agents :agent agent :rates rates :idx (slot-value agent 'lookbehind-count) :test-size test-size)))
+(defun evaluate-agent (instrument timeframe agent rates &key test-size (return-fitnesses-p nil))
+  (let ((fitnesses (-evaluate-agents :instrument instrument :timeframe timeframe :agent agent :rates rates :idx (slot-value agent 'lookbehind-count) :test-size test-size)))
     ;; (when (> (assoccess fitnesses :total-revenue) 0)
     ;;   (setf *activations* (assoccess fitnesses :activations))
     ;;   (setf *tps* (assoccess fitnesses :tps))
@@ -2117,7 +2117,7 @@
   (let* ((agents (gethash (list instrument timeframe types) *agents-cache*))
 	 (agent-idx (position agent agents :test (lambda (agent1 agent2) (string= (slot-value agent1 'id)
 										  (slot-value agent2 'id))))))
-    (setf (nth agent-idx agents) (evaluate-agent agent rates))
+    (setf (nth agent-idx agents) (evaluate-agent instrument timeframe agent rates))
     ;; (setf (gethash (list instrument timeframe types) *agents-cache*)
     ;; 	  (evaluate-agent agent rates))
     ))
@@ -2290,9 +2290,8 @@
   ;; Checking if we need to initialize the agents collection.
   (let ((agents (if-let ((agents (get-agents instrument timeframe types)))
 		  (update-agents-fitnesses instrument timeframe types agents rates)
-		  ;; (list (evaluate-agent (funcall gen-agent-fn) rates))
 		  (loop repeat omage.config:*initial-agent-count*
-			collect (evaluate-agent (funcall gen-agent-fn) rates))))
+			collect (evaluate-agent instrument timeframe (funcall gen-agent-fn) rates))))
 	(purged-agents))
     (push-to-log (format nil "~a agents retrieved to start optimization." (length agents)))
     (push-to-log (format nil "Performing optimization for ~a seconds." seconds))
@@ -2311,7 +2310,7 @@
 				    (add-agent agent instrument timeframe types))))
 		   (push-to-log "Pareto frontier updated successfully.")
 		   (return))
-		 (let* ((challenger (list (evaluate-agent (funcall gen-agent-fn) rates)))
+		 (let* ((challenger (list (evaluate-agent instrument timeframe (funcall gen-agent-fn) rates)))
 			(is-dominated? (when omage.config:*optimize-p*
 					 (is-agent-dominated? (car challenger) agents t))))
 		   ;; No longer the first iteration after this.
@@ -2625,7 +2624,7 @@
 (defun trade-most-activated-agents (instrument timeframe types agents testing-dataset creation-time &key (test-size 50))
   "Used in `test-most-activated-agents`."
   (loop for agent in agents
-	do (let ((test-fitnesses (evaluate-agent agent testing-dataset :test-size test-size :return-fitnesses-p t))
+	do (let ((test-fitnesses (evaluate-agent instrument timeframe agent testing-dataset :test-size test-size :return-fitnesses-p t))
 		 (agent-id (slot-value agent 'id)))
 	     (when test-fitnesses
 	       (push-to-log "Testing process successful."))

@@ -2,7 +2,9 @@
   (:use :cl :json)
   (:export #:*json-false*
 	   #:*defparameters*
-	   #:dbg)
+	   #:dbg
+	   #:random-int
+	   #:random-float)
   (:nicknames #:omage.utils))
 (in-package :overmind-agents.utilities)
 
@@ -13,6 +15,12 @@
 (defun dbg (&rest args)
   (format t "~{~a~^ ~}~%" args)
   (alexandria:last-elt args))
+
+(defun random-int (from to)
+  (+ from (random (- (1+ to) from))))
+
+(defun random-float (from to)
+  (+ from (random (- to (float from)))))
 
 (defclass json-false ()
   ())

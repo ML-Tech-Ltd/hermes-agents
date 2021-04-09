@@ -189,4 +189,4 @@
 
 (defun plotly-make-plot (layout &rest traces)
   (plotly-cl:pl-plot traces :layout layout :width 1700 :height 1000)
-  (asdf:run-shell-command "mv ~a ~a" "/tmp/*.html" "/home/amherag/amaury/"))
+  (asdf:run-shell-command "mv ~a ~a" "/tmp/*.html" "~/"))

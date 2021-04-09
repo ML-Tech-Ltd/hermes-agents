@@ -12,7 +12,6 @@
                :computable-reals
 	       :cl-mathstats
                ;; :sxql
-	       :cl21
 	       :uuid
 	       :salza2
 	       :zlib
@@ -33,8 +32,9 @@
 	       ;; logging
 	       :dissect
 
-	       :swank
+	       :rest-server
 
+	       :overmind-common
 	       :overmind-intuition
 	       :overmind-input
 	       :overmind-perception
@@ -44,12 +44,15 @@
 			((:file "memoization")))
 	       (:module "src"
 			:components
-			((:file "main" :depends-on ("config" "db" "km" "utilities"))
+			((:file "main" :depends-on ("config" "db" "km" "utils" "log" "api" "trading"))
+			 (:file "trading" :depends-on ("log"))
 			 (:file "km")
+			 (:file "log")
+			 (:file "api")
 			 (:file "plotly-utils")
-			 (:file "utilities")
-			 (:file "config" :depends-on ("utilities"))
-			 (:file "db")))
+			 (:file "utils")
+			 (:file "config" :depends-on ("utils"))
+			 (:file "db" :depends-on ("trading"))))
 	       (:module "datasets"
 			:components
 			((:file "sunspot")
@@ -64,7 +67,6 @@
   :author ""
   :license ""
   :depends-on ("overmind-agents"
-	       "overmind-code"
                "rove"
 	       "lparallel"
 	       "random-state")

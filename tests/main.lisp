@@ -1,10 +1,10 @@
-(defpackage overmind-agents/tests/main
+(defpackage hermes-agents/tests/main
   (:use :cl
-        :overmind-agents
+        :hermes-agents
         :rove))
-(in-package :overmind-agents/tests/main)
+(in-package :hermes-agents/tests/main)
 
-;; NOTE: To run this test file, execute `(asdf:test-system :overmind-agents)' in your Lisp.
+;; NOTE: To run this test file, execute `(asdf:test-system :hermes-agents)' in your Lisp.
 
 (deftest test-target-1
   (testing "should (= 1 1) to be true"

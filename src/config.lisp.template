@@ -1,4 +1,4 @@
-(defpackage overmind-agents.config
+(defpackage hermes-agents.config
   (:use :cl)
   (:import-from :envy
                 :config-env-var
@@ -63,7 +63,7 @@
 	   #:*seconds-interval-testing*
 	   )
   (:nicknames #:omage.config))
-(in-package :overmind-agents.config)
+(in-package :hermes-agents.config)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Algorithm Configuration ;;
@@ -182,7 +182,7 @@ the SL read from the creation dataset)."
 
 (setf (config-env-var) "APP_ENV")
 
-(defparameter *application-root*   (asdf:system-source-directory :overmind-agents))
+(defparameter *application-root*   (asdf:system-source-directory :hermes-agents))
 (defparameter *static-directory*   (merge-pathnames #P"static/" *application-root*))
 (defparameter *template-directory* (merge-pathnames #P"templates/" *application-root*))
 

@@ -1,11 +1,11 @@
-;; (ql:quickload :overmind-agents)
+;; (ql:quickload :hermes-agents)
 ;; (ql:quickload :mlforecasting)
 ;; (mlforecasting:start :port 2001)
 ;; (loop-optimize-test)
 ;; (clerk:calendar)
 ;; (progn (drop-database) (init-database) (init-patterns) (clear-logs) (when omcom.all:*is-production* (clear-jobs)))
 
-(defpackage overmind-agents
+(defpackage hermes-agents
   (:use #:cl
 	#:local-time
 	#:access
@@ -15,18 +15,15 @@
 	#:computable-reals
 	#:defenum
 	#:fare-mop
-	#:overmind-input
-	#:overmind-perception
-	#:overmind-intuition
-	#:overmind-agents.db
-	#:overmind-agents.km
-	#:overmind-agents.utils
-	#:overmind-agents.log)
+	#:hermes-input
+	#:hermes-perception
+	#:hermes-intuition
+	#:hermes-agents.db
+	#:hermes-agents.km
+	#:hermes-agents.utils
+	#:hermes-agents.log)
   (:import-from #:omcom.utils
 		#:assoccess)
-  (:import-from #:omage.api
-		#:validate-trades
-		#:get-trade-result)
   (:import-from #:omage.log
 		#:log-stack
 		#:clear-logs)
@@ -45,10 +42,11 @@
 		#:get-agents-count
 		#:wipe-agents
 		#:get-agent
-		#:get-agents
 		#:update-agent-fitnesses
 		#:update-agents-fitnesses
-		#:init-patterns)
+		#:init-patterns
+		#:validate-trades
+		#:get-trade-result)
   (:import-from #:ominp.db
 		#:conn)
   (:import-from #:omage.db
@@ -63,7 +61,7 @@
 		#:get-rates-random-count-big)
   (:export #:loop-optimize-test)
   (:nicknames #:omage))
-(in-package :overmind-agents)
+(in-package :hermes-agents)
 
 ;; FARE-MEMOIZATION configuration.
 (setf fare-memoization::*memoized* (make-hash-table :test #'equal :synchronized t))

@@ -1,7 +1,7 @@
-(defpackage overmind-agents.plotly-utils
+(defpackage hermes-agents.plotly-utils
   (:use #:cl)
   (:nicknames #:omage.plotly-utils))
-(in-package :overmind-agents.plotly-utils)
+(in-package :hermes-agents.plotly-utils)
 
 ;; (loop repeat 1 collect (let* ((idx (random-int *rand-gen* 0 (length *rates*)))
 ;; 			       (input-dataset (get-input-dataset *rates* idx))

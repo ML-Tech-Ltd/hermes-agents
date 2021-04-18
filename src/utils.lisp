@@ -1,4 +1,4 @@
-(defpackage overmind-agents.utils
+(defpackage hermes-agents.utils
   (:use :cl :json :alexandria)
   (:import-from #:ominp.rates
 		#:unix-from-nano)
@@ -12,7 +12,7 @@
 	   #:prepare-agents-properties
 	   #:format-rr)
   (:nicknames #:omage.utils))
-(in-package :overmind-agents.utils)
+(in-package :hermes-agents.utils)
 
 (defclass json-false ()
   ())
@@ -123,7 +123,7 @@
 						   (t (format nil "~a" value)))))
 				  ;; (format nil "~a: ~a~%" key value)
 				  `(,key . ,value)))))
-;; (prepare-agents-properties (get-agents :AUD_USD omage.config:*train-tf* '(:stagnated)))
+;; (prepare-agents-properties (get-agents-some :AUD_USD omage.config:*train-tf* '(:stagnated)))
 
 (defun format-rr (risk reward)
   (format nil "~a / ~2$"

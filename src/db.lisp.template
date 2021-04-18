@@ -1,4 +1,4 @@
-(defpackage overmind-agents.db
+(defpackage hermes-agents.db
   (:use :cl)
   (:export with-sqlite-connection
 	   with-postgres-connection
@@ -6,7 +6,7 @@
 	   *db-user*
 	   *db-pass*
 	   *db-hostname*))
-(in-package overmind-agents.db)
+(in-package hermes-agents.db)
 
 ;; For mysql or postgres.
 (defparameter *db-name* "")
@@ -27,6 +27,6 @@
 ;;   ;; `datafly` could be connected to another database. Disconnecting.
 ;;   (when datafly:*connection*
 ;;     (datafly:disconnect-toplevel))
-;;   ;; Connecting to Overmind Agents database.
+;;   ;; Connecting to Hermes Agents database.
 ;;   (datafly:connect-toplevel :sqlite3 :database-name *db-path*)
 ;;   `(progn ,@body))

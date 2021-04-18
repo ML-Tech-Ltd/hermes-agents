@@ -4,10 +4,10 @@
 ;;;; Casella Davide 793631
 ;;;; Nicolini Fabio 794467
 
-(defpackage overmind-agents.km
+(defpackage hermes-agents.km
   (:use :cl)
   (:export :km :centroid :vsum :vsub :innerprod :norm))
-(in-package :overmind-agents.km)
+(in-package :hermes-agents.km)
 
 (defun vsum (vector1 vector2)
   "Parameter vector1, vector (list of coordinates).

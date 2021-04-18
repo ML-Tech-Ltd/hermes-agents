@@ -1,4 +1,4 @@
-# Overmind-Agents
+# Hermes-Agents
 
 ## Usage
 
@@ -30,4 +30,10 @@ git clone git@github.com:cgore/sigma.git
 ```
 cp src/config.lisp.template src/config.lisp
 cp src/db.lisp.template src/db.lisp
+```
+
+- Install qlot:
+
+```
+ros install qlot
 ```

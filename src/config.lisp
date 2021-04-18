@@ -1,4 +1,4 @@
-(defpackage overmind-agents.config
+(defpackage hermes-agents.config
   (:use :cl)
   (:import-from :envy
                 :config-env-var
@@ -14,13 +14,13 @@
            #:productionp
 	   #:*db-path*)
   (:nicknames #:omage.config))
-(in-package :overmind-agents.config)
+(in-package :hermes-agents.config)
 
 (setf cl:*random-state* (make-random-state t))
 
 (setf (config-env-var) "APP_ENV")
 
-(defparameter *application-root*   (asdf:system-source-directory :overmind-agents))
+(defparameter *application-root*   (asdf:system-source-directory :hermes-agents))
 (defparameter *static-directory*   (merge-pathnames #P"static/" *application-root*))
 (defparameter *template-directory* (merge-pathnames #P"templates/" *application-root*))
 

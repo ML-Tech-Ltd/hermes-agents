@@ -1,4 +1,4 @@
-(defpackage overmind-agents.log
+(defpackage hermes-agents.log
   (:use #:cl #:alexandria)
   (:import-from #:omcom.utils
 		#:format-table)
@@ -17,7 +17,7 @@
 	   #:clear-logs
 	   #:log-agent)
   (:nicknames #:omage.log))
-(in-package :overmind-agents.log)
+(in-package :hermes-agents.log)
 
 (defun log-stack (c)
   (with-open-file (str (merge-pathnames #P"omage-stack.log" #P"~/")

@@ -1,21 +1,24 @@
-(defpackage overmind-agents.trading
+(defpackage hermes-agents.trading
   (:use #:cl #:alexandria #:postmodern #:omage.log)
   (:import-from #:ominp.db
 		#:conn)
   (:import-from #:omcom.utils
 		#:format-table
+		#:comment
 		#:assoccess
 		#:random-float)
   (:import-from #:ominp.rates
 		#:to-pips
 		#:get-tp-sl
 		#:from-pips
+		#:get-rates-range-big
 		#:get-input-dataset
 		#:get-output-dataset
 		#:get-tp-sl)
   (:import-from #:omage.log
 		#:push-to-log)
   (:import-from #:omage.utils
+		#:prepare-agents-properties
 		#:format-rr)
   (:import-from #:omint
 		#:eval-ifis)
@@ -36,19 +39,31 @@
 	   #:eval-agent
 	   #:is-agent-dominated?
 	   #:get-agent
-	   #:get-agents
+	   #:get-agents-some
+	   #:get-agents-all
+	   #:get-agents-count
+	   #:agents-to-alists
 	   #:test-most-activated-agents
 	   #:gen-agent
 	   #:gen-agents
 	   #:update-agent-fitnesses
 	   #:update-agents-fitnesses
-	   #:get-agents-count
 	   #:wipe-agents
 	   #:get-patterns
 	   #:insert-pattern
-	   #:get-agent-ids-from-patterns)
+	   #:get-agent-ids-from-patterns
+	   #:get-trades-grouped
+	   #:get-trades-flat
+	   #:get-trades-nested
+	   #:describe-trades
+	   #:describe-agents
+	   #:get-trade-result
+	   #:get-global-revenue
+	   #:validate-trades
+	   #:re-validate-trades
+	   #:delete-trades)
   (:nicknames #:omage.trading))
-(in-package :overmind-agents.trading)
+(in-package :hermes-agents.trading)
 
 (defparameter *agents-cache* (make-hash-table :test 'equal :synchronized t))
 
@@ -396,7 +411,7 @@
 
 (defun get-max-lookbehind (instrument timeframe types)
   (let* ((types (flatten types)))
-    (loop for agent in (get-agents instrument timeframe types) maximize (slot-value agent 'lookbehind-count))))
+    (loop for agent in (get-agents-some instrument timeframe types) maximize (slot-value agent 'lookbehind-count))))
 
 (defun -evaluate-agents (&key instrument timeframe types rates agent idx test-size)
   "Used for EVALUATE-AGENT and EVALUATE-AGENTS."
@@ -534,7 +549,7 @@
     (loop for fitness in fitnesses
 	  ;; TODO: We should be returning symbols (not kws) from -evaluate-agents.
 ;;; and then remove this format + read-from-string.
-	  do (setf (slot-value agent (read-from-string (format nil "overmind-agents.trading::~a" (car fitness))))
+	  do (setf (slot-value agent (read-from-string (format nil "hermes-agents.trading::~a" (car fitness))))
 		   (if (listp (cdr fitness)) (apply #'vector (cdr fitness)) (cdr fitness))))
     (if return-fitnesses-p
 	fitnesses
@@ -567,7 +582,7 @@
   (let* ((types (flatten types))
 	 (patterns (get-patterns instrument timeframe types))
 	 )
-    ;; (loop for agent in (get-agents instrument timeframe types)
+    ;; (loop for agent in (get-agents-some instrument timeframe types)
     ;; 	  collect (slot-value agent 'id))
     (conn (query (:select 'agent-id :from 'agents-patterns :where (:in 'pattern-id (:set (loop for pattern in patterns collect (assoccess pattern :id))))) :column))))
 ;; (get-agent-ids-from-patterns :AUD_USD omcom.omage:*train-tf* '(:bullish))
@@ -576,7 +591,7 @@
 (defun get-agents-from-cache (instrument timeframe types)
   (gethash (list instrument timeframe types) *agents-cache*))
 
-;; (get-agents :EUR_JPY omcom.omage:*train-tf* '(:BULLISH))
+;; (get-agents-some :EUR_JPY omcom.omage:*train-tf* '(:BULLISH))
 ;; (get-agents-from-cache :EUR_JPY omcom.omage:*train-tf* '(:BULLISH))
 
 (defun sync-agents (instrument timeframe types)
@@ -584,7 +599,7 @@
   ;; Get agents from cache (A2)
   ;; Update or add agents from A1 using A2
   ;; Delete agents found in A1 but not in A2
-  (let ((A1 (get-agents instrument timeframe types))
+  (let ((A1 (get-agents-some instrument timeframe types))
 	(A2 (get-agents-from-cache instrument timeframe types)))
     (conn
      ;; First we update existing agents on database and insert the new ones.
@@ -602,19 +617,33 @@
 		    (delete-dao agent))))))))
 ;; (time (sync-agents :AUD_USD omcom.omage:*train-tf* '(:BULLISH)))
 
-(defun get-agents (instrument timeframe types)
+(defun limit-seq (seq limit offset)
+  (let ((lseq (length seq)))
+    (if (plusp limit)
+	(if (>= offset lseq)
+	    nil
+	    (if (> (+ offset limit) lseq)
+		(subseq seq offset)
+		(subseq seq offset (+ offset limit))))
+	seq)))
+
+(defun get-agents-some (instrument timeframe types &optional (limit -1) (offset 0))
   (let (result)
     (loop for type in (flatten types)
 	  do (let ((type (list type)))
 	       (if-let ((agents (gethash (list instrument timeframe type) *agents-cache*)))
-		 (loop for agent in agents do (push agent result))
+		 (loop for agent in (limit-seq agents limit offset)
+		       do (push agent result))
 		 (let* ((agent-ids (get-agent-ids-from-patterns instrument timeframe type))
 			(agents (conn (query (:select '* :from 'agents :where (:in 'id (:set agent-ids)))
 					     (:dao agent)))))
 		   (setf (gethash (list instrument timeframe type) *agents-cache*) agents)
-		   (setf result agents)))))
+		   (loop for agent in (limit-seq agents limit offset)
+			 do (push agent result))))))
     result))
-;; (time (get-agents :EUR_USD omcom.omage:*train-tf* '(:bullish :stagnated)))
+;; (time (get-agents-some :AUD_USD omcom.omage:*train-tf* '(:bullish) 3 2))
+;; (time (get-agents-some :EUR_USD omcom.omage:*train-tf* '(:bullish :stagnated :bearish) 3 10))
+;; (agents-to-alists (get-agents-some :AUD_USD omcom.omage:*train-tf* '(:BULLISH)))
 
 (defun add-agent (agent instrument timeframe types)
   "Works with *agents-cache*"
@@ -662,10 +691,10 @@
 		   :key (lambda (agent) (slot-value agent 'id))
 		   :test (lambda (ids id) (find id ids :test #'string=)))
 	  collect (car (third key))))
-;; (get-agent-ids-patterns (list (slot-value (first (get-agents :AUD_USD omcom.omage:*train-tf* '(:bearish))) 'id) (slot-value (first (get-agents :AUD_USD omcom.omage:*train-tf* '(:stagnated))) 'id)))
+;; (get-agent-ids-patterns (list (slot-value (first (get-agents-some :AUD_USD omcom.omage:*train-tf* '(:bearish))) 'id) (slot-value (first (get-agents-some :AUD_USD omcom.omage:*train-tf* '(:stagnated))) 'id)))
 
 (defun get-agents-count (instrument timeframe types)
-  (length (get-agents instrument timeframe types)))
+  (length (get-agents-some instrument timeframe types)))
 
 (defun eval-agent (agent rates)
   (let ((perception-fn (get-perception-fn agent)))
@@ -782,11 +811,11 @@
 	:key (lambda (agent) (slot-value agent 'id))
 	:test #'string=))
 ;; (get-agent :EUR_USD omcom.omage:*train-tf* '(:BULLISH) "48F3970F-36C1-4A49-9E54-95746CFEA9FE")
-;; (slot-value (first (get-agents :EUR_USD omcom.omage:*train-tf* '(:BULLISH))) 'id)
+;; (slot-value (first (get-agents-some :EUR_USD omcom.omage:*train-tf* '(:BULLISH))) 'id)
 
 (defun eval-agents (instrument timeframe types rates)
   (let (tps sls activations ids)
-    (let ((agents (get-agents instrument timeframe types)))
+    (let ((agents (get-agents-some instrument timeframe types)))
       (loop for agent in agents
 	    do (multiple-value-bind (tp sl activation)
 		   (eval-agent agent rates)
@@ -887,7 +916,7 @@
 (defun get-most-activated-agents (instrument timeframe types &optional (n 10))
   ;; We're ordering the agents in ascending order to avoid
   ;; reversing them after `push`ing them to `bullish-agents` and `bearish-agents`.
-  (let ((agents (sort (get-agents instrument timeframe types) #'< :key (lambda (agent) (slot-value agent 'avg-activation))))
+  (let ((agents (sort (get-agents-some instrument timeframe types) #'< :key (lambda (agent) (slot-value agent 'avg-activation))))
 	(bullish-agents)
 	(bearish-agents))
     (loop for agent in agents
@@ -1068,7 +1097,7 @@
 
 (defun optimization (instrument timeframe types gen-agent-fn rates seconds)
   ;; Checking if we need to initialize the agents collection.
-  (let ((agents (if-let ((agents (get-agents instrument timeframe types)))
+  (let ((agents (if-let ((agents (get-agents-some instrument timeframe types)))
 		  (update-agents-fitnesses instrument timeframe types agents rates)
 		  (loop repeat omcom.omage:*initial-agent-count*
 			collect (evaluate-agent instrument timeframe (funcall gen-agent-fn) rates))))
@@ -1110,3 +1139,541 @@
 		     (push (first challenger) purged-agents)
 		     (setf agents purged-agents)
 		     (setf purged-agents nil)))))))
+
+(defun agents-to-alists (agents)
+  (let* ((agents-props (prepare-agents-properties agents))
+	 (vals (loop for agent-props in agents-props
+		     collect (let ((avg-tp (read-from-string (assoccess agent-props :avg-tp)))
+				   (avg-sl (read-from-string (assoccess agent-props :avg-sl))))
+			       (append agent-props
+				       `((:r/r . ,(format-rr avg-sl avg-tp))))))))
+    (when (> (length agents-props) 0)
+      vals)))
+;; (agents-to-alists (get-agents-some :AUD_USD omcom.omage:*train-tf* '(:BULLISH)))
+
+(defun get-agents-all (&optional (limit -1) (offset 0))
+  (let ((markets (make-hash-table)))
+    (loop for instrument in omcom.omage:*forex*
+	  do (let ((agents (make-hash-table)))
+	       (loop for types in '(:bullish :bearish :stagnated)
+		     do (let ((values (agents-to-alists (get-agents-some instrument omcom.omage:*train-tf* (list types) limit offset))))
+			  (when values
+			    (setf (gethash types agents) values))
+			  ))
+	       (setf (gethash instrument markets) agents)
+	       ))
+    markets))
+;; (time (get-agents-all))
+
+(defun get-trades (&optional limit offset segment)
+  (if limit
+      (conn (query (:select 
+		    '*
+		    :from
+		    (:as (:select '*
+				  (:as (:over (:row-number)
+					      (:partition-by 'instrument 'timeframe
+							     :order-by
+							     (:desc 'creation-time)
+							     (:desc 'activation)))
+				   :idx)
+				  :from
+				  (:as (:select 'patterns.instrument
+						'patterns.timeframe
+						'patterns.type
+						'trades.id
+						'trades.creation-time
+						'trades.test-trades-won
+						'trades.test-trades-lost
+						'trades.test-avg-revenue
+						'trades.test-avg-activation
+						'trades.test-avg-return
+						'trades.test-total-return
+						'trades.tp
+						'trades.sl
+						'trades.activation
+						'trades.decision
+						'trades.result
+						'trades.entry-price
+						'trades.entry-time
+						:distinct-on 'trades.id
+						:from 'trades
+						:inner-join 'patterns-trades
+						:on (:= 'trades.id 'patterns-trades.trade-id)
+						:inner-join 'patterns
+						:on (:= 'patterns-trades.pattern-id 'patterns.id))
+				       'full-results))
+			 'idx-results)
+		    :where (:<= 'idx '$1))
+		   limit
+		   :alists))
+      (conn (query (:order-by (:select 'patterns.instrument
+				       'patterns.timeframe
+				       'patterns.type
+				       'trades.creation-time
+				       'trades.test-trades-won
+				       'trades.test-trades-lost
+				       'trades.test-avg-revenue
+				       'trades.test-avg-activation
+				       'trades.test-avg-return
+				       'trades.test-total-return
+				       'trades.tp
+				       'trades.sl
+				       'trades.activation
+				       'trades.decision
+				       'trades.result
+				       'trades.entry-price
+				       'trades.entry-time
+			       :distinct-on 'trades.id
+			       :from 'trades
+			       :inner-join 'patterns-trades
+			       :on (:= 'trades.id 'patterns-trades.trade-id)
+			       :inner-join 'patterns
+			       :on (:= 'patterns-trades.pattern-id 'patterns.id))
+			      'trades.id
+			      (:desc 'trades.creation-time))
+		   :alists))))
+;; (get-trades)
+
+(defun -get-trades ()
+  (sql (:order-by (:select 'patterns.instrument
+			   'patterns.timeframe
+			   'patterns.type
+			   'trades.id
+			   'trades.creation-time
+			   'trades.test-trades-won
+			   'trades.test-trades-lost
+			   'trades.test-avg-revenue
+			   'trades.test-avg-activation
+			   'trades.test-avg-return
+			   'trades.test-total-return
+			   'trades.tp
+			   'trades.sl
+			   'trades.activation
+			   'trades.decision
+			   'trades.result
+			   'trades.entry-price
+			   'trades.entry-time
+			   :distinct-on 'trades.id
+			   :from 'trades
+			   :inner-join 'patterns-trades
+			   :on (:= 'trades.id 'patterns-trades.trade-id)
+			   :inner-join 'patterns
+			   :on (:= 'patterns-trades.pattern-id 'patterns.id))
+		  'trades.id
+		  (:desc 'trades.creation-time))))
+
+(defun get-trades-flat (&optional (limit -1) (offset 0))
+  (conn (if (plusp limit)
+	    (query (:limit (:raw (-get-trades)) '$1 '$2)
+		   limit
+		   offset
+		   :alists)
+	    (query (:raw (-get-trades)) :alists))))
+;; (get-trades-flat 2 4)
+
+(defun get-trades-grouped (&optional (limit 10))
+  (conn (query
+	 (:select '* :from
+		  (:as (:select '*
+				(:as (:over (:row-number)
+					    (:partition-by 'instrument 'timeframe
+							   :order-by
+							   (:desc 'creation-time)
+							   (:desc 'activation)))
+				 :idx)
+				:from
+				(:as (:raw (-get-trades))
+				     'full-results))
+		       'idx-results)
+	  :where (:<= 'idx '$1))
+	 limit
+	 :alists)))
+;; (get-trades-grouped)
+
+(defun -get-trades-nested (limit)
+  (conn (query (:select 
+		'*
+		:from
+		(:as (:select '*
+			      (:as (:over (:row-number)
+					  (:partition-by 'instrument 'timeframe 'decision
+					   :order-by (:desc 'creation-time)))
+			       :idx)
+			      :from
+			      (:as (:select 'patterns.instrument
+					    'patterns.timeframe
+					    'patterns.type
+					    'trades.id
+					    'trades.creation-time
+					    'trades.test-trades-won
+					    'trades.test-trades-lost
+					    'trades.test-avg-revenue
+					    'trades.test-avg-activation
+					    'trades.test-avg-return
+					    'trades.test-total-return
+					    'trades.tp
+					    'trades.sl
+					    'trades.activation
+					    'trades.decision
+					    'trades.entry-price
+					    'trades.entry-time
+				    :distinct-on 'trades.id
+				    :from 'trades
+				    :inner-join 'patterns-trades
+				    :on (:= 'trades.id 'patterns-trades.trade-id)
+				    :inner-join 'patterns
+				    :on (:= 'patterns-trades.pattern-id 'patterns.id))
+				   'full-results))
+		     'idx-results)
+		:where (:and (:<= 'idx '$1)
+			     (:in 'creation-time (:select (:max 'trades.creation-time)
+						  :from 'trades
+						  :inner-join 'patterns-trades
+						  :on (:= 'trades.id 'patterns-trades.trade-id)
+						  :inner-join 'patterns
+						  :on (:= 'patterns-trades.pattern-id 'patterns.id)
+						  :group-by 'patterns.instrument))))
+	       limit
+	       :alists)))
+
+;; (length (-get-trades-nested 20))
+
+(defun get-trades-nested (limit)
+  (let ((trades (-get-trades-nested limit))
+	(result))
+    (loop for instrument in omcom.omage:*instruments*
+	  do (let ((trades (remove-if-not (lambda (elt)
+					    (string= elt (format nil "~a" instrument)))
+					  trades
+					  :key (lambda (elt) (assoccess elt :instrument))))
+		   (bullish)
+		   (bearish))
+	       ;; Separating trades into bearish and bullish.
+	       (loop for trade in trades
+		     do (if (plusp (assoccess trade :tp))
+			    (push trade bullish)
+			    (push trade bearish)))
+	       ;; Creating nests with top activated and rest.
+	       ;; (print (first bullish))
+	       (let ((rbullish (sort bullish #'> :key (lambda (elt) (assoccess elt omcom.omage:*trades-sort-by*))))
+		     (rbearish (sort bearish #'> :key (lambda (elt) (assoccess elt omcom.omage:*trades-sort-by*)))))
+		 (when (first rbullish)
+		   (push `((:first . ,(first rbullish))
+			   (:rest . ,(rest rbullish)))
+			 result))
+		 (when (first rbearish)
+		   (push `((:first . ,(first rbearish))
+			   (:rest . ,(rest rbearish)))
+			 result)))))
+    (nreverse result)))
+;; (get-trades-nested 20)
+
+(defun describe-trades (&optional limit filter-fn)
+  (let* ((trades (remove-if-not filter-fn (get-trades limit)))
+	 ;; (trades-won (loop for trade in trades
+	 ;; 		   summing (assoccess trade :test-trades-won)))
+	 ;; (trades-lost (loop for trade in trades
+	 ;; 		    summing (assoccess trade :test-trades-lost)))
+	 ;; (total-return (loop for trade in trades
+	 ;; 		     summing (assoccess trade :test-total-return)))
+	 )
+    (when trades
+      ;; (format t "Total trades won: ~a. Total trades lost: ~a. Total trades: ~a. ~%Total return: ~a. Avg return: ~a.~%~%"
+      ;; 	      trades-won
+      ;; 	      trades-lost
+      ;; 	      (+ trades-won trades-lost)
+      ;; 	      total-return
+      ;; 	      (/ total-return (+ trades-won trades-lost)))
+      (values
+       (/ (loop for trade in trades
+		;; when (and (not (eq (assoccess trade :result) :null))
+		;; 		 ;; (not (string= (assoccess trade :instrument) "USD_CNH"))
+		;; 		 )
+		;; summing (to-pips
+		;; 	  (assoccess trade :instrument)
+		;; 	  (assoccess trade :result))
+		summing (to-pips
+			 (assoccess trade :instrument)
+			 (assoccess trade :test-avg-revenue))
+		)
+	  (length trades))
+       (length trades))
+      ;; (loop for trade in trades
+      ;; 	    do (format t "market: :~a, result: ~a, test-total-return: ~5$, test-trades-won: ~a, test-trades-lost: ~a, rr: ~a~%"
+      ;; 		       (assoccess trade :instrument)
+      ;; 		       (assoccess trade :result)
+      ;; 		       (assoccess trade :test-total-return)
+      ;; 		       (assoccess trade :test-trades-won)
+      ;; 		       (assoccess trade :test-trades-lost)
+      ;; 		       (format-rr (assoccess trade :sl)
+      ;; 				  (assoccess trade :tp))))
+      )))
+;; (get-trades 1)
+;; (describe-trades 1000 (lambda (trade) (> (assoccess trade :activation) 0.0)))
+;; (describe-trades nil (lambda (trade) t))
+
+(defun alist-keys (alist)
+  (loop for item in alist collect (car item)))
+;; (alist-keys (car (prepare-agents-properties (get-agents-some :AUD_USD omage.config:*train-tf* '(:bullish)))))
+
+(defun alist-values (alist)
+  (loop for item in alist collect (cdr item)))
+;; (alist-values (car (prepare-agents-properties (get-agents-some :EUR_USD omage.config:*train-tf* '(:bullish)))))
+
+(defun describe-agents ()
+  (with-open-stream (s (make-string-output-stream))
+    (format s "<h3>AGENTS POOL.</h3><hr/>")
+    (loop for instrument in omcom.omage:*forex*
+	  do (loop for types in '((:bullish) (:bearish) (:stagnated))
+		   do (let* ((agents-props (prepare-agents-properties (get-agents-some instrument omcom.omage:*train-tf* types)))
+			     (agents-count (get-agents-count instrument omcom.omage:*train-tf* types))
+			     (vals (loop for agent-props in agents-props
+					 collect (let ((avg-tp (read-from-string (assoccess agent-props :avg-tp)))
+						       (avg-sl (read-from-string (assoccess agent-props :avg-sl))))
+						   (append (alist-values agent-props)
+							   (list (format-rr avg-sl avg-tp)))))))
+			(when (> (length agents-props) 0)
+			  (format s "<h4>~a (~a, ~a)</h4>" instrument (car types) agents-count)
+			  (format s "<pre>")
+			  (format-table s vals :column-label (append (mapcar #'symbol-name (alist-keys (car agents-props)))
+								     '("R/R")))
+			  (format s "</pre><hr/>")))))
+    (get-output-stream-string s)))
+;; (describe-agents)
+
+(comment
+ (let ((step 0.1))
+   (loop for instrument in omcom.omage:*instruments*
+	 do (progn
+	      (format t "~a~%" instrument)
+	      (loop for act from 0 to 1 by step
+		    do (multiple-value-bind (avg len)
+			   (describe-trades 1000 (lambda (trade) (and (not (eq (assoccess trade :activation) :null))
+								      (string= (assoccess trade :instrument)
+									       (format nil "~a" instrument))
+								      ;; (> (abs (/ (assoccess trade :tp)
+								      ;; 		 (assoccess trade :sl)))
+								      ;; 	 (+ 1 act))
+								      ;; (< (abs (/ (assoccess trade :tp)
+								      ;; 		 (assoccess trade :sl)))
+								      ;; 	 (+ 1 act step))
+								      (> (assoccess trade :test-avg-activation) act)
+								      (< (assoccess trade :test-avg-activation) (+ act step))
+								      )))
+			 (format t "~$: ~a: ~a~%"
+				 act
+				 len
+				 avg)))
+	      (format t "~%")
+	      )))
+ )
+
+(comment
+ (loop for instrument in omcom.omage:*instruments*
+       do (progn
+	    (format t "~a: " instrument)
+	    (loop for type in '((:bullish) (:bearish) (:stagnated))
+		  do (format t "~a, " (length (get-agents-some instrument omcom.omage:*train-tf* type))))
+	    (format t "~%"))
+       finally (describe-trades 300 (lambda (trade) (and (not (eq (assoccess trade :activation) :null))
+							 (> (assoccess trade :activation) 0.8)))))
+ )
+
+(defun get-global-revenue (&key from to)
+  (let ((trades (conn (if (and from to)
+			  (query (:order-by (:select '*
+					     :from (:as (:order-by (:select
+								    'trades.result
+								    'trades.decision
+								    'trades.creation-time
+								    'patterns.*
+								    :distinct-on 'trades.id
+								    :from 'trades
+								    :inner-join 'patterns-trades
+								    :on (:= 'trades.id 'patterns-trades.trade-id)
+								    :inner-join 'patterns
+								    :on (:= 'patterns.id 'patterns-trades.pattern-id)
+								    :where (:and (:not (:is-null 'trades.result))
+										 (:>= 'creation-time from)
+										 ;; (:not (:= 'patterns.instrument "USD_CNH"))
+										 ;; (:not (:= 'patterns.type "STAGNATED"))
+										 ;; (:= 'patterns.type "STAGNATED")
+										 ;; (:= 'patterns.instrument "USD_CNH")
+										 (:<= 'creation-time to)
+										 ))
+								   'trades.id)
+							'results))
+					    (:desc 'creation-time))
+				 :alists)
+			  (query (:order-by (:select '*
+					     :from (:as (:order-by (:select
+								    'trades.result
+								    'trades.decision
+								    'trades.creation-time
+								    'patterns.*
+								    :distinct-on 'trades.id
+								    :from 'trades
+								    :inner-join 'patterns-trades
+								    :on (:= 'trades.id 'patterns-trades.trade-id)
+								    :inner-join 'patterns
+								    :on (:= 'patterns.id 'patterns-trades.pattern-id)
+								    :where (:and (:not (:is-null 'trades.result))
+										 ;; (:>= 'creation-time from)
+										 ;; (:not (:= 'patterns.instrument "USD_CNH"))
+										 ;; (:not (:= 'patterns.type "STAGNATED"))
+										 ;; (:= 'patterns.type "STAGNATED")
+										 ;; (:= 'patterns.instrument "USD_CNH")
+										 ;; (:<= 'creation-time to)
+										 ))
+								   'trades.id)
+							'results))
+					    (:desc 'creation-time))
+				 :alists)
+			  ))))
+    (loop for trade in trades
+	  summing (let ((instrument (make-keyword (assoccess trade :instrument))))
+		    ;; (if (or (and (string= (assoccess trade :decision) "SELL")
+		    ;; 		 (string= (assoccess trade :type) "BEARISH"))
+		    ;; 	    (and (string= (assoccess trade :decision) "BUY")
+		    ;; 		 (string= (assoccess trade :type) "BULLISH")))
+		    ;; 	(to-pips instrument (assoccess trade :result))
+		    ;; 	0)
+		    (to-pips instrument (assoccess trade :result))))))
+;; (get-global-revenue)
+;; (get-global-revenue :to (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 3 :day)) :from (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 2000 :day)))
+;; (get-global-revenue :to (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 0 :day)) :from (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 4 :day)))
+
+;; Running hours.
+;; (loop for i from 0 below 72 do (format t "~a: ~a~%" i (get-global-revenue :to (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 0 :day)) :from (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) i :hour)))))
+
+;; Per day.
+;; (loop for i from 0 below 10 do (format t "~a: ~a~%" i (get-global-revenue :to (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) i :day)) :from (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) (1+ i) :day)))))
+
+(defun -get-trade-time (trade)
+  "Used in `-validate-trades`."
+  (let ((entry-time (assoccess trade :entry-time))
+	(creation-time (assoccess trade :creation-time)))
+    (ceiling (* (if omcom.all:*is-production*
+		    ;; The exact time when the trade got created, e.g 4:33 PM.
+		    creation-time
+		    (if (not (equal entry-time :null))
+			;; The time of the last traded candle in the testing dataset.
+			;; This time will be a rounded hour (if using hours), e.g. 4:00 PM.
+			entry-time
+			creation-time))
+		1000000))))
+
+(defun -validate-trades (instrument trades older-than)
+  "We use `older-than` to determine what trades to ignore due to possible lack of prices for validation."
+  (when (> (length trades) 0)
+    (push-to-log (format nil "Trying to validate ~a trades." (length trades)))
+    (let* ((oldest (first (sort (copy-sequence 'list trades) #'< :key #'-get-trade-time)))
+	   ;; (newest (first (sort (copy-sequence 'list trades) #'> :key #'-get-trade-time)))
+	   (rates (get-rates-range-big instrument omcom.omage:*validation-timeframe*
+				       (-get-trade-time oldest)
+				       ;; (-get-trade-time newest)
+				       (* (local-time:timestamp-to-unix (local-time:now)) 1000000)
+				       )))
+      (loop for trade in trades
+	    do (let* ((idx (position (-get-trade-time trade) rates :test #'<= :key (lambda (rate) (read-from-string (assoccess rate :time))))))
+		 (when idx
+		   (let ((sub-rates (subseq rates idx))
+			 (from-timestamp (local-time:unix-to-timestamp (ceiling (/ (-get-trade-time trade) 1000000)))))
+		     (when (or (not omcom.all:*is-production*)
+			       (local-time:timestamp< from-timestamp
+						      (local-time:timestamp- (local-time:now) older-than :day)))
+		       (push-to-log (format nil "Using minute rates from ~a to ~a to validate trade."
+					    from-timestamp
+					    (local-time:timestamp+ from-timestamp 3 :day)))
+		       (let* ((result (get-trade-result (assoccess trade :entry-price)
+							(assoccess trade :tp)
+							(assoccess trade :sl)
+							sub-rates)))
+			 (push-to-log (format nil "Result obtained for trade: ~a." result))
+			 (conn
+			  (let ((dao (get-dao 'trade (assoccess trade :id))))
+			    (setf (slot-value dao 'result) (if result result :NULL))
+			    (update-dao dao)))
+			 ))))))
+      (sleep 1))))
+
+(defun re-validate-trades (&optional (older-than 0) (last-n-days 30))
+  (loop for instrument in omcom.omage:*instruments*
+	do (let ((trades (conn (query (:order-by (:select '*
+						  :from (:as (:order-by (:select 'trades.* 'patterns.*
+										 :distinct-on 'trades.id
+										 :from 'trades
+										 :inner-join 'patterns-trades
+										 :on (:= 'trades.id 'patterns-trades.trade-id)
+										 :inner-join 'patterns
+										 :on (:= 'patterns.id 'patterns-trades.pattern-id)
+										 :where (:and
+											 (:= 'patterns.instrument (format nil "~a" instrument))
+											 (:> :creation-time (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) last-n-days :day)))))
+									'trades.id)
+							     'results))
+						 (:desc 'creation-time))
+				      :alists))))
+	     (-validate-trades instrument trades older-than))))
+;; (time (re-validate-trades 0 5))
+
+(defun validate-trades (&optional (older-than 1))
+  (loop for instrument in omcom.omage:*instruments*
+	do (let ((trades (conn (query (:order-by (:select '*
+						  :from (:as (:order-by (:select 'trades.* 'patterns.*
+										 :distinct-on 'trades.id
+										 :from 'trades
+										 :inner-join 'patterns-trades
+										 :on (:= 'trades.id 'patterns-trades.trade-id)
+										 :inner-join 'patterns
+										 :on (:= 'patterns.id 'patterns-trades.pattern-id)
+										 ;; :where (:not (:is-null 'trades.result))
+										 :where (:and
+											 (:= 'patterns.instrument (format nil "~a" instrument))
+											 (:is-null 'trades.result)))
+									'trades.id)
+							     'results))
+						 (:desc 'creation-time))
+				      :alists))))
+	     (when trades
+	       (-validate-trades instrument trades older-than)))))
+;; (validate-trades)
+
+(defun delete-trades (from to)
+  (conn
+   (with-transaction ()
+     ;; Deleting patterns-trades.
+     (execute (:delete-from 'patterns-trades
+	       :where (:in 'pattern-id
+			   (:select 'id :from 'trades :where (:and (:>= 'creation-time from)
+								   (:<= 'creation-time to))))))
+     ;; Deleting the actual trades.
+     (execute (:delete-from 'trades
+	       :where (:and (:>= 'creation-time from)
+			    (:<= 'creation-time to)))))))
+
+;; (delete-trades (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 5 :hour))
+;; 	       (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) 4 :hour)))
+
+;; (conn (query (:select (:count 'id) :from 'trades)))
+
+(defun get-trade-result (entry-price tp sl rates)
+  (let ((low-type (if (plusp tp) :low-bid :low-ask))
+	(high-type (if (plusp tp) :high-bid :high-ask)))
+    (loop for rate in rates do
+      (progn
+	;; Then it's a buy. Lose.
+	(when (and (> tp 0) (< (- (assoccess rate low-type) entry-price) sl))
+	  (return sl))
+	;; Then it's a sell. Lose.
+	(when (and (< tp 0) (> (- (assoccess rate high-type) entry-price) sl))
+	  (return (- sl)))
+	;; Then it's a buy. Win.
+	(when (and (> tp 0) (> (- (assoccess rate high-type) entry-price) tp))
+	  (return tp))
+	;; Then it's a sell. Win.
+	(when (and (< tp 0) (< (- (assoccess rate low-type) entry-price) tp))
+	  (return (abs tp)))
+	))))
+;; (get-trade-result 0.72274 -0.0018100000000000893 0.0013900000000000026 )

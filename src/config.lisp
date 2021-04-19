@@ -13,7 +13,7 @@
            #:developmentp
            #:productionp
 	   #:*db-path*)
-  (:nicknames #:omage.config))
+  (:nicknames #:hsage.config))
 (in-package :hermes-agents.config)
 
 (setf cl:*random-state* (make-random-state t))

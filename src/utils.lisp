@@ -1,6 +1,6 @@
 (defpackage hermes-agents.utils
   (:use :cl :json :alexandria)
-  (:import-from #:ominp.rates
+  (:import-from #:hsinp.rates
 		#:unix-from-nano)
   (:import-from #:fare-mop
 		#:collect-slots)
@@ -11,7 +11,7 @@
 	   #:sorted-indexes
 	   #:prepare-agents-properties
 	   #:format-rr)
-  (:nicknames #:omage.utils))
+  (:nicknames #:hsage.utils))
 (in-package :hermes-agents.utils)
 
 (defclass json-false ()
@@ -46,7 +46,7 @@
 (defun is-market-close ()
   (let ((day-of-week (local-time:timestamp-day-of-week (local-time:now) :timezone local-time:+utc-zone+))
 	(hour (local-time:timestamp-hour (local-time:now) :timezone local-time:+utc-zone+)))
-    (and omcom.all:*is-production*
+    (and hscom.all:*is-production*
 	 (or
 	  ;; Friday
 	  (and (= day-of-week 5)
@@ -123,7 +123,7 @@
 						   (t (format nil "~a" value)))))
 				  ;; (format nil "~a: ~a~%" key value)
 				  `(,key . ,value)))))
-;; (prepare-agents-properties (get-agents-some :AUD_USD omage.config:*train-tf* '(:stagnated)))
+;; (prepare-agents-properties (get-agents-some :AUD_USD hsage.config:*train-tf* '(:stagnated)))
 
 (defun format-rr (risk reward)
   (format nil "~a / ~2$"

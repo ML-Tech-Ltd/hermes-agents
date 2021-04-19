@@ -3,7 +3,7 @@
   (:import-from :envy
                 :config-env-var
                 :defconfig)
-  (:import-from :omage.utils
+  (:import-from :hsage.utils
                 :defparameters)
   (:export :config
            :*application-root*
@@ -62,7 +62,7 @@
 	   #:*type-groups*
 	   #:*seconds-interval-testing*
 	   )
-  (:nicknames #:omage.config))
+  (:nicknames #:hsage.config))
 (in-package :hermes-agents.config)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -175,7 +175,7 @@ the SL read from the creation dataset)."
       *timeframes* `(,*train-tf*))
      (""
       *instruments* (if *is-production*
-			(setf *instruments* ominp:*forex*)
+			(setf *instruments* hsinp:*forex*)
 			(setf *instruments* '(:AUD_USD :EUR_GBP))))))
 
 

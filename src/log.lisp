@@ -1,8 +1,8 @@
 (defpackage hermes-agents.log
   (:use #:cl #:alexandria)
-  (:import-from #:omcom.utils
+  (:import-from #:hscom.utils
 		#:format-table)
-  (:import-from #:omage.utils
+  (:import-from #:hsage.utils
 		#:format-rr)
   (:export #:log-stack
 	   #:push-to-log
@@ -16,11 +16,11 @@
 	   #:clear-agent-directions-log
 	   #:clear-logs
 	   #:log-agent)
-  (:nicknames #:omage.log))
+  (:nicknames #:hsage.log))
 (in-package :hermes-agents.log)
 
 (defun log-stack (c)
-  (with-open-file (str (merge-pathnames #P"omage-stack.log" #P"~/")
+  (with-open-file (str (merge-pathnames #P"hsage-stack.log" #P"~/")
 		       :direction :output
 		       :if-exists :append
 		       :if-does-not-exist :create)
@@ -42,7 +42,7 @@
 ;; General log.
 (let (log)
   (defun push-to-log (msg &key (add-newline? t) (size 5000))
-    (when omcom.all:*is-log*
+    (when hscom.all:*is-log*
       (if add-newline?
 	  (push (format nil "~a<br/>" msg) log)
 	  (push (format nil "~a" msg) log))
@@ -61,7 +61,7 @@
 ;; Agents log.
 (let (log)
   (defun push-to-agents-log (msg &key (add-newline? t) (size 5000))
-    (when omcom.all:*is-log*
+    (when hscom.all:*is-log*
       (if add-newline?
 	  (push (format nil "~a<br/>" msg) log)
 	  (push (format nil "~a" msg) log))
@@ -82,7 +82,7 @@
 ;; Agents' directions log.
 (let ((log (make-hash-table :test 'equal)))
   (defun push-to-agent-directions-log (instrument timeframe types direction &key (size 1000))
-    (when omcom.all:*is-log*
+    (when hscom.all:*is-log*
       (let ((pairing-directions (gethash instrument log))
 	    (pattern-directions (gethash (list instrument timeframe types) log))
 	    (global-directions (gethash :global log)))
@@ -109,7 +109,7 @@
   (defun clear-agent-directions-log ()
     (setf log (make-hash-table :test 'equal))))
 
-;; (push-to-agent-directions-log :AUD_USD omcom.omage:*train-tf* '(:bullish) 1.1)
+;; (push-to-agent-directions-log :AUD_USD hscom.hsage:*train-tf* '(:bullish) 1.1)
 ;; (read-agent-directions-log)
 
 (defun clear-logs ()

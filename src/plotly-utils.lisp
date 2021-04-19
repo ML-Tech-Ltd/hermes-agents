@@ -1,6 +1,6 @@
 (defpackage hermes-agents.plotly-utils
   (:use #:cl)
-  (:nicknames #:omage.plotly-utils))
+  (:nicknames #:hsage.plotly-utils))
 (in-package :hermes-agents.plotly-utils)
 
 ;; (loop repeat 1 collect (let* ((idx (random-int *rand-gen* 0 (length *rates*)))

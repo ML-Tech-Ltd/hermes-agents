@@ -1,13 +1,13 @@
 (defpackage hermes-agents.trading
-  (:use #:cl #:alexandria #:postmodern #:omage.log)
-  (:import-from #:ominp.db
+  (:use #:cl #:alexandria #:postmodern #:hsage.log)
+  (:import-from #:hsinp.db
 		#:conn)
-  (:import-from #:omcom.utils
+  (:import-from #:hscom.utils
 		#:format-table
 		#:comment
 		#:assoccess
 		#:random-float)
-  (:import-from #:ominp.rates
+  (:import-from #:hsinp.rates
 		#:to-pips
 		#:get-tp-sl
 		#:from-pips
@@ -15,12 +15,12 @@
 		#:get-input-dataset
 		#:get-output-dataset
 		#:get-tp-sl)
-  (:import-from #:omage.log
+  (:import-from #:hsage.log
 		#:push-to-log)
-  (:import-from #:omage.utils
+  (:import-from #:hsage.utils
 		#:prepare-agents-properties
 		#:format-rr)
-  (:import-from #:omint
+  (:import-from #:hsint
 		#:eval-ifis)
   (:export #:agent
 	   #:log-agent
@@ -62,7 +62,7 @@
 	   #:validate-trades
 	   #:re-validate-trades
 	   #:delete-trades)
-  (:nicknames #:omage.trading))
+  (:nicknames #:hsage.trading))
 (in-package :hermes-agents.trading)
 
 (defparameter *agents-cache* (make-hash-table :test 'equal :synchronized t))
@@ -231,8 +231,8 @@
 			       :sl sl
 			       :activation activation
 			       :entry-price (if (> tp 0)
-						(ominp.rates:->close-ask (last-elt rates))
-						(ominp.rates:->close-bid (last-elt rates)))
+						(hsinp.rates:->close-ask (last-elt rates))
+						(hsinp.rates:->close-bid (last-elt rates)))
 			       :entry-time (/ (read-from-string (assoccess (last-elt rates) :time)) 1000000)
 			       :train-begin-time (assoccess train-fitnesses :begin-time)
 			       :test-begin-time (assoccess test-fitnesses :begin-time)
@@ -305,15 +305,15 @@
 			     :trade-id (slot-value trade 'id))))))
 
 (defun buy-and-hold (rates)
-  (- (ominp.rates:->close (last-elt rates))
-     (ominp.rates:->close (first rates))))
+  (- (hsinp.rates:->close (last-elt rates))
+     (hsinp.rates:->close (first rates))))
 
 (defun evaluate-trade (tp sl rates)
   "Refactorize this."
   (let ((starting-rate (if (plusp tp)
 			   ;; We need to use `open` because it's when we start.
-			   (ominp.rates:->open-ask (first rates))
-			   (ominp.rates:->open-bid (first rates))))
+			   (hsinp.rates:->open-ask (first rates))
+			   (hsinp.rates:->open-bid (first rates))))
 	(revenue 0)
 	(max-pos 0)
 	(max-neg 0)
@@ -329,11 +329,11 @@
       (loop for rate in rates
 	    for idx from 0 below finish-idx ;; (length (rest rates))
 	    do (let ((low (if (plusp tp) ;; Used to exit a trade, so buy -> bid, sell -> ask.
-			      (ominp.rates:->low-bid rate)
-			      (ominp.rates:->low-ask rate)))
+			      (hsinp.rates:->low-bid rate)
+			      (hsinp.rates:->low-ask rate)))
 		     (high (if (plusp tp)
-			       (ominp.rates:->high-bid rate)
-			       (ominp.rates:->high-ask rate)))
+			       (hsinp.rates:->high-bid rate)
+			       (hsinp.rates:->high-ask rate)))
 		     (time (assoccess rate :time)))
 		 (if (> tp 0)
 		     ;; Then it's bullish.
@@ -398,7 +398,7 @@
 		 (/= sl 0)
 		 (< (* tp sl) 0)
 		 (> (abs (/ tp sl))
-		    omcom.omage:*agents-min-rr-signal*)
+		    hscom.hsage:*agents-min-rr-signal*)
 		 (> (abs (to-pips instrument sl)) 3)
 		 ;; (< (to-pips instrument (abs sl)) 20)
 		 (/= (assoccess test-fitnesses :trades-won) 0)
@@ -435,13 +435,13 @@
 	 (num-datapoints-traded 0))
     (push-to-log (if agent "Evaluating agent:" "Evaluating agents:"))
     (loop while (< idx (length rates))
-	  do (let* ((input-dataset (ominp.rates:get-input-dataset rates idx))
-		    (output-dataset (ominp.rates:get-output-dataset rates idx)))
+	  do (let* ((input-dataset (hsinp.rates:get-input-dataset rates idx))
+		    (output-dataset (hsinp.rates:get-output-dataset rates idx)))
 	       (multiple-value-bind (tp sl activation)
 		   (if agent
 		       (eval-agent agent input-dataset)
 		       (eval-agents instrument timeframe types input-dataset))
-		 (if (< activation omcom.omage:*evaluate-agents-activation-threshold*)
+		 (if (< activation hscom.hsage:*evaluate-agents-activation-threshold*)
 		     (progn
 		       (incf num-datapoints)
 		       (incf idx))
@@ -455,11 +455,11 @@
 			       (> (abs sl) (abs tp))
 			       (> (* tp sl) 0)
 			       (< (abs (/ tp sl))
-			       	  omcom.omage:*agents-min-rr-trading*)
+			       	  hscom.hsage:*agents-min-rr-trading*)
 			       (= tp 0)
 			       (= sl 0)
-			       (< (abs (to-pips instrument sl)) omcom.omage:*min-pips-sl*)
-			       (> (abs (to-pips instrument sl)) omcom.omage:*max-pips-sl*)
+			       (< (abs (to-pips instrument sl)) hscom.hsage:*min-pips-sl*)
+			       (> (abs (to-pips instrument sl)) hscom.hsage:*max-pips-sl*)
 			       )
 			   ;; (push-to-log "." :add-newline? nil)
 			   (incf num-datapoints)
@@ -475,17 +475,17 @@
 			     (push (read-from-string (assoccess (nth idx rates) :time)) entry-times)
 			     (push (read-from-string exit-time) exit-times)
 			     (push (if (plusp tp)
-				       (ominp.rates:->close-ask (nth idx rates))
-				       (ominp.rates:->close-bid (nth idx rates)))
+				       (hsinp.rates:->close-ask (nth idx rates))
+				       (hsinp.rates:->close-bid (nth idx rates)))
 				   entry-prices)
 			     (push (if (plusp tp)
-				       (ominp.rates:->close-bid (nth finish-idx output-dataset))
-				       (ominp.rates:->close-ask (nth finish-idx output-dataset)))
+				       (hsinp.rates:->close-bid (nth finish-idx output-dataset))
+				       (hsinp.rates:->close-ask (nth finish-idx output-dataset)))
 				   exit-prices)
 			     (push max-pos max-poses)
 			     (push max-neg max-negses)
 			     (push revenue revenues)))
-		       (if omcom.omage:*trade-every-dp-p*
+		       (if hscom.hsage:*trade-every-dp-p*
 			   (incf idx)
 			   (incf idx finish-idx))
 		       ))
@@ -542,7 +542,7 @@
     	(:sls . ,(reverse sls))
     	(:activations . ,(reverse activations))
     	(:returns . ,(reverse returns))))))
-;; (evaluate-agents :EUR_USD omcom.omage:*train-tf* '(:BULLISH) *rates*)
+;; (evaluate-agents :EUR_USD hscom.hsage:*train-tf* '(:BULLISH) *rates*)
 
 (defun evaluate-agent (instrument timeframe agent rates &key test-size (return-fitnesses-p nil))
   (let ((fitnesses (-evaluate-agents :instrument instrument :timeframe timeframe :agent agent :rates rates :idx (slot-value agent 'lookbehind-count) :test-size test-size)))
@@ -558,7 +558,7 @@
 
 (defun evaluate-agents (instrument timeframe types rates &key (test-size 50))
   (-evaluate-agents :instrument instrument :timeframe timeframe :types types :rates rates :test-size test-size))
-;; (time (evaluate-agents :EUR_USD omcom.omage:*train-tf* '(:BULLISH) (subseq *rates* 0 200)))
+;; (time (evaluate-agents :EUR_USD hscom.hsage:*train-tf* '(:BULLISH) (subseq *rates* 0 200)))
 
 (defun insert-pattern (instrument timeframe type)
   (conn (make-dao 'pattern :type (format nil "~a" type)
@@ -576,7 +576,7 @@
 							  (:= 'timeframe (format nil "~a" timeframe))
 							  (:in 'type (:set (loop for type in types collect (format nil "~a" type))))))
 		 :alists))))
-;; (get-patterns :EUR_JPY omcom.omage:*train-tf* '(:BULLISH (:BEARISH) :STAGNATED))
+;; (get-patterns :EUR_JPY hscom.hsage:*train-tf* '(:BULLISH (:BEARISH) :STAGNATED))
 
 (defun get-agent-ids-from-patterns (instrument timeframe types)
   (let* ((types (flatten types))
@@ -585,14 +585,14 @@
     ;; (loop for agent in (get-agents-some instrument timeframe types)
     ;; 	  collect (slot-value agent 'id))
     (conn (query (:select 'agent-id :from 'agents-patterns :where (:in 'pattern-id (:set (loop for pattern in patterns collect (assoccess pattern :id))))) :column))))
-;; (get-agent-ids-from-patterns :AUD_USD omcom.omage:*train-tf* '(:bullish))
-;; (get-agent-ids-from-patterns :AUD_USD omcom.omage:*train-tf* '((:bullish) (:stagnated)))
+;; (get-agent-ids-from-patterns :AUD_USD hscom.hsage:*train-tf* '(:bullish))
+;; (get-agent-ids-from-patterns :AUD_USD hscom.hsage:*train-tf* '((:bullish) (:stagnated)))
 
 (defun get-agents-from-cache (instrument timeframe types)
   (gethash (list instrument timeframe types) *agents-cache*))
 
-;; (get-agents-some :EUR_JPY omcom.omage:*train-tf* '(:BULLISH))
-;; (get-agents-from-cache :EUR_JPY omcom.omage:*train-tf* '(:BULLISH))
+;; (get-agents-some :EUR_JPY hscom.hsage:*train-tf* '(:BULLISH))
+;; (get-agents-from-cache :EUR_JPY hscom.hsage:*train-tf* '(:BULLISH))
 
 (defun sync-agents (instrument timeframe types)
   ;; Get agents from database (A1)
@@ -615,7 +615,7 @@
 		       (foundp (find id ids :test #'string=)))
 		  (unless foundp
 		    (delete-dao agent))))))))
-;; (time (sync-agents :AUD_USD omcom.omage:*train-tf* '(:BULLISH)))
+;; (time (sync-agents :AUD_USD hscom.hsage:*train-tf* '(:BULLISH)))
 
 (defun limit-seq (seq limit offset)
   (let ((lseq (length seq)))
@@ -641,9 +641,9 @@
 		   (loop for agent in (limit-seq agents limit offset)
 			 do (push agent result))))))
     result))
-;; (time (get-agents-some :AUD_USD omcom.omage:*train-tf* '(:bullish) 3 2))
-;; (time (get-agents-some :EUR_USD omcom.omage:*train-tf* '(:bullish :stagnated :bearish) 3 10))
-;; (agents-to-alists (get-agents-some :AUD_USD omcom.omage:*train-tf* '(:BULLISH)))
+;; (time (get-agents-some :AUD_USD hscom.hsage:*train-tf* '(:bullish) 3 2))
+;; (time (get-agents-some :EUR_USD hscom.hsage:*train-tf* '(:bullish :stagnated :bearish) 3 10))
+;; (agents-to-alists (get-agents-some :AUD_USD hscom.hsage:*train-tf* '(:BULLISH)))
 
 (defun add-agent (agent instrument timeframe types)
   "Works with *agents-cache*"
@@ -691,7 +691,7 @@
 		   :key (lambda (agent) (slot-value agent 'id))
 		   :test (lambda (ids id) (find id ids :test #'string=)))
 	  collect (car (third key))))
-;; (get-agent-ids-patterns (list (slot-value (first (get-agents-some :AUD_USD omcom.omage:*train-tf* '(:bearish))) 'id) (slot-value (first (get-agents-some :AUD_USD omcom.omage:*train-tf* '(:stagnated))) 'id)))
+;; (get-agent-ids-patterns (list (slot-value (first (get-agents-some :AUD_USD hscom.hsage:*train-tf* '(:bearish))) 'id) (slot-value (first (get-agents-some :AUD_USD hscom.hsage:*train-tf* '(:stagnated))) 'id)))
 
 (defun get-agents-count (instrument timeframe types)
   (length (get-agents-some instrument timeframe types)))
@@ -699,11 +699,11 @@
 (defun eval-agent (agent rates)
   (let ((perception-fn (get-perception-fn agent)))
     (eval-ifis (funcall perception-fn rates)
-	       (omage.utils:read-str (slot-value agent 'antecedents))
-	       (omage.utils:read-str (slot-value agent 'consequents)))))
+	       (hsage.utils:read-str (slot-value agent 'antecedents))
+	       (hsage.utils:read-str (slot-value agent 'consequents)))))
 
 (defun get-perception-fn (agent)
-  (omper:gen-perception-fn (omage.utils:read-str (slot-value agent 'perception-fns))))
+  (hsper:gen-perception-fn (hsage.utils:read-str (slot-value agent 'perception-fns))))
 
 (defun update-agent-fitnesses (instrument timeframe types agent rates)
   (let* ((agents (gethash (list instrument timeframe types) *agents-cache*))
@@ -720,7 +720,7 @@
   (if (or (= (length (slot-value agent 'tps)) 0)
   	  (<= (slot-value agent 'total-return) 0)
   	  (< (length (slot-value agent 'tps))
-  	     omcom.omage:*min-num-trades-training*))
+  	     hscom.hsage:*min-num-trades-training*))
       ;; AGENT is dominated.
       (progn
   	(when logp
@@ -763,7 +763,7 @@
   		    for ret across returns-0
   		    do (when (and (not (gethash time data))
   				  (> ret 0)
-  				  (> avg-return-0 omcom.omage:*min-agent-avg-return*)
+  				  (> avg-return-0 hscom.hsage:*min-agent-avg-return*)
   				  (> total-return-0 0)
   				  )
   			 (setf foundp nil)
@@ -786,7 +786,7 @@
   				    (> total-return-0 (gethash :total-return datum))
   				    (>= act
   					(gethash :activation datum)
-  					omcom.omage:*evaluate-agents-activation-threshold*))
+  					hscom.hsage:*evaluate-agents-activation-threshold*))
   			   ;; Storing what agent got dominated, mainly for logging purposes.
   			   (setf dominated-idx (gethash :agent-idx datum))
   			   ;; Not dominated. Returning from loop.
@@ -810,8 +810,8 @@
   (find agent-id (gethash (list instrument timeframe types) *agents-cache*)
 	:key (lambda (agent) (slot-value agent 'id))
 	:test #'string=))
-;; (get-agent :EUR_USD omcom.omage:*train-tf* '(:BULLISH) "48F3970F-36C1-4A49-9E54-95746CFEA9FE")
-;; (slot-value (first (get-agents-some :EUR_USD omcom.omage:*train-tf* '(:BULLISH))) 'id)
+;; (get-agent :EUR_USD hscom.hsage:*train-tf* '(:BULLISH) "48F3970F-36C1-4A49-9E54-95746CFEA9FE")
+;; (slot-value (first (get-agents-some :EUR_USD hscom.hsage:*train-tf* '(:BULLISH))) 'id)
 
 (defun eval-agents (instrument timeframe types rates)
   (let (tps sls activations ids)
@@ -822,9 +822,9 @@
 		 (let* ((last-rate (last-elt rates))
 			;; Checking if calculated SL is greater than Nx the current spread.
 			;; If not, we set Nx the current spread as the SL.
-			(corrected-sl (let ((nx-spread (* omcom.omage:*min-n-times-spread-sl*
-							  (abs (- (ominp.rates:->close-bid last-rate)
-								  (ominp.rates:->close-ask last-rate))))))
+			(corrected-sl (let ((nx-spread (* hscom.hsage:*min-n-times-spread-sl*
+							  (abs (- (hsinp.rates:->close-bid last-rate)
+								  (hsinp.rates:->close-ask last-rate))))))
 					(if (>= (abs sl) nx-spread)
 					    sl
 					    (if (plusp sl)
@@ -836,13 +836,13 @@
 		   (push (slot-value agent 'id) ids))
 		 )))
     ;; (format t "~a, ~a~%" (apply #'min activations) (apply #'max activations))
-    (let ((idxs (omage.utils:sorted-indexes activations #'>))
+    (let ((idxs (hsage.utils:sorted-indexes activations #'>))
 	  (tp 0)
 	  (sl 0)
 	  (dir 0)
 	  (activation 0)
 	  ;; (consensus t)
-	  (len (min omcom.omage:*consensus-threshold* (length activations)))
+	  (len (min hscom.hsage:*consensus-threshold* (length activations)))
 	  )
       (setf tp (nth (position 0 idxs) tps))
       (setf sl (nth (position 0 idxs) sls))
@@ -950,7 +950,7 @@
 			  (/= sl 0)
 			  (< (* tp sl) 0)
 			  (> (abs (/ tp sl))
-			     omcom.omage:*agents-min-rr-signal*)
+			     hscom.hsage:*agents-min-rr-signal*)
 			  (> (abs (to-pips instrument sl)) 3)
 			  ;; (< (to-pips instrument (abs sl)) 20)
 			  (/= (assoccess test-fitnesses :trades-won) 0)
@@ -977,8 +977,8 @@
     (insert-pattern instrument timeframe :STAGNATED)))
 
 (defun init-patterns ()
-  (loop for instrument in omcom.omage:*instruments*
-	do (loop for timeframe in omcom.omage:*all-timeframes*
+  (loop for instrument in hscom.hsage:*instruments*
+	do (loop for timeframe in hscom.hsage:*all-timeframes*
 		 do (-init-patterns instrument timeframe))))
 ;; (init-patterns)
 
@@ -1011,12 +1011,12 @@
 	       (when (and (< (length result) count)
 			  (funcall pred (assoccess tp-sl :tp))
 			  (/= (assoccess tp-sl :sl) 0)
-			  (> (abs (assoccess tp-sl :sl)) (from-pips instrument omcom.omage:*min-sl*))
+			  (> (abs (assoccess tp-sl :sl)) (from-pips instrument hscom.hsage:*min-sl*))
 			  (> (abs (/ (assoccess tp-sl :tp)
 				     (assoccess tp-sl :sl)))
-			     omcom.omage:*agents-min-rr-creation*)
+			     hscom.hsage:*agents-min-rr-creation*)
 			  (or (eq instrument :USD_CNH)
-			      (< (abs (assoccess tp-sl :tp)) (from-pips instrument omcom.omage:*max-tp*))))
+			      (< (abs (assoccess tp-sl :tp)) (from-pips instrument hscom.hsage:*max-tp*))))
 		 (push idx result))))
     (if (> (length result) 1)
 	result
@@ -1060,10 +1060,10 @@
 					    )
 				       ;; Consequent creation.
 				       (list (vector (vector 0 tp)
-						     (vector (* omcom.omage:*n-times-sl-for-max-sl* sl) sl))
+						     (vector (* hscom.hsage:*n-times-sl-for-max-sl* sl) sl))
 					     ;; We need to repeat the consequent for the "other side" of the triangle.
 					     (vector (vector 0 tp)
-						     (vector (* omcom.omage:*n-times-sl-for-max-sl* sl) sl))
+						     (vector (* hscom.hsage:*n-times-sl-for-max-sl* sl) sl))
 					     )))))
 	    (one-set-outputs-v (make-array (length one-set-outputs) :initial-contents one-set-outputs))
 	    (v (loop repeat (length (first chosen-inputs))
@@ -1099,7 +1099,7 @@
   ;; Checking if we need to initialize the agents collection.
   (let ((agents (if-let ((agents (get-agents-some instrument timeframe types)))
 		  (update-agents-fitnesses instrument timeframe types agents rates)
-		  (loop repeat omcom.omage:*initial-agent-count*
+		  (loop repeat hscom.hsage:*initial-agent-count*
 			collect (evaluate-agent instrument timeframe (funcall gen-agent-fn) rates))))
 	(purged-agents))
     (push-to-log (format nil "~a agents retrieved to start optimization." (length agents)))
@@ -1120,7 +1120,7 @@
 		   (push-to-log "Pareto frontier updated successfully.")
 		   (return))
 		 (let* ((challenger (list (evaluate-agent instrument timeframe (funcall gen-agent-fn) rates)))
-			(is-dominated? (when omcom.omage:*optimize-p*
+			(is-dominated? (when hscom.hsage:*optimize-p*
 					 (is-agent-dominated? (car challenger) agents t))))
 		   ;; No longer the first iteration after this.
 		   (setf first-iteration-p nil)
@@ -1129,7 +1129,7 @@
 		   (unless is-dominated?
 		     ;; Purging agents.
 		     (loop for in-trial in agents
-			   do (if (and omcom.omage:*optimize-p*
+			   do (if (and hscom.hsage:*optimize-p*
 				       (is-agent-dominated? in-trial challenger))
 				  (progn
 				    (push-to-log (format nil "Removing agent with ID ~a" (slot-value in-trial 'id)))
@@ -1149,14 +1149,14 @@
 				       `((:r/r . ,(format-rr avg-sl avg-tp))))))))
     (when (> (length agents-props) 0)
       vals)))
-;; (agents-to-alists (get-agents-some :AUD_USD omcom.omage:*train-tf* '(:BULLISH)))
+;; (agents-to-alists (get-agents-some :AUD_USD hscom.hsage:*train-tf* '(:BULLISH)))
 
 (defun get-agents-all (&optional (limit -1) (offset 0))
   (let ((markets (make-hash-table)))
-    (loop for instrument in omcom.omage:*forex*
+    (loop for instrument in hscom.hsage:*forex*
 	  do (let ((agents (make-hash-table)))
 	       (loop for types in '(:bullish :bearish :stagnated)
-		     do (let ((values (agents-to-alists (get-agents-some instrument omcom.omage:*train-tf* (list types) limit offset))))
+		     do (let ((values (agents-to-alists (get-agents-some instrument hscom.hsage:*train-tf* (list types) limit offset))))
 			  (when values
 			    (setf (gethash types agents) values))
 			  ))
@@ -1342,7 +1342,7 @@
 (defun get-trades-nested (limit)
   (let ((trades (-get-trades-nested limit))
 	(result))
-    (loop for instrument in omcom.omage:*instruments*
+    (loop for instrument in hscom.hsage:*instruments*
 	  do (let ((trades (remove-if-not (lambda (elt)
 					    (string= elt (format nil "~a" instrument)))
 					  trades
@@ -1356,8 +1356,8 @@
 			    (push trade bearish)))
 	       ;; Creating nests with top activated and rest.
 	       ;; (print (first bullish))
-	       (let ((rbullish (sort bullish #'> :key (lambda (elt) (assoccess elt omcom.omage:*trades-sort-by*))))
-		     (rbearish (sort bearish #'> :key (lambda (elt) (assoccess elt omcom.omage:*trades-sort-by*)))))
+	       (let ((rbullish (sort bullish #'> :key (lambda (elt) (assoccess elt hscom.hsage:*trades-sort-by*))))
+		     (rbearish (sort bearish #'> :key (lambda (elt) (assoccess elt hscom.hsage:*trades-sort-by*)))))
 		 (when (first rbullish)
 		   (push `((:first . ,(first rbullish))
 			   (:rest . ,(rest rbullish)))
@@ -1415,19 +1415,19 @@
 
 (defun alist-keys (alist)
   (loop for item in alist collect (car item)))
-;; (alist-keys (car (prepare-agents-properties (get-agents-some :AUD_USD omage.config:*train-tf* '(:bullish)))))
+;; (alist-keys (car (prepare-agents-properties (get-agents-some :AUD_USD hsage.config:*train-tf* '(:bullish)))))
 
 (defun alist-values (alist)
   (loop for item in alist collect (cdr item)))
-;; (alist-values (car (prepare-agents-properties (get-agents-some :EUR_USD omage.config:*train-tf* '(:bullish)))))
+;; (alist-values (car (prepare-agents-properties (get-agents-some :EUR_USD hsage.config:*train-tf* '(:bullish)))))
 
 (defun describe-agents ()
   (with-open-stream (s (make-string-output-stream))
     (format s "<h3>AGENTS POOL.</h3><hr/>")
-    (loop for instrument in omcom.omage:*forex*
+    (loop for instrument in hscom.hsage:*forex*
 	  do (loop for types in '((:bullish) (:bearish) (:stagnated))
-		   do (let* ((agents-props (prepare-agents-properties (get-agents-some instrument omcom.omage:*train-tf* types)))
-			     (agents-count (get-agents-count instrument omcom.omage:*train-tf* types))
+		   do (let* ((agents-props (prepare-agents-properties (get-agents-some instrument hscom.hsage:*train-tf* types)))
+			     (agents-count (get-agents-count instrument hscom.hsage:*train-tf* types))
 			     (vals (loop for agent-props in agents-props
 					 collect (let ((avg-tp (read-from-string (assoccess agent-props :avg-tp)))
 						       (avg-sl (read-from-string (assoccess agent-props :avg-sl))))
@@ -1444,7 +1444,7 @@
 
 (comment
  (let ((step 0.1))
-   (loop for instrument in omcom.omage:*instruments*
+   (loop for instrument in hscom.hsage:*instruments*
 	 do (progn
 	      (format t "~a~%" instrument)
 	      (loop for act from 0 to 1 by step
@@ -1470,11 +1470,11 @@
  )
 
 (comment
- (loop for instrument in omcom.omage:*instruments*
+ (loop for instrument in hscom.hsage:*instruments*
        do (progn
 	    (format t "~a: " instrument)
 	    (loop for type in '((:bullish) (:bearish) (:stagnated))
-		  do (format t "~a, " (length (get-agents-some instrument omcom.omage:*train-tf* type))))
+		  do (format t "~a, " (length (get-agents-some instrument hscom.hsage:*train-tf* type))))
 	    (format t "~%"))
        finally (describe-trades 300 (lambda (trade) (and (not (eq (assoccess trade :activation) :null))
 							 (> (assoccess trade :activation) 0.8)))))
@@ -1554,7 +1554,7 @@
   "Used in `-validate-trades`."
   (let ((entry-time (assoccess trade :entry-time))
 	(creation-time (assoccess trade :creation-time)))
-    (ceiling (* (if omcom.all:*is-production*
+    (ceiling (* (if hscom.all:*is-production*
 		    ;; The exact time when the trade got created, e.g 4:33 PM.
 		    creation-time
 		    (if (not (equal entry-time :null))
@@ -1570,7 +1570,7 @@
     (push-to-log (format nil "Trying to validate ~a trades." (length trades)))
     (let* ((oldest (first (sort (copy-sequence 'list trades) #'< :key #'-get-trade-time)))
 	   ;; (newest (first (sort (copy-sequence 'list trades) #'> :key #'-get-trade-time)))
-	   (rates (get-rates-range-big instrument omcom.omage:*validation-timeframe*
+	   (rates (get-rates-range-big instrument hscom.hsage:*validation-timeframe*
 				       (-get-trade-time oldest)
 				       ;; (-get-trade-time newest)
 				       (* (local-time:timestamp-to-unix (local-time:now)) 1000000)
@@ -1580,7 +1580,7 @@
 		 (when idx
 		   (let ((sub-rates (subseq rates idx))
 			 (from-timestamp (local-time:unix-to-timestamp (ceiling (/ (-get-trade-time trade) 1000000)))))
-		     (when (or (not omcom.all:*is-production*)
+		     (when (or (not hscom.all:*is-production*)
 			       (local-time:timestamp< from-timestamp
 						      (local-time:timestamp- (local-time:now) older-than :day)))
 		       (push-to-log (format nil "Using minute rates from ~a to ~a to validate trade."
@@ -1599,7 +1599,7 @@
       (sleep 1))))
 
 (defun re-validate-trades (&optional (older-than 0) (last-n-days 30))
-  (loop for instrument in omcom.omage:*instruments*
+  (loop for instrument in hscom.hsage:*instruments*
 	do (let ((trades (conn (query (:order-by (:select '*
 						  :from (:as (:order-by (:select 'trades.* 'patterns.*
 										 :distinct-on 'trades.id
@@ -1619,7 +1619,7 @@
 ;; (time (re-validate-trades 0 5))
 
 (defun validate-trades (&optional (older-than 1))
-  (loop for instrument in omcom.omage:*instruments*
+  (loop for instrument in hscom.hsage:*instruments*
 	do (let ((trades (conn (query (:order-by (:select '*
 						  :from (:as (:order-by (:select 'trades.* 'patterns.*
 										 :distinct-on 'trades.id

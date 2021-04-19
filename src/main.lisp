@@ -3,7 +3,7 @@
 ;; (mlforecasting:start :port 2001)
 ;; (loop-optimize-test)
 ;; (clerk:calendar)
-;; (progn (drop-database) (init-database) (init-patterns) (clear-logs) (when omcom.all:*is-production* (clear-jobs)))
+;; (progn (drop-database) (init-database) (init-patterns) (clear-logs) (when hscom.all:*is-production* (clear-jobs)))
 
 (defpackage hermes-agents
   (:use #:cl
@@ -22,12 +22,12 @@
 	#:hermes-agents.km
 	#:hermes-agents.utils
 	#:hermes-agents.log)
-  (:import-from #:omcom.utils
+  (:import-from #:hscom.utils
 		#:assoccess)
-  (:import-from #:omage.log
+  (:import-from #:hsage.log
 		#:log-stack
 		#:clear-logs)
-  (:import-from #:omage.trading
+  (:import-from #:hsage.trading
 		#:agent
 		#:optimization
 		#:gen-agent
@@ -47,12 +47,12 @@
 		#:init-patterns
 		#:validate-trades
 		#:get-trade-result)
-  (:import-from #:ominp.db
+  (:import-from #:hsinp.db
 		#:conn)
-  (:import-from #:omage.db
+  (:import-from #:hsage.db
 		#:init-database
 		#:drop-database)
-  (:import-from #:ominp.rates
+  (:import-from #:hsinp.rates
 		#:get-rates-chunk-of-types
 		#:fracdiff
 		#:sync-datasets-to-database
@@ -60,14 +60,14 @@
 		#:get-rates-count-big
 		#:get-rates-random-count-big)
   (:export #:loop-optimize-test)
-  (:nicknames #:omage))
+  (:nicknames #:hsage))
 (in-package :hermes-agents)
 
 ;; FARE-MEMOIZATION configuration.
 (setf fare-memoization::*memoized* (make-hash-table :test #'equal :synchronized t))
 
 ;; (describe fare-memoization::*memoized*)
-;; (omage.utils:refresh-memory)
+;; (hsage.utils:refresh-memory)
 
 (setf lparallel:*kernel* (lparallel:make-kernel
 			  (let ((ideal-cores-count (1- (cl-cpus:get-number-of-processors))))
@@ -94,7 +94,7 @@
     (let* ((instrument (make-keyword (assoccess trade :instrument)))
 	   (timeframe :M1)
 	   (to (* (local-time:timestamp-to-unix (local-time:timestamp+ from-timestamp 3 :day)) 1000000))
-	   (rates (ominp.rates:get-rates-range instrument timeframe from to :provider :oanda :type :fx))
+	   (rates (hsinp.rates:get-rates-range instrument timeframe from to :provider :oanda :type :fx))
 	   (result (get-trade-result (assoccess trade :entry-price)
 				     (assoccess trade :tp)
 				     (assoccess trade :sl)
@@ -127,7 +127,7 @@
 ;; (init)
 
 (defun -loop-validate ()
-  (when omcom.all:*is-production*
+  (when hscom.all:*is-production*
     (push-to-log "<b>VALIDATION.</b><hr/>")
     (push-to-log "Validating trades older than 24 hours.")
     (validate-trades)))
@@ -135,9 +135,9 @@
 (defun -loop-test (instrument timeframe type-groups testing-dataset)
   (push-to-log "<b>SIGNAL.</b><hr/>")
   (push-to-log (format nil "Trying to create signal for ~a ~a." instrument timeframe))
-  (if omcom.omage:*use-nested-signals-p*
-      (test-most-activated-agents instrument timeframe type-groups testing-dataset :test-size omcom.omage:*test-size*)
-      (test-agents instrument timeframe type-groups testing-dataset :test-size omcom.omage:*test-size*)))
+  (if hscom.hsage:*use-nested-signals-p*
+      (test-most-activated-agents instrument timeframe type-groups testing-dataset :test-size hscom.hsage:*test-size*)
+      (test-agents instrument timeframe type-groups testing-dataset :test-size hscom.hsage:*test-size*)))
 
 ;; TODO: Rename everywhere from TYPE -> STAGE where applicable (type being :creation, :training or :testing).
 ;; Most of the time TYPE is '(:BULLISH), for example.
@@ -145,22 +145,22 @@
 (defun -loop-get-dataset (instrument timeframe types stage dataset)
   "Stage can be :training or :creation."
   (let ((type (first (flatten types))))
-    (if-let ((begin-end (gethash (list instrument timeframe type stage) ominp.rates:*creation-training-datasets*)))
+    (if-let ((begin-end (gethash (list instrument timeframe type stage) hsinp.rates:*creation-training-datasets*)))
       (let ((begin-time (first begin-end))
 	    (end-time (second begin-end)))
-	(ominp.rates:get-rates-range-big instrument timeframe begin-time end-time))
+	(hsinp.rates:get-rates-range-big instrument timeframe begin-time end-time))
       (multiple-value-bind (from to)
 	  (get-rates-chunk-of-types dataset types
 				    :slide-step (if (eq stage :training)
-						    omcom.omage:*train-slide-step*
-						    omcom.omage:*creation-slide-step*)
+						    hscom.hsage:*train-slide-step*
+						    hscom.hsage:*creation-slide-step*)
 				    :min-chunk-size (if (eq stage :training)
-							omcom.omage:*train-min-chunk-size*
-							omcom.omage:*creation-min-chunk-size*)
+							hscom.hsage:*train-min-chunk-size*
+							hscom.hsage:*creation-min-chunk-size*)
 				    :max-chunk-size (if (eq stage :training)
-							omcom.omage:*train-max-chunk-size*
-							omcom.omage:*creation-max-chunk-size*)
-				    :stagnation-threshold omcom.omage:*stagnation-threshold*)
+							hscom.hsage:*train-max-chunk-size*
+							hscom.hsage:*creation-max-chunk-size*)
+				    :stagnation-threshold hscom.hsage:*stagnation-threshold*)
 	(let ((ds (subseq dataset from to)))
 	  (push-to-log (format nil "~a dataset created successfully. Size: ~s. Dataset from ~a to ~a."
 			       stage
@@ -175,15 +175,15 @@
     (push-to-log "<b>OPTIMIZATION.</b><hr/>")
     (push-to-log (format nil "~a agents retrieved for pattern ~s." agents-count types))
     (optimization instrument timeframe types
-		  (lambda () (let ((beliefs (gen-random-perceptions omcom.omage:*number-of-agent-inputs*)))
-			       (gen-agent omcom.omage:*number-of-agent-rules*
+		  (lambda () (let ((beliefs (gen-random-perceptions hscom.hsage:*number-of-agent-inputs*)))
+			       (gen-agent hscom.hsage:*number-of-agent-rules*
 					  instrument
 					  creation-dataset
 					  (assoccess beliefs :perception-fns)
 					  (assoccess beliefs :lookahead-count)
 					  (assoccess beliefs :lookbehind-count))))
 		  training-dataset
-		  omcom.omage:*seconds-to-optimize-per-pattern*)
+		  hscom.hsage:*seconds-to-optimize-per-pattern*)
     (push-to-log "Optimization process completed.")
     (push-to-log "Syncing agents.")
     (sync-agents instrument timeframe types)))
@@ -198,63 +198,63 @@
   ;; We don't want our data feed provider to ban us.
   (sleep 1)
   (fracdiff
-   (if omcom.all:*is-production*
+   (if hscom.all:*is-production*
        (get-rates-count-big instrument timeframe
-			    (+ omcom.omage:*max-creation-dataset-size* omcom.omage:*max-training-dataset-size* omcom.omage:*max-testing-dataset-size*))
+			    (+ hscom.hsage:*max-creation-dataset-size* hscom.hsage:*max-training-dataset-size* hscom.hsage:*max-testing-dataset-size*))
        (get-rates-random-count-big instrument timeframe
-				   (+ omcom.omage:*max-creation-dataset-size* omcom.omage:*max-training-dataset-size* omcom.omage:*max-testing-dataset-size*)))))
+				   (+ hscom.hsage:*max-creation-dataset-size* hscom.hsage:*max-training-dataset-size* hscom.hsage:*max-testing-dataset-size*)))))
 
 (defun -loop-test-all ()
-  "We run this every `omcom.omage:*seconds-interval-testing*` seconds."
-  (dolist (instrument omcom.omage:*instruments*)
-    (dolist (timeframe omcom.omage:*timeframes*)
-      omcom.omage:*max-testing-dataset-size*
+  "We run this every `hscom.hsage:*seconds-interval-testing*` seconds."
+  (dolist (instrument hscom.hsage:*instruments*)
+    (dolist (timeframe hscom.hsage:*timeframes*)
+      hscom.hsage:*max-testing-dataset-size*
       (unless (is-market-close)
-	(let ((agents-count (get-agents-count instrument timeframe omcom.omage:*type-groups*)))
+	(let ((agents-count (get-agents-count instrument timeframe hscom.hsage:*type-groups*)))
 	  (when (> agents-count 0)
 	    (let* ((testing-dataset (get-rates-count-big instrument timeframe
-							 omcom.omage:*max-testing-dataset-size*)))
-	      (-loop-test instrument timeframe omcom.omage:*type-groups* testing-dataset))))
+							 hscom.hsage:*max-testing-dataset-size*)))
+	      (-loop-test instrument timeframe hscom.hsage:*type-groups* testing-dataset))))
 	;; We don't want our data feed provider to ban us.
 	;; We also want to go easy on those database reads (`agents-count`).
 	(sleep 1)))))
 
 (defun -loop-optimize-test-validate ()
   (pmap nil (lambda (instrument)
-	      (dolist (timeframe omcom.omage:*timeframes*)
+	      (dolist (timeframe hscom.hsage:*timeframes*)
 		(unless (is-market-close)
 		  (push-to-log (format nil "<br/><b>STARTING ~s ~s.</b><hr/>" instrument timeframe))
 		  (let* ((rates (-loop-get-rates instrument timeframe))
 			 (dataset-size (length rates)))
 		    (let ((full-training-dataset (subseq rates
 							 (- dataset-size
-							    omcom.omage:*max-testing-dataset-size*
-							    omcom.omage:*max-training-dataset-size*)
+							    hscom.hsage:*max-testing-dataset-size*
+							    hscom.hsage:*max-training-dataset-size*)
 							 (- dataset-size
-							    omcom.omage:*max-testing-dataset-size*)))
+							    hscom.hsage:*max-testing-dataset-size*)))
 			  (full-creation-dataset (subseq rates
 							 0
 							 (- dataset-size
-							    omcom.omage:*max-testing-dataset-size*
-							    omcom.omage:*max-training-dataset-size*)))
-			  (testing-dataset (when (not omcom.all:*is-production*)
+							    hscom.hsage:*max-testing-dataset-size*
+							    hscom.hsage:*max-training-dataset-size*)))
+			  (testing-dataset (when (not hscom.all:*is-production*)
 					     (let ((dataset (subseq rates
 								    (- dataset-size
-								       omcom.omage:*max-testing-dataset-size*))))
+								       hscom.hsage:*max-testing-dataset-size*))))
 					       (-loop-log-testing-dataset dataset)
 					       dataset)))
-			  (agents-count (get-agents-count instrument timeframe omcom.omage:*type-groups*)))
+			  (agents-count (get-agents-count instrument timeframe hscom.hsage:*type-groups*)))
 		      ;; Optimization.
-		      (loop for types in omcom.omage:*type-groups*
+		      (loop for types in hscom.hsage:*type-groups*
 			    do (-loop-optimize instrument timeframe types full-creation-dataset full-training-dataset agents-count))
 		      ;; Signal creation. Development.
-		      (when (not omcom.all:*is-production*)
-			(-loop-test instrument timeframe omcom.omage:*type-groups* testing-dataset))))
+		      (when (not hscom.all:*is-production*)
+			(-loop-test instrument timeframe hscom.hsage:*type-groups* testing-dataset))))
 		  (-loop-validate))
-		(omage.utils:refresh-memory)
+		(hsage.utils:refresh-memory)
 		(sync-datasets-to-database)))
-	omcom.omage:*instruments*)
-  (unless omcom.all:*is-production*
+	hscom.hsage:*instruments*)
+  (unless hscom.all:*is-production*
     (wipe-agents)))
 
 (defun loop-optimize-test ()
@@ -263,11 +263,11 @@
     (when (is-market-close)
       (format t "~%===============================================~%MARKET IS CLOSED~%SWITCH TO DEVELOPMENT MODE IF YOU WANT TO RUN EXPERIMENTS.~%==============================================="))
     (clear-logs)
-    (omage.utils:refresh-memory)
+    (hsage.utils:refresh-memory)
     (sync-datasets-from-database)
     ;; Signal creation. Production. We create a cron job for this to be
-    ;; run every `omcom.omage:*seconds-interval-testing*` seconds.
-    (when omcom.all:*is-production*
-      (create-signals-job omcom.omage:*seconds-interval-testing*))
+    ;; run every `hscom.hsage:*seconds-interval-testing*` seconds.
+    (when hscom.all:*is-production*
+      (create-signals-job hscom.hsage:*seconds-interval-testing*))
     (loop (unless (is-market-close))
 	  (-loop-optimize-test-validate))))

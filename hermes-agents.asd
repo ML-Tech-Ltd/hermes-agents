@@ -49,11 +49,7 @@
 			 (:file "plotly-utils")
 			 (:file "utils")
 			 (:file "config" :depends-on ("utils"))
-			 (:file "db" :depends-on ("trading"))))
-	       (:module "datasets"
-			:components
-			((:file "sunspot")
-			 (:file "mg"))))
+			 (:file "db" :depends-on ("trading")))))
   :description ""
   :long-description
   #.(read-file-string

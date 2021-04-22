@@ -23,6 +23,7 @@ ros setup
 git clone git@github.com:2old2randr/cl-dates.git
 git clone git@github.com:lepisma/plotly-cl.git
 git clone git@github.com:cgore/sigma.git
+git clone git@github.com:tsikov/clerk.git
 ```
 
 - Make copies of configuration files and edit them:
@@ -36,4 +37,11 @@ cp src/db.lisp.template src/db.lisp
 
 ```
 ros install qlot
+```
+
+- Install ultralisp:
+
+```
+(ql-dist:install-dist "http://dist.ultralisp.org/"
+                      :prompt nil)
 ```

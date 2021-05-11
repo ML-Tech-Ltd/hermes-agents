@@ -7,6 +7,8 @@
 		#:comment
 		#:assoccess
 		#:random-float)
+  (:import-from #:hsper
+		#:get-perceptions)
   (:import-from #:hsinp.rates
 		#:to-pips
 		#:get-tp-sl
@@ -65,15 +67,16 @@
   (:nicknames #:hsage.trading))
 (in-package :hermes-agents.trading)
 
+;; (defparameter *rates* (hsinp.rates:fracdiff (hsinp.rates:get-rates-count-big :AUD_USD :H1 10000)))
 (defparameter *agents-cache* (make-hash-table :test 'equal :synchronized t))
 
 (defclass agent ()
   ((id :col-type string :initform (format nil "~a" (uuid:make-v4-uuid)) :initarg :id)
-   (perception-fns :col-type string :initarg :perception-fns)
-   (lookahead-count :col-type integer :initarg :lookahead-count)
-   (lookbehind-count :col-type integer :initarg :lookbehind-count)
-   (antecedents :col-type string :initarg :antecedents)
-   (consequents :col-type string :initarg :consequents)
+   (perception-fns :col-type string :initarg :perception-fns :accessor perception-fns)
+   (lookahead-count :col-type integer :initarg :lookahead-count :accessor lookahead-count)
+   (lookbehind-count :col-type integer :initarg :lookbehind-count :accessor lookbehind-count)
+   (antecedents :col-type string :initarg :antecedents :accessor antecedents)
+   (consequents :col-type string :initarg :consequents :accessor consequents)
    (creation-begin-time :col-type (or db-null int8) :initarg :creation-begin-time :initform :null)
    (creation-end-time :col-type (or db-null int8) :initarg :creation-end-time :initform :null)
    (begin-time :col-type (or db-null int8) :initarg :begin-time :initform :null)
@@ -697,13 +700,13 @@
   (length (get-agents-some instrument timeframe types)))
 
 (defun eval-agent (agent rates)
-  (let ((perception-fn (get-perception-fn agent)))
+  (let ((perception-fn (gen-perception-fn agent)))
     (eval-ifis (funcall perception-fn rates)
 	       (hsage.utils:read-str (slot-value agent 'antecedents))
 	       (hsage.utils:read-str (slot-value agent 'consequents)))))
 
-(defun get-perception-fn (agent)
-  (hsper:gen-perception-fn (hsage.utils:read-str (slot-value agent 'perception-fns))))
+(defun gen-perception-fn (perception-params)
+  (hsper:gen-perception-fn (hsage.utils:read-str perception-params)))
 
 (defun update-agent-fitnesses (instrument timeframe types agent rates)
   (let* ((agents (gethash (list instrument timeframe types) *agents-cache*))
@@ -982,6 +985,45 @@
 		 do (-init-patterns instrument timeframe))))
 ;; (init-patterns)
 
+(comment
+ (defun make-agent (instrument rates &key interactivep)
+   "Used for manual agent creation."
+   (let ((agent (make-instance 'agent)))
+     (setf (slot-value agent 'perception-fns) (format nil "~s" perception-fns))
+     (setf (slot-value agent 'lookahead-count) lookahead-count)
+     (setf (slot-value agent 'lookbehind-count) lookbehind-count)
+     (multiple-value-bind (antecedents consequents)
+	 (make-ifis agent num-rules instrument rates)
+       (setf (slot-value agent 'antecedents) (format nil "~s" antecedents))
+       (setf (slot-value agent 'consequents) (format nil "~s" consequents)))
+     agent)))
+;; (defparameter *agent* (gen-agent 3 :AUD_USD *rates* (hscom.utils:assoccess (hsper:gen-random-perceptions 2) :perception-fns) 10 100))
+;; (antecedents *agent*)
+
+(defun ask-perception ()
+  "Asks the user what perception function to generate for an agent."
+  (print "Choose a perception function:"))
+(print (read-line))
+
+(prompt)
+
+(get-perceptions)
+(hsper:fixed=>sma-close 5 10)
+(gen-perception-fn (get-perceptions))
+(gen-perception-fn (format nil "~a" (hsper:random=>sma-close)))
+
+(ql:quickload :cl-charms)
+(cl-charms:)
+(ql:system-apropos "menu")
+
+;; Perception fns (build a list of arrays of arrays)
+;; lookahead-count
+;; lookbehind-count (automatic)
+;; test agent before adding to pool to avoid errors
+;; Steps:
+;; Choose perception functions
+;; Choose input-outputs
+
 (defun gen-agent (num-rules instrument rates perception-fns lookahead-count lookbehind-count)
   (let ((agent (make-instance 'agent)))
     (setf (slot-value agent 'creation-begin-time) (read-from-string (assoccess (first rates) :time)))
@@ -994,7 +1036,6 @@
       (setf (slot-value agent 'antecedents) (format nil "~s" antecedents))
       (setf (slot-value agent 'consequents) (format nil "~s" consequents)))
     agent))
-;; (gen-agent 3 *rates* (gen-random-perceptions 2) 10 55)
 
 (defun gen-agents (num-agents num-rules instrument rates perception-fns lookahead-count lookbehind-count)
   (loop repeat num-agents collect (gen-agent instrument num-rules rates perception-fns lookahead-count lookbehind-count)))
@@ -1026,49 +1067,57 @@
 					 :direction-fn opposite-pred))))
 ;; (get-same-direction-outputs-idxs *rates* :lookahead-count 5)
 
-(defun make-ifis (agent num-rules instrument rates)
-  "Analytical version."
-  (let* ((perception-fn (get-perception-fn agent))
-	 (lookahead-count (slot-value agent 'lookahead-count))
-	 (lookbehind-count (slot-value agent 'lookbehind-count))
-	 (idxs (sort (remove-duplicates (get-same-direction-outputs-idxs instrument rates num-rules :lookahead-count lookahead-count :lookbehind-count lookbehind-count)) #'<))
+(defun get-inputs-outputs (num-rules instrument rates perception-fn lookahead-count lookbehind-count)
+  (let* ((idxs (sort (remove-duplicates (get-same-direction-outputs-idxs instrument rates num-rules :lookahead-count lookahead-count :lookbehind-count lookbehind-count)) #'<))
 	 (chosen-inputs (loop for idx in idxs collect (funcall perception-fn (get-input-dataset rates idx))))
 	 (chosen-outputs (loop for idx in idxs collect (get-tp-sl (get-output-dataset rates idx) lookahead-count))))
-    
-    (values
-     (let* ((v (loop
-		 for inputs in (apply #'mapcar #'list chosen-inputs)
-		 for idx from 0
-		 collect (let* ((min-input (apply #'min inputs))
-				(max-input (apply #'max inputs))
-				(v (flatten (loop
-					      for input in inputs
-					      collect (list
-						       (vector min-input input)
-						       (vector max-input input)
-						       )))))
-			   (make-array (length v) :initial-contents v)))))
-       (make-array (length v) :initial-contents v))
-     (let* ((one-set-outputs
-	      (flatten (loop for output in chosen-outputs
-			     collect (let* ((tp (assoccess output :tp))
-					    (sl (assoccess output :sl))
-					    ;; (mn-tp (- tp tp-sd))
-					    ;; (mx-tp (+ tp tp-sd))
-					    ;; (mn-sl (- sl sl-sd))
-					    ;; (mx-sl (+ sl sl-sd))
-					    )
-				       ;; Consequent creation.
-				       (list (vector (vector 0 tp)
-						     (vector (* hscom.hsage:*n-times-sl-for-max-sl* sl) sl))
-					     ;; We need to repeat the consequent for the "other side" of the triangle.
-					     (vector (vector 0 tp)
-						     (vector (* hscom.hsage:*n-times-sl-for-max-sl* sl) sl))
-					     )))))
-	    (one-set-outputs-v (make-array (length one-set-outputs) :initial-contents one-set-outputs))
-	    (v (loop repeat (length (first chosen-inputs))
-		     collect one-set-outputs-v)))
-       (make-array (length v) :initial-contents v)))))
+    (values chosen-inputs chosen-outputs)))
+;; (time (let ((perc (hsper:gen-random-perceptions 20))) (get-inputs-outputs 3 :AUD_USD *rates* (hsper:gen-perception-fn (hscom.utils:assoccess perc :perception-fns)) (hscom.utils:assoccess perc :lookahead-count) (hscom.utils:assoccess perc :lookbehind-count))))
+
+;; (gen-perception-fn *agent*)
+
+(defun make-ifis (agent num-rules instrument rates)
+  "Analytical version."
+  (let* ((perception-fn (gen-perception-fn (perception-fns agent)))
+	 (lookahead-count (slot-value agent 'lookahead-count))
+	 (lookbehind-count (slot-value agent 'lookbehind-count)))
+    (multiple-value-bind (chosen-inputs chosen-outputs)
+	(get-inputs-outputs num-rules instrument rates perception-fn lookahead-count lookbehind-count)
+      (values
+       (let* ((v (loop
+		   for inputs in (apply #'mapcar #'list chosen-inputs)
+		   for idx from 0
+		   collect (let* ((min-input (apply #'min inputs))
+				  (max-input (apply #'max inputs))
+				  (v (flatten (loop
+						for input in inputs
+						collect (list
+							 (vector min-input input)
+							 (vector max-input input)
+							 )))))
+			     (make-array (length v) :initial-contents v)))))
+	 (make-array (length v) :initial-contents v))
+       (let* ((one-set-outputs
+		(flatten (loop for output in chosen-outputs
+			       collect (let* ((tp (assoccess output :tp))
+					      (sl (assoccess output :sl))
+					      ;; (mn-tp (- tp tp-sd))
+					      ;; (mx-tp (+ tp tp-sd))
+					      ;; (mn-sl (- sl sl-sd))
+					      ;; (mx-sl (+ sl sl-sd))
+					      )
+					 ;; Consequent creation.
+					 (list (vector (vector 0 tp)
+						       (vector (* hscom.hsage:*n-times-sl-for-max-sl* sl) sl))
+					       ;; We need to repeat the consequent for the "other side" of the triangle.
+					       (vector (vector 0 tp)
+						       (vector (* hscom.hsage:*n-times-sl-for-max-sl* sl) sl))
+					       )))))
+	      (one-set-outputs-v (make-array (length one-set-outputs) :initial-contents one-set-outputs))
+	      (v (loop repeat (length (first chosen-inputs))
+		       collect one-set-outputs-v)))
+	 (make-array (length v) :initial-contents v))))))
+;; (make-ifis *agent* 2 :AUD_USD *rates*)
 
 (defun log-agent (type agent)
   (let ((agent-id (slot-value agent 'id))

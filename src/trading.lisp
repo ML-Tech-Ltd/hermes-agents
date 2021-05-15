@@ -1003,18 +1003,18 @@
 (defun ask-perception ()
   "Asks the user what perception function to generate for an agent."
   (print "Choose a perception function:"))
-(print (read-line))
+;; (print (read-line))
 
-(prompt)
+;; (prompt)
 
-(get-perceptions)
-(hsper:fixed=>sma-close 5 10)
-(gen-perception-fn (get-perceptions))
-(gen-perception-fn (format nil "~a" (hsper:random=>sma-close)))
+;; (get-perceptions)
+;; (hsper:fixed=>sma-close 5 10)
+;; (gen-perception-fn (get-perceptions))
+;; (gen-perception-fn (format nil "~a" (hsper:random=>sma-close)))
 
-(ql:quickload :cl-charms)
-(cl-charms:)
-(ql:system-apropos "menu")
+;; (ql:quickload :cl-charms)
+;; (cl-charms:)
+;; (ql:system-apropos "menu")
 
 ;; Perception fns (build a list of arrays of arrays)
 ;; lookahead-count

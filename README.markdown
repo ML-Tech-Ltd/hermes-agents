@@ -48,3 +48,13 @@ $ ros run
 * (ql-dist:install-dist "http://dist.ultralisp.org/" :prompt nil)
 * (quit)
 ```
+
+- Create configuration files and set the parameters to appropriate values:
+
+```
+cd hermes-common; cp src/db.lisp.template src/db.lisp
+```
+
+```
+cd hermes-input; cp src/config.lisp.template src/config.lisp
+```

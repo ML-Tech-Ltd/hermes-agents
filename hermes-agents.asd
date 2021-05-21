@@ -6,11 +6,13 @@
                ;; :datafly
 	       ;; :dbi
                :cl-mathstats
+	       :cl-ppcre
 	       :clerk
                ;; :magicl
 	       :cl-csv
                :computable-reals
 	       :cl-mathstats
+	       :eazy-gnuplot
                ;; :sxql
 	       :uuid
 	       :salza2

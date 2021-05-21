@@ -6,9 +6,11 @@
 		#:format-table
 		#:comment
 		#:assoccess
-		#:random-float)
+		#:random-float
+		#:dbg)
   (:import-from #:hsper
-		#:get-perceptions)
+		#:get-perceptions
+		#:nth-perception)
   (:import-from #:hsinp.rates
 		#:to-pips
 		#:get-tp-sl
@@ -21,7 +23,11 @@
 		#:push-to-log)
   (:import-from #:hsage.utils
 		#:prepare-agents-properties
-		#:format-rr)
+		#:format-rr
+		#:read-str
+		#:make-table
+		#:add-row
+		#:display)
   (:import-from #:hsint
 		#:eval-ifis)
   (:export #:agent
@@ -702,11 +708,11 @@
 (defun eval-agent (agent rates)
   (let ((perception-fn (gen-perception-fn agent)))
     (eval-ifis (funcall perception-fn rates)
-	       (hsage.utils:read-str (slot-value agent 'antecedents))
-	       (hsage.utils:read-str (slot-value agent 'consequents)))))
+	       (read-str (slot-value agent 'antecedents))
+	       (read-str (slot-value agent 'consequents)))))
 
 (defun gen-perception-fn (perception-params)
-  (hsper:gen-perception-fn (hsage.utils:read-str perception-params)))
+  (hsper:gen-perception-fn (read-str perception-params)))
 
 (defun update-agent-fitnesses (instrument timeframe types agent rates)
   (let* ((agents (gethash (list instrument timeframe types) *agents-cache*))
@@ -985,27 +991,222 @@
 		 do (-init-patterns instrument timeframe))))
 ;; (init-patterns)
 
-(comment
- (defun make-agent (instrument rates &key interactivep)
+(defun make-agent (inputs outputs perception-fns lookahead-count lookbehind-count)
    "Used for manual agent creation."
    (let ((agent (make-instance 'agent)))
      (setf (slot-value agent 'perception-fns) (format nil "~s" perception-fns))
      (setf (slot-value agent 'lookahead-count) lookahead-count)
      (setf (slot-value agent 'lookbehind-count) lookbehind-count)
      (multiple-value-bind (antecedents consequents)
-	 (make-ifis agent num-rules instrument rates)
+	 (make-ant-con inputs outputs)
        (setf (slot-value agent 'antecedents) (format nil "~s" antecedents))
        (setf (slot-value agent 'consequents) (format nil "~s" consequents)))
-     agent)))
+     agent))
+
+(comment
+ ;; Testing MAKE-AGENT
+ (let ((perc (hsper:gen-random-perceptions 3)))
+   (multiple-value-bind (inp out)
+       (get-inputs-outputs 2 :AUD_USD *rates*
+			   (hsper:gen-perception-fn (hscom.utils:assoccess perc :perception-fns))
+			   (hscom.utils:assoccess perc :lookahead-count)
+			   (hscom.utils:assoccess perc :lookbehind-count)
+			   :direction-fn #'minusp)
+     (let ((agent (make-agent inp out (hscom.utils:assoccess perc :perception-fns) 10 10)))
+       (list (antecedents agent)
+	     (consequents agent)))
+     )))
+
 ;; (defparameter *agent* (gen-agent 3 :AUD_USD *rates* (hscom.utils:assoccess (hsper:gen-random-perceptions 2) :perception-fns) 10 100))
 ;; (antecedents *agent*)
 
-(defun ask-perception ()
+(defun interactive-make-agent (&key (lookahead-count 10) (rules-count 3))
   "Asks the user what perception function to generate for an agent."
-  (print "Choose a perception function:"))
-;; (print (read-line))
+  (block all
+    (let ((options (get-perceptions))
+	  (p-rows)
+	  (percs)
+	  (instrument :AUD_USD)
+	  (lookbehind-count -1)
+	  (direction-fn)
+	  ;; (final-agent)
+	  )
+      ;; Asking for instrument.
+      (loop for instrument in hscom.hsage:*instruments*
+	    for i from 0
+	    do (format t "(~a) ~a~%" (1+ i) instrument))
+      (format t "~%Choose a market (default = ~a):~%" instrument)
+      (setf instrument (let ((ans (read-line)))
+			 (unless (string= ans "") (nth (1- (read-from-string ans)) hscom.hsage:*instruments*))))
+      ;; Capturing table elements.
+      (loop for perc in options
+	    for i from 1
+	    do (progn
+		 (push (list (format nil "(~a)" i)
+			     (assoccess perc :name)
+			     (assoccess perc :documentation))
+		       p-rows)))
+      (let ((table (with-open-stream (s (make-string-output-stream))
+		     (format-table s (reverse p-rows)
+				   :column-label '("#" "Name" "Documentation"))
+		     (get-output-stream-string s))))
+	;; Collecting perception functions.
+	(loop
+	  do (let ((answer -1)
+		   (args '()))
+	       (format t "~%~a~%" table)
+	       (when (> (length percs) 0)
+		 (format t "~%These perception functions have been chosen so far:~%")
+		 (loop for pnum in percs
+		       do (progn
+			    (format t "~%~a~%" (assoccess (nth (aref pnum 0) options) :name))
+			    (loop for param in (reverse (assoccess (nth (aref pnum 0) options) :params))
+				  for i from 1
+				  do (format t "~a = ~a~%"
+					     (assoccess param :name)
+					     (aref pnum i)))))
+		 (format t "~%"))
 
-;; (prompt)
+	       (format t "Choose a perception function by entering their associated numbers (1 - ~a) or just press ENTER to finish:~%" (length options))
+
+	       (setf answer (let ((ans (read-line))) (if (string= ans "") -1 (1- (read-from-string ans)))))
+
+	       (if (< answer 0)
+		   (progn
+		     (format t "Finished capturing perception functions.~%~%")
+		     (if (= (length percs) 0)
+			 (return-from all)
+			 (return)))
+		   (progn
+		     (format t "Please give values to the perception function's parameters:~%")
+		     (loop for param in (assoccess (nth answer options) :params)
+			   do (progn
+				(format t "~%~a~%~a (default = ~a): "
+					(assoccess param :documentation)
+					(assoccess param :name)
+					(assoccess param :default))
+				(let ((ans (read-line)))
+				  (if (string= ans "")
+				      (push (assoccess param :default) args)
+				      (push (read-from-string ans) args)))))
+		     (multiple-value-bind (perc-vector lookbehind)
+			 (apply #'funcall (assoccess (nth answer options) :array-fn) args)
+		       (when (> lookbehind lookbehind-count)
+			 (setf lookbehind-count lookbehind))
+		       (push perc-vector percs)))))))
+      ;; Asking for direction function.
+      (format t "Should the agent be BULLISH (input any positive number) or BEARISH (input any negative number)? (default = random)" )
+      (setf direction-fn (let ((ans (read-line)))
+			   (if (string= ans "")
+			       (if (> (random-float 0 1) 0.5)
+				   #'plusp
+				   #'minusp)
+			       (if (> (read-from-string ans) 0)
+				   #'plusp
+				   #'minusp))))
+      ;; Asking for rules count.
+      (format t "How many rules should your agent have (default = ~a):~%" rules-count)
+      (setf rules-count (let ((ans (read-line))) (if (string= ans "") rules-count (read-from-string ans))))
+      ;; Asking for lookahead.
+      (format t "How many datapoints in the future do you want to consider for calculating TP & SL (default = ~a):~%" lookahead-count)
+      (setf lookahead-count (let ((ans (read-line))) (if (string= ans "") lookahead-count (read-from-string ans))))
+      ;; Creating fuzzy system.
+      (let ((percs (make-array (length percs) :initial-contents percs)))
+	(loop
+	  do (multiple-value-bind (inputs outputs idxs)
+		 (get-inputs-outputs rules-count
+				     instrument
+				     *rates*
+				     (hsper:gen-perception-fn percs)
+				     lookahead-count
+				     lookbehind-count
+				     :direction-fn direction-fn)
+	       ;; Getting rate plots
+	       (let ((agent (make-agent inputs outputs percs lookahead-count lookbehind-count))
+		     (rate-plots (apply #'concatenate 'string
+					(loop for idx in idxs
+					      collect (plot-rates (subseq *rates* (- idx lookbehind-count) (+ idx lookahead-count)))))))
+		 (multiple-value-bind (antecedents consequents)
+		     (plot-agent-rules agent)
+		   (print-in-columns (list ;; rate-plots
+					   antecedents consequents)))
+		 (format t "Are you satisfied with this configuration (Y or N)? (default = N):~%")
+		 (let ((ans (read-line)))
+		   (when (or (string= ans "y")
+			     (string= ans "Y"))
+		     ;; (setf final-agent agent)
+		     (return-from all agent)
+		     )))
+	       )))
+      )))
+;; (interactive-make-agent)
+
+(defun -fill-string-with-spaces (string width)
+  "Used by PRINT-IN-COLUMNS."
+  (if (> (- width (length string)) 0)
+      (format nil "~a~a"
+	      (string-trim '(#\Newline) string)
+	      (format nil "~v@{~A~:*~}" (- width (length string)) " ")))
+  )
+;; (-fill-string-with-spaces "meow meow" 40)
+
+(defun -fill-split-string-with-newlines (split-string height)
+  "Used by PRINT-IN-COLUMNS."
+  (let ((row-width (length (first split-string))))
+    (if (> height (length split-string))
+	(append split-string
+		(make-list (- height (length split-string))
+			   :initial-element (format nil "~v@{~A~:*~}" row-width " ")))
+	split-string)))
+
+(defun -split-string (string)
+  "Used by PRINT-IN-COLUMNS."
+  (let ((split (cl-ppcre:split "\\n" string)))
+    (values
+     (if split split "")
+     ;; width
+     (+ 2
+	(if (= (length string) 0)
+	    0
+	    (apply #'max (mapcar #'length split))))
+     ;; height
+     (length split))))
+
+(defun print-in-columns (strings)
+  (let* ((max-height 0)
+	 (splits (mapcar (lambda (string)
+			   (multiple-value-bind (split width height)
+			       (-split-string string)
+			     (when (> height max-height)
+			       (setf max-height height))
+			     (loop for s in split
+				   collect (-fill-string-with-spaces s width))))
+			 strings)))
+    (apply #'mapcar (lambda (&rest rows)
+		      (format t "~{|~a |~}~%" rows))
+	   (mapcar (lambda (split-string)
+	   	     (-fill-split-string-with-newlines split-string max-height))
+	   	   splits)
+	   ))
+  (values))
+(comment
+ (print-in-columns '("hello
+how are you
+I hope you're good" "good
+bye
+it was nice
+to see
+you"))
+ )
+
+(comment
+ (time (let ((perc (hsper:gen-random-perceptions 3)))
+	 (get-inputs-outputs 10 :AUD_USD *rates*
+			     (hsper:gen-perception-fn (hscom.utils:assoccess perc :perception-fns))
+			     (hscom.utils:assoccess perc :lookahead-count)
+			     (hscom.utils:assoccess perc :lookbehind-count)
+			     :direction-fn #'minusp)))
+ )
 
 ;; (get-perceptions)
 ;; (hsper:fixed=>sma-close 5 10)
@@ -1023,6 +1224,126 @@
 ;; Steps:
 ;; Choose perception functions
 ;; Choose input-outputs
+
+(defun plot-rates (rates &optional (type :close-frac))
+  (let ((output #P"/tmp/hermes-plot-rates.txt"))
+    (eazy-gnuplot:with-plots (*standard-output* :debug nil)
+      (eazy-gnuplot:gp-setup :xlabel "X"
+			     :ylabel "GM"
+			     :output output
+			     :terminal :dumb)
+      (format t "~%set key inside")
+      (format t "~%set key center top")
+      (format t "~%set xdata time")
+      (format t "~%set timefmt \"%s\"")
+      ;; (format t "~%set format x \"%d/%m/%Y\t%H:%M\"")
+      (format t "~%set xtics rotate by 270")
+      (format t "~%set ytics rotate by 30")
+      (format t "~%set ytics font \",8\"")
+      (format t "~%set xtics font \",8\"")
+      (eazy-gnuplot:plot (lambda ()
+			   (loop for rate in rates
+				 do (format t "~&~a ~a"
+					    (/ (read-from-string (assoccess rate :time)) 1000000)
+					    (assoccess rate type))))
+			 :using '(1 2)
+			 :title ""
+			 :with '(:linespoint))
+      (string-trim '(#\Page #\Newline) (hscom.utils:file-get-contents output))
+      )))
+;; (plot-rates (subseq *rates* 0 10) :close-bid)
+
+(defun plot-agent-rules (agent)
+  (let ((output #P"/tmp/hermes-plot-fuzzy.txt"))
+    (let (antecedents consequents)
+      (loop for antecedent across (read-str (antecedents agent))
+	    for perc-fn across (read-str (perception-fns agent))
+	    do (progn
+		 (eazy-gnuplot:with-plots (*standard-output* :debug nil)
+		   (eazy-gnuplot:gp-setup :xlabel (string-upcase (format nil "~a" (nth-perception (aref perc-fn 0))))
+					  :ylabel "GM"
+					  :output output
+					  :terminal :dumb)
+		   (loop for ant across antecedent
+			 do (eazy-gnuplot:plot (lambda ()
+						 (format t "~&~a ~a" (aref ant 0) 0)
+						 (format t "~&~a ~a" (aref ant 1) 1))
+					       :using '(1 2)
+					       :title ""
+					       :with '(:linespoint)
+					       )))
+		 (push (string-trim '(#\Page #\Newline) (hscom.utils:file-get-contents output)) antecedents)))
+      (setf consequents (make-list (length antecedents) :initial-element ""))
+      ;; Consequents
+      ;; TODO: These consequents follow the structure of "stay restricted to each observed rule", i.e.
+      ;; we're not "mixing" antecedents nor consequents from different observed rules.
+      (let ((tps)
+	    (sls))
+	;; Collecting all TPs and SLs first.
+	;; They're all the same (constrained to rules).
+	(let ((cons (aref (read-str (consequents agent)) 0)))
+	  (loop
+	    ;; We need to ignore the repeated line.
+	    for i from 0 below (length cons) by 2
+	    do (progn
+		 (push (aref (aref cons i) 0) tps)
+		 (push (aref (aref cons i) 1) sls))))
+	;; TP
+	(eazy-gnuplot:with-plots (*standard-output* :debug nil)
+	  (eazy-gnuplot:gp-setup :xlabel "Take Profit"
+				 :ylabel "GM"
+				 :output output
+				 :terminal :dumb)
+	  (loop for tp in tps
+		do (eazy-gnuplot:plot (lambda ()
+					(format t "~&~a ~a" (aref tp 0) 0)
+					(format t "~&~a ~a" (aref tp 1) 1))
+				      :using '(1 2)
+				      :title ""
+				      :with '(:linespoint)
+				      )))
+	;; Adding TPs.
+	;; (cl-ppcre:regex-replace "\r" "h")
+	(setf (nth 0 consequents) (string-trim '(#\Page #\Newline) (hscom.utils:file-get-contents output)))
+	;; SL
+	(eazy-gnuplot:with-plots (*standard-output* :debug nil)
+	  (eazy-gnuplot:gp-setup :xlabel "Stop Loss"
+				 :ylabel "GM"
+				 :output output
+				 :terminal :dumb)
+	  (loop for sl in sls
+		do (eazy-gnuplot:plot (lambda ()
+					(format t "~&~a ~a" (aref sl 0) 0)
+					(format t "~&~a ~a" (aref sl 1) 1))
+				      :using '(1 2)
+				      :title ""
+				      :with '(:linespoint)
+				      )))
+	(setf (nth 0 consequents)
+	      (format nil "~a~%~%~a"
+		      (nth 0 consequents)
+		      (string-trim '(#\Page #\Newline) (hscom.utils:file-get-contents output)))))
+      ;; (format t "~%Antecedents:~%~{~a~}" antecedents)
+      ;; (format t "~%Consequents:~%~{~a~}" consequents)
+      (values (concatenate 'string
+			   (format nil "  Antecedents:~%~%")
+			   (apply #'concatenate 'string antecedents))
+	      (concatenate 'string
+			   (format nil "  Consequents:~%~%")
+			   (apply #'concatenate 'string consequents))
+	      )
+      )))
+;; (plot-agent-rules *agent*)
+;; (defparameter *agent* (gen-agent 3 :AUD_USD *rates* (hscom.utils:assoccess (hsper:gen-random-perceptions 1) :perception-fns) 10 100))
+;; (antecedents *agent*)
+;; (consequents *agent*)
+
+;; (aref (read-str (consequents *agent*)) 0)
+;; (hsint:eval-ifis '(1 2 3)
+;; 		 (read-str (antecedents *agent*))
+;; 		 (read-str (consequents *agent*)))
+
+
 
 (defun gen-agent (num-rules instrument rates perception-fns lookahead-count lookbehind-count)
   (let ((agent (make-instance 'agent)))
@@ -1067,14 +1388,43 @@
 					 :direction-fn opposite-pred))))
 ;; (get-same-direction-outputs-idxs *rates* :lookahead-count 5)
 
-(defun get-inputs-outputs (num-rules instrument rates perception-fn lookahead-count lookbehind-count)
-  (let* ((idxs (sort (remove-duplicates (get-same-direction-outputs-idxs instrument rates num-rules :lookahead-count lookahead-count :lookbehind-count lookbehind-count)) #'<))
+(defun get-inputs-outputs (num-rules instrument rates perception-fn lookahead-count lookbehind-count &key direction-fn)
+  (let* ((idxs (sort (remove-duplicates (get-same-direction-outputs-idxs instrument rates num-rules :lookahead-count lookahead-count :lookbehind-count lookbehind-count :direction-fn direction-fn)) #'<))
 	 (chosen-inputs (loop for idx in idxs collect (funcall perception-fn (get-input-dataset rates idx))))
 	 (chosen-outputs (loop for idx in idxs collect (get-tp-sl (get-output-dataset rates idx) lookahead-count))))
-    (values chosen-inputs chosen-outputs)))
-;; (time (let ((perc (hsper:gen-random-perceptions 20))) (get-inputs-outputs 3 :AUD_USD *rates* (hsper:gen-perception-fn (hscom.utils:assoccess perc :perception-fns)) (hscom.utils:assoccess perc :lookahead-count) (hscom.utils:assoccess perc :lookbehind-count))))
+    (values chosen-inputs chosen-outputs idxs)))
+;; (time (let ((perc (hsper:gen-random-perceptions 2))) (get-inputs-outputs 10 :AUD_USD *rates* (hsper:gen-perception-fn (hscom.utils:assoccess perc :perception-fns)) (hscom.utils:assoccess perc :lookahead-count) (hscom.utils:assoccess perc :lookbehind-count))))
 
-;; (gen-perception-fn *agent*)
+(defun make-ant-con (inputs outputs)
+  (values
+   (let* ((v (loop
+	       for inputs in (apply #'mapcar #'list inputs)
+	       for idx from 0
+	       collect (let* ((min-input (apply #'min inputs))
+			      (max-input (apply #'max inputs))
+			      (v (flatten (loop
+					    for input in inputs
+					    collect (list
+						     (vector min-input input)
+						     (vector max-input input)
+						     )))))
+			 (make-array (length v) :initial-contents v)))))
+     (make-array (length v) :initial-contents v))
+   (let* ((one-set-outputs
+	    (flatten (loop for output in outputs
+			   collect (let* ((tp (assoccess output :tp))
+					  (sl (assoccess output :sl)))
+				     ;; Consequent creation.
+				     (list (vector (vector 0 tp)
+						   (vector (* hscom.hsage:*n-times-sl-for-max-sl* sl) sl))
+					   ;; We need to repeat the consequent for the "other side" of the triangle.
+					   (vector (vector 0 tp)
+						   (vector (* hscom.hsage:*n-times-sl-for-max-sl* sl) sl))
+					   )))))
+	  (one-set-outputs-v (make-array (length one-set-outputs) :initial-contents one-set-outputs))
+	  (v (loop repeat (length (first inputs))
+		   collect one-set-outputs-v)))
+     (make-array (length v) :initial-contents v))))
 
 (defun make-ifis (agent num-rules instrument rates)
   "Analytical version."
@@ -1083,40 +1433,7 @@
 	 (lookbehind-count (slot-value agent 'lookbehind-count)))
     (multiple-value-bind (chosen-inputs chosen-outputs)
 	(get-inputs-outputs num-rules instrument rates perception-fn lookahead-count lookbehind-count)
-      (values
-       (let* ((v (loop
-		   for inputs in (apply #'mapcar #'list chosen-inputs)
-		   for idx from 0
-		   collect (let* ((min-input (apply #'min inputs))
-				  (max-input (apply #'max inputs))
-				  (v (flatten (loop
-						for input in inputs
-						collect (list
-							 (vector min-input input)
-							 (vector max-input input)
-							 )))))
-			     (make-array (length v) :initial-contents v)))))
-	 (make-array (length v) :initial-contents v))
-       (let* ((one-set-outputs
-		(flatten (loop for output in chosen-outputs
-			       collect (let* ((tp (assoccess output :tp))
-					      (sl (assoccess output :sl))
-					      ;; (mn-tp (- tp tp-sd))
-					      ;; (mx-tp (+ tp tp-sd))
-					      ;; (mn-sl (- sl sl-sd))
-					      ;; (mx-sl (+ sl sl-sd))
-					      )
-					 ;; Consequent creation.
-					 (list (vector (vector 0 tp)
-						       (vector (* hscom.hsage:*n-times-sl-for-max-sl* sl) sl))
-					       ;; We need to repeat the consequent for the "other side" of the triangle.
-					       (vector (vector 0 tp)
-						       (vector (* hscom.hsage:*n-times-sl-for-max-sl* sl) sl))
-					       )))))
-	      (one-set-outputs-v (make-array (length one-set-outputs) :initial-contents one-set-outputs))
-	      (v (loop repeat (length (first chosen-inputs))
-		       collect one-set-outputs-v)))
-	 (make-array (length v) :initial-contents v))))))
+      (make-ant-con chosen-inputs chosen-outputs))))
 ;; (make-ifis *agent* 2 :AUD_USD *rates*)
 
 (defun log-agent (type agent)
@@ -1404,7 +1721,6 @@
 			    (push trade bullish)
 			    (push trade bearish)))
 	       ;; Creating nests with top activated and rest.
-	       ;; (print (first bullish))
 	       (let ((rbullish (sort bullish #'> :key (lambda (elt) (assoccess elt hscom.hsage:*trades-sort-by*))))
 		     (rbearish (sort bearish #'> :key (lambda (elt) (assoccess elt hscom.hsage:*trades-sort-by*)))))
 		 (push `((:instrument . ,(format nil "~a" instrument))

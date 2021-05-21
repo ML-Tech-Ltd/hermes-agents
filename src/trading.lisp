@@ -24,10 +24,7 @@
   (:import-from #:hsage.utils
 		#:prepare-agents-properties
 		#:format-rr
-		#:read-str
-		#:make-table
-		#:add-row
-		#:display)
+		#:read-str)
   (:import-from #:hsint
 		#:eval-ifis)
   (:export #:agent

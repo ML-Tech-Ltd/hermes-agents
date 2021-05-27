@@ -703,7 +703,7 @@
   (length (get-agents-some instrument timeframe types)))
 
 (defun eval-agent (agent rates)
-  (let ((perception-fn (gen-perception-fn agent)))
+  (let ((perception-fn (gen-perception-fn (perception-fns agent))))
     (eval-ifis (funcall perception-fn rates)
 	       (read-str (slot-value agent 'antecedents))
 	       (read-str (slot-value agent 'consequents)))))
@@ -721,6 +721,82 @@
   (loop for agent in agents
 	do (update-agent-fitnesses instrument timeframe types agent rates))
   agents)
+
+(defun is-agent-dominated? (agent agents)
+  (if (= (length (slot-value agent 'tps)) 0)
+      t ;; AGENT is dominated.
+      (let* ((agent-id-0 (slot-value agent 'id))
+	     (avg-revenue-0 (slot-value agent 'avg-revenue))
+	     (trades-won-0 (slot-value agent 'trades-won))
+	     (trades-lost-0 (slot-value agent 'trades-lost))
+	     (agent-direction-0 (aref (slot-value agent 'tps) 0))
+	     (avg-return-0 (slot-value agent 'avg-return))
+	     (total-return-0 (slot-value agent 'total-return))
+	     (activations-0 (slot-value agent 'activations))
+	     (returns-0 (slot-value agent 'returns))
+	     ;; (agent-directions (slot-value agent 'tps))
+	     ;; (stdev-revenue-0 (slot-value agent 'stdev-revenue))
+	     ;; (entry-times-0 (slot-value agent 'entry-times))
+	     (is-dominated? nil))
+	;; (format t "~a, ~a, ~a~%~%" avg-revenue-0 trades-won-0 trades-lost-0)
+	(loop for agent in agents
+	      do (when (> (length (slot-value agent 'tps)) 0)
+		   (let* ((agent-id (slot-value agent 'id))
+			  (avg-revenue (slot-value agent 'avg-revenue))
+			  (trades-won (slot-value agent 'trades-won))
+			  (trades-lost (slot-value agent 'trades-lost))
+			  (agent-direction (aref (slot-value agent 'tps) 0))
+			  (avg-return (slot-value agent 'avg-return))
+			  (total-return (slot-value agent 'total-return))
+			  (activations (slot-value agent 'activations))
+			  (returns (slot-value agent 'returns))
+			  ;; (agent-directions (slot-value agent 'tps))
+			  ;; (stdev-revenue (slot-value agent 'stdev-revenue))
+			  ;; (entry-times (slot-value agent 'entry-times))
+			  )
+		     ;; Fitnesses currently being used.
+		     (when (or (<= total-return-0 0)
+			       (and (> (* agent-direction-0 agent-direction) 0)
+				    ;; (>= avg-revenue avg-revenue-0)
+				    ;; (< stdev-revenue stdev-revenue-0)
+				    ;; (>= trades-won trades-won-0)
+				    ;; (<= trades-lost trades-lost-0)
+				    ;; (>= avg-return avg-return-0)
+				    (>= total-return total-return-0)
+				    (activations-returns-dominated-p activations-0 returns-0 activations returns)
+				    ;; (>= (/ trades-won
+				    ;; 	      (+ trades-won trades-lost))
+				    ;; 	   (/ trades-won-0
+				    ;; 	      (+ trades-won-0 trades-lost-0)))
+				    ;; (vector-1-similarity entry-times entry-times-0)
+				    )
+			       )
+		       ;; Candidate agent was dominated.
+		       (let ((metric-labels '("AVG-REVENUE" "TRADES-WON" "TRADES-LOST" "AVG-RETURN" "TOTAL-RETURN")))
+			 (with-open-stream (s (make-string-output-stream))
+			   ;; (push-to-agents-log )
+			   (format s "<pre><b>(BETA) </b>Agent ID ~a~%" agent-id-0)
+			   (format-table s `((,(format nil "~6$" avg-revenue-0) ,trades-won-0 ,trades-lost-0 ,(format nil "~2$" avg-return-0) ,(format nil "~2$" total-return-0))) :column-label metric-labels)
+			   (format s "</pre>")
+			   (format s "<pre><b>(ALPHA) </b>Agent ID ~a~%" agent-id)
+			   (format-table s `((,(format nil "~6$" avg-revenue) ,trades-won ,trades-lost ,(format nil "~2$" avg-return) ,(format nil "~2$" total-return))) :column-label metric-labels)
+			   (format s "</pre><hr/>")
+		     
+			   ;; (format s "Fitnesses <b>~a</b>:<br/>~a: ~a<br/>~a: ~a<br/>~a: ~a"
+			   ;; 	agent-id-0
+			   ;; 	(symbol-name 'avg-revenue) avg-revenue-0
+			   ;; 	(symbol-name 'trades-won) trades-won-0
+			   ;; 	(symbol-name 'trades-lost) trades-lost-0)
+			   ;; (format s "Fitnesses (~a):<br/>~a: ~a<br/>~a: ~a<br/>~a: ~a<hr />"
+			   ;; 	agent-id
+			   ;; 	(symbol-name 'avg-revenue) avg-revenue
+			   ;; 	(symbol-name 'trades-won) trades-won
+			   ;; 	(symbol-name 'trades-lost) trades-lost)
+			   (push-to-agents-log (get-output-stream-string s))))
+		 
+		       (setf is-dominated? t)
+		       (return)))))
+	is-dominated?)))
 
 (defun is-agent-dominated? (agent agents &optional (logp nil))
   (if (or (= (length (slot-value agent 'tps)) 0)

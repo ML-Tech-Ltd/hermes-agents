@@ -45,7 +45,8 @@
 	       (:module "src"
 			:components
 			((:file "main" :depends-on ("config" "db" "km" "utils" "log" "trading"))
-			 (:file "trading" :depends-on ("log"))
+			 (:file "trading" :depends-on ("log" "stat"))
+			 (:file "stat")
 			 (:file "km")
 			 (:file "log")
 			 (:file "plotly-utils")

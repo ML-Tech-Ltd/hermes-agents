@@ -8,6 +8,10 @@
 		#:assoccess
 		#:random-float
 		#:dbg)
+  (:import-from #:hscom.hsage
+		#:*fis-method*
+		#:*min-pips-sl*
+		#:*exhaust-rules-in-creation-dataset-p*)
   (:import-from #:hsper
 		#:get-perceptions
 		#:nth-perception)
@@ -26,7 +30,8 @@
 		#:format-rr
 		#:read-str)
   (:import-from #:hsint
-		#:eval-ifis)
+		#:eval-ifis-gen
+		#:eval-ifis-idx)
   (:export #:agent
 	   #:log-agent
 	   #:optimization
@@ -42,7 +47,6 @@
 	   #:sync-agents
 	   #:remove-agent
 	   #:eval-agent
-	   #:is-agent-dominated?
 	   #:get-agent
 	   #:get-agents-some
 	   #:get-agents-all
@@ -144,6 +148,7 @@
 
 (defclass trade ()
   ((id :col-type string :initform (format nil "~a" (uuid:make-v4-uuid)) :initarg :id)
+   (label :col-type string :initform "" :initarg :label)
    (agent-id :col-type (or db-null string) :initform (format nil "~a" (uuid:make-v4-uuid)) :initarg :agent-id)
    (creation-time :col-type integer :initarg :creation-time)
    (decision :col-type string :initarg :decision)
@@ -223,10 +228,11 @@
   (:table-name trades)
   (:keys id))
 
-(defun insert-trade (agent-id instrument timeframe types train-fitnesses test-fitnesses tp sl activation rates creation-time)
+(defun insert-trade (agent-id instrument timeframe types train-fitnesses test-fitnesses tp sl activation rates creation-time label)
   (conn (let ((patterns (get-patterns instrument timeframe types))
 	      (trade (make-dao 'trade
 			       :agent-id agent-id
+			       :label label
 			       :creation-time creation-time
 			       :decision (if (or (= sl 0) (= tp 0))
 					     "HOLD"
@@ -304,6 +310,8 @@
 			       :test-sls (apply #'vector (assoccess test-fitnesses :sls))
 			       :train-activations (apply #'vector (assoccess train-fitnesses :activations))
 			       :test-activations (apply #'vector (assoccess test-fitnesses :activations))
+			       :train-returns (apply #'vector (assoccess train-fitnesses :returns))
+			       :test-returns (apply #'vector (assoccess test-fitnesses :returns))
 			       )))
 	  (loop for pattern in patterns
 		do (make-dao 'pattern-trade
@@ -314,9 +322,7 @@
   (- (hsinp.rates:->close (last-elt rates))
      (hsinp.rates:->close (first rates))))
 
-(defun evaluate-trade (tp sl rates)
-  "Refactorize this."
-  (let ((starting-rate (if (plusp tp)
+(defun evaluate-trade (tp sl rates) "Refactorize this."(let ((starting-rate (if (plusp tp)
 			   ;; We need to use `open` because it's when we start.
 			   (hsinp.rates:->open-ask (first rates))
 			   (hsinp.rates:->open-bid (first rates))))
@@ -333,7 +339,7 @@
     ;; We need to check the starting candle's low and high.
     (unless (or (= tp 0) (= sl 0))
       (loop for rate in rates
-	    for idx from 0 below finish-idx ;; (length (rest rates))
+	    for idx from 1 below finish-idx ;; (length (rest rates))
 	    do (let ((low (if (plusp tp) ;; Used to exit a trade, so buy -> bid, sell -> ask.
 			      (hsinp.rates:->low-bid rate)
 			      (hsinp.rates:->low-ask rate)))
@@ -387,7 +393,12 @@
 ;; (evaluate-trade 0.0015 -0.0020 (get-output-dataset *rates* 3))
 ;; (get-tp-sl (get-output-dataset *rates* 188))
 
-(defun test-agents (instrument timeframe types testing-dataset &key (test-size 50))
+(comment
+ (conn (query (:limit (:select '* :from 'trades) 1) :alists))
+ (conn (query (:limit (:select 'test-tps :from 'trades) 1)))
+ (conn (query (:limit (:select 'test-sls :from 'trades) 1))))
+
+(defun test-agents (instrument timeframe types testing-dataset &key (test-size 50) (label ""))
   (multiple-value-bind (tp sl activation agent-ids)
       ;; This one gets the final TP and SL.
       (eval-agents instrument timeframe types testing-dataset)
@@ -398,21 +409,21 @@
       (when test-fitnesses
 	(push-to-log "Testing process successful."))
       (push-to-log (format nil "Prediction. TP: ~a, SL: ~a." tp sl))
-      (when (and (/= tp 0)
+      (when (or t (and (/= tp 0)
 		 ;; (if (not (eq instrument :USD_CNH)) (< (assoccess prediction :tp) 100) t)
 		 (> (abs tp) (abs sl))
 		 (/= sl 0)
 		 (< (* tp sl) 0)
 		 (> (abs (/ tp sl))
 		    hscom.hsage:*agents-min-rr-signal*)
-		 (> (abs (to-pips instrument sl)) 3)
+		 (> (abs (to-pips instrument sl)) *min-pips-sl*)
 		 ;; (< (to-pips instrument (abs sl)) 20)
 		 (/= (assoccess test-fitnesses :trades-won) 0)
 		 (/= (+ (assoccess test-fitnesses :trades-won)
 			(assoccess test-fitnesses :trades-lost))
-		     0))
+		     0)))
 	(push-to-log (format nil "Trying to create trade. Agents IDs: ~a" agent-ids))
-	(insert-trade (first agent-ids) instrument timeframe (first (get-agent-ids-patterns agent-ids)) test-fitnesses test-fitnesses tp sl activation testing-dataset (local-time:timestamp-to-unix (local-time:now)))
+	(insert-trade (first agent-ids) instrument timeframe (first (get-agent-ids-patterns agent-ids)) test-fitnesses test-fitnesses tp sl activation testing-dataset (local-time:timestamp-to-unix (local-time:now)) label)
 	(push-to-log "Trade created successfully.")))))
 
 (defun get-max-lookbehind (instrument timeframe types)
@@ -481,13 +492,13 @@
 			     (push (read-from-string (assoccess (nth idx rates) :time)) entry-times)
 			     (push (read-from-string exit-time) exit-times)
 			     (push (if (plusp tp)
-				       (hsinp.rates:->close-ask (nth idx rates))
-				       (hsinp.rates:->close-bid (nth idx rates)))
-				   entry-prices)
+			     	       (hsinp.rates:->close-ask (nth idx rates))
+			     	       (hsinp.rates:->close-bid (nth idx rates)))
+			     	   entry-prices)
 			     (push (if (plusp tp)
-				       (hsinp.rates:->close-bid (nth finish-idx output-dataset))
-				       (hsinp.rates:->close-ask (nth finish-idx output-dataset)))
-				   exit-prices)
+			     	       (hsinp.rates:->close-bid (nth finish-idx output-dataset))
+			     	       (hsinp.rates:->close-ask (nth finish-idx output-dataset)))
+			     	   exit-prices)
 			     (push max-pos max-poses)
 			     (push max-neg max-negses)
 			     (push revenue revenues)))
@@ -523,8 +534,6 @@
     	(:stdev-max-pos . ,(if (> (length max-poses) 0) (standard-deviation max-poses) 0))
     	(:avg-max-neg . ,(if (> (length max-negses) 0) (mean max-negses) 0))
     	(:stdev-max-neg . ,(if (> (length max-negses) 0) (standard-deviation max-negses) 0))
-    	;; (:max-max-pos . ,(if (> (length max-poses) 0) (apply #'max max-poses) 0))
-    	;; (:max-max-neg . ,(if (> (length max-negses) 0) (apply #'max max-negses) 0))
     	(:avg-tp . ,(if (> (length tps) 0) (mean tps) 0))
     	(:stdev-tp . ,(if (> (length tps) 0) (standard-deviation tps) 0))
     	(:avg-sl . ,(if (> (length sls) 0) (mean sls) 0))
@@ -701,12 +710,19 @@
 
 (defun get-agents-count (instrument timeframe types)
   (length (get-agents-some instrument timeframe types)))
+;; (get-agents-count :AUD_USD :M15 '((:SINGLE)))
 
 (defun eval-agent (agent rates)
   (let ((perception-fn (gen-perception-fn (perception-fns agent))))
-    (eval-ifis (funcall perception-fn rates)
-	       (read-str (slot-value agent 'antecedents))
-	       (read-str (slot-value agent 'consequents)))))
+    (cond ((eq *fis-method* :index)
+	   (eval-ifis-idx (funcall perception-fn rates)
+			  (read-str (slot-value agent 'antecedents))
+			  (read-str (slot-value agent 'consequents))))
+	  (t
+	   (eval-ifis-gen (funcall perception-fn rates)
+			  (read-str (slot-value agent 'antecedents))
+			  (read-str (slot-value agent 'consequents))))
+	  )))
 
 (defun gen-perception-fn (perception-params)
   (hsper:gen-perception-fn (read-str perception-params)))
@@ -722,9 +738,20 @@
 	do (update-agent-fitnesses instrument timeframe types agent rates))
   agents)
 
-(defun is-agent-dominated? (agent agents)
-  (if (= (length (slot-value agent 'tps)) 0)
-      t ;; AGENT is dominated.
+(defun -base-reject (agent)
+  "Used by AGENT-DOMINATED?-XXX."
+  (or (= (length (slot-value agent 'tps)) 0)
+      ;; (<= (slot-value agent 'total-return) 0)
+      (< (length (slot-value agent 'tps))
+  	 hscom.hsage:*min-num-trades-training*)))
+
+(defun agent-dominated?-pareto (agent agents &optional (logp nil))
+  (if (-base-reject agent)
+      ;; AGENT is dominated.
+      (progn
+  	(when logp
+  	  (log-agent :crap agent))
+  	t)
       (let* ((agent-id-0 (slot-value agent 'id))
 	     (avg-revenue-0 (slot-value agent 'avg-revenue))
 	     (trades-won-0 (slot-value agent 'trades-won))
@@ -735,7 +762,7 @@
 	     (activations-0 (slot-value agent 'activations))
 	     (returns-0 (slot-value agent 'returns))
 	     ;; (agent-directions (slot-value agent 'tps))
-	     ;; (stdev-revenue-0 (slot-value agent 'stdev-revenue))
+	     (stdev-revenue-0 (slot-value agent 'stdev-revenue))
 	     ;; (entry-times-0 (slot-value agent 'entry-times))
 	     (is-dominated? nil))
 	;; (format t "~a, ~a, ~a~%~%" avg-revenue-0 trades-won-0 trades-lost-0)
@@ -751,58 +778,43 @@
 			  (activations (slot-value agent 'activations))
 			  (returns (slot-value agent 'returns))
 			  ;; (agent-directions (slot-value agent 'tps))
-			  ;; (stdev-revenue (slot-value agent 'stdev-revenue))
+			  (stdev-revenue (slot-value agent 'stdev-revenue))
 			  ;; (entry-times (slot-value agent 'entry-times))
 			  )
 		     ;; Fitnesses currently being used.
-		     (when (or (<= total-return-0 0)
-			       (and (> (* agent-direction-0 agent-direction) 0)
-				    ;; (>= avg-revenue avg-revenue-0)
-				    ;; (< stdev-revenue stdev-revenue-0)
-				    ;; (>= trades-won trades-won-0)
-				    ;; (<= trades-lost trades-lost-0)
-				    ;; (>= avg-return avg-return-0)
-				    (>= total-return total-return-0)
-				    (activations-returns-dominated-p activations-0 returns-0 activations returns)
-				    ;; (>= (/ trades-won
-				    ;; 	      (+ trades-won trades-lost))
-				    ;; 	   (/ trades-won-0
-				    ;; 	      (+ trades-won-0 trades-lost-0)))
-				    ;; (vector-1-similarity entry-times entry-times-0)
-				    )
-			       )
+		     (when (or ;; (<= total-return-0 0)
+			    (and
+			     ;; (> (* agent-direction-0 agent-direction) 0)
+			     (>= avg-revenue avg-revenue-0)
+			     ;; (< stdev-revenue stdev-revenue-0)
+			     (>= trades-won trades-won-0)
+			     (<= trades-lost trades-lost-0)
+			     (>= avg-return avg-return-0)
+			     (>= total-return total-return-0)
+			     (>= (/ trades-won
+			     	      (+ trades-won trades-lost))
+			     	   (/ trades-won-0
+			     	      (+ trades-won-0 trades-lost-0)))
+			     ;; (vector-1-similarity entry-times entry-times-0)
+			     )
+			    )
 		       ;; Candidate agent was dominated.
-		       (let ((metric-labels '("AVG-REVENUE" "TRADES-WON" "TRADES-LOST" "AVG-RETURN" "TOTAL-RETURN")))
-			 (with-open-stream (s (make-string-output-stream))
-			   ;; (push-to-agents-log )
-			   (format s "<pre><b>(BETA) </b>Agent ID ~a~%" agent-id-0)
-			   (format-table s `((,(format nil "~6$" avg-revenue-0) ,trades-won-0 ,trades-lost-0 ,(format nil "~2$" avg-return-0) ,(format nil "~2$" total-return-0))) :column-label metric-labels)
-			   (format s "</pre>")
-			   (format s "<pre><b>(ALPHA) </b>Agent ID ~a~%" agent-id)
-			   (format-table s `((,(format nil "~6$" avg-revenue) ,trades-won ,trades-lost ,(format nil "~2$" avg-return) ,(format nil "~2$" total-return))) :column-label metric-labels)
-			   (format s "</pre><hr/>")
-		     
-			   ;; (format s "Fitnesses <b>~a</b>:<br/>~a: ~a<br/>~a: ~a<br/>~a: ~a"
-			   ;; 	agent-id-0
-			   ;; 	(symbol-name 'avg-revenue) avg-revenue-0
-			   ;; 	(symbol-name 'trades-won) trades-won-0
-			   ;; 	(symbol-name 'trades-lost) trades-lost-0)
-			   ;; (format s "Fitnesses (~a):<br/>~a: ~a<br/>~a: ~a<br/>~a: ~a<hr />"
-			   ;; 	agent-id
-			   ;; 	(symbol-name 'avg-revenue) avg-revenue
-			   ;; 	(symbol-name 'trades-won) trades-won
-			   ;; 	(symbol-name 'trades-lost) trades-lost)
-			   (push-to-agents-log (get-output-stream-string s))))
-		 
+		       (when logp
+			 (let ((metric-labels '("AVG-REVENUE" "TRADES-WON" "TRADES-LOST" "AVG-RETURN" "TOTAL-RETURN")))
+			   (with-open-stream (s (make-string-output-stream))
+			     (format s "<pre><b>(BETA) </b>Agent ID ~a~%" agent-id-0)
+			     (format-table s `((,(format nil "~6$" avg-revenue-0) ,trades-won-0 ,trades-lost-0 ,(format nil "~2$" avg-return-0) ,(format nil "~2$" total-return-0))) :column-label metric-labels)
+			     (format s "</pre>")
+			     (format s "<pre><b>(ALPHA) </b>Agent ID ~a~%" agent-id)
+			     (format-table s `((,(format nil "~6$" avg-revenue) ,trades-won ,trades-lost ,(format nil "~2$" avg-return) ,(format nil "~2$" total-return))) :column-label metric-labels)
+			     (format s "</pre><hr/>")
+			     (push-to-agents-log (get-output-stream-string s)))))
 		       (setf is-dominated? t)
 		       (return)))))
-	is-dominated?)))
+        is-dominated?)))
 
-(defun is-agent-dominated? (agent agents &optional (logp nil))
-  (if (or (= (length (slot-value agent 'tps)) 0)
-  	  (<= (slot-value agent 'total-return) 0)
-  	  (< (length (slot-value agent 'tps))
-  	     hscom.hsage:*min-num-trades-training*))
+(defun agent-dominated?-mactavator (agent agents &optional (logp nil))
+  (if (-base-reject agent)
       ;; AGENT is dominated.
       (progn
   	(when logp
@@ -915,81 +927,108 @@
 		   (push tp tps)
 		   (push corrected-sl sls)
 		   (push activation activations)
-		   (push (slot-value agent 'id) ids))
-		 )))
+		   (push (slot-value agent 'id) ids)))))
     ;; (format t "~a, ~a~%" (apply #'min activations) (apply #'max activations))
-    (let ((idxs (hsage.utils:sorted-indexes activations #'>))
-	  (tp 0)
-	  (sl 0)
-	  (dir 0)
-	  (activation 0)
-	  ;; (consensus t)
-	  (len (min hscom.hsage:*consensus-threshold* (length activations)))
-	  )
-      (setf tp (nth (position 0 idxs) tps))
-      (setf sl (nth (position 0 idxs) sls))
-      (setf activation (nth (position 0 idxs) activations))
+    (let* ((idxs (hsage.utils:sorted-indexes activations #'>))
+	   (tp (nth (position 0 idxs) tps))
+	   (sl (nth (position 0 idxs) sls))
+	   (activation (nth (position 0 idxs) activations))
+	   ;; (dir (if (plusp tp)
+      	   ;; 	    activation
+      	   ;; 	    (- activation)))
+	   (len (min hscom.hsage:*consensus-threshold* (length activations))))
 
       ;; Majority of agents must agree on direction.
-      ;; (when (< (length (loop for idx from 1 below len
-      ;; 			     collect (let* ((pos (position idx idxs))
-      ;; 					    (nth-tp (nth pos tps)))
-      ;; 				       (> (* nth-tp tp) 0))))
-      ;; 	       (/ (1+ len) 2))
-      ;; 	(setf tp 0)
-      ;; 	(setf sl 0)
-      ;; 	(setf activation 0))
+      ;; (let ((score (loop for idx from 0 below len
+      ;; 			 with score = 0
+      ;; 			 when (let ((nth-tp (nth (position idx idxs) tps)))
+      ;; 				(> (* nth-tp tp) 0))
+      ;; 			   do (incf score)
+      ;; 			 finally (return score))))
+      ;; 	(setf tp (* tp (/ score len)))
+      ;; 	(setf sl (* sl (/ len score)))
+      ;; 	;; (when (< score
+      ;; 	;; 	 (/ len 2))
+      ;; 	;;   (setf tp 0)
+      ;; 	;;   (setf sl 0)
+      ;; 	;;   (setf activation 0)
+      ;; 	;;   )
+      ;; 	)
 
-      
+      (unless (< len 3)
+	(let* ((bullish-acts (loop for idx from 0 below len
+				   when (plusp (nth (position idx idxs) tps))
+				     collect (nth (position idx idxs) activations)))
+	       (bearish-acts (loop for idx from 0 below len
+				   when (minusp (nth (position idx idxs) tps))
+				     collect (nth (position idx idxs) activations)))
+	       (idx-top-bullish (loop for idx from 0 below len
+				      do (when (plusp (nth (position idx idxs) tps))
+					   (return idx))))
+	       (idx-top-bearish (loop for idx from 0 below len
+				      do (when (minusp (nth (position idx idxs) tps))
+					   (return idx))))
+	       (bullish-act (when bullish-acts (mean bullish-acts)))
+	       (bearish-act (when bearish-acts (mean bearish-acts))))
+	  (when (and bullish-act bearish-act)
+	    (let ((pos (if (> bullish-act bearish-act)
+			   (position idx-top-bullish idxs)
+			   (position idx-top-bearish idxs))))
+	      (setf tp (nth pos tps))
+	      (setf sl (nth pos sls))
+	      (setf activation (nth pos activations))))))
+
+      ;; Cancel trade only if N-1 consensus agents disaggree with top agent.
+      ;; (let ((score (loop for idx from 1 below len
+      ;; 			 with score = 0
+      ;; 			 when (let ((nth-tp (nth (position idx idxs) tps)))
+      ;; 				;; Disagrees.
+      ;; 				(< (* nth-tp tp) 0))
+      ;; 			   do (incf score)
+      ;; 			 finally (return score))))
+      ;; 	(when (and (not (= score 0))
+      ;; 		   (= (1- hscom.hsage:*consensus-threshold*) score))
+      ;; 	  (setf tp 0)
+      ;; 	  (setf sl 0)
+      ;; 	  (setf activation 0)))
 
       ;; Using activation as weight to determine direction.
-      ;; (loop for idx from 0 below (length activations)
-      ;; 	    do (let* ((nth-tp (nth idx tps))
-      ;; 		      (nth-act (nth idx activations)))
+      ;; (loop for idx from 1 below len
+      ;; 	    do (let* ((pos (position idx idxs))
+      ;; 		      (nth-tp (nth pos tps))
+      ;; 		      (nth-act (nth pos activations)))
       ;; 		 (incf dir (if (plusp nth-tp)
       ;; 			       nth-act
       ;; 			       (- nth-act)))))
 
-      (loop for idx from 1 below len
-      	    do (let* ((pos (position idx idxs))
-      		      (nth-tp (nth pos tps))
-      		      (nth-sl (nth pos sls))
-		      (nth-act (nth idx activations)))
+      ;; (loop for idx from 1 below len
+      ;; 	    do (let* ((pos (position idx idxs))
+      ;; 		      (nth-tp (nth pos tps))
+      ;; 		      ;; (nth-sl (nth pos sls))
+      ;; 		      ;; (nth-act (nth idx activations))
+      ;; 		      )
 
-		 (incf dir (if (plusp nth-tp)
-      			       nth-act
-      			       (- nth-act)))
+      ;; 		 ;; (incf dir (if (plusp nth-tp)
+      ;; 		 ;; 	       nth-act
+      ;; 		 ;; 	       (- nth-act)))
 
-      		 ;; ;; consensus
-      		 ;; (when (< (* nth-tp tp) 0)
-      		 ;;   (setf consensus nil)
-      		 ;;   (return))
-
-      		 ;; (when (< (* nth-tp tp) 0)
-      		 ;;   (setf tp 0)
-      		 ;;   (setf sl 0)
-      		 ;;   (return))
+      ;; 		 (when (< (* nth-tp tp) 0)
+      ;; 		   (setf tp 0)
+      ;; 		   (setf sl 0)
+      ;; 		   (return))
 		 
-      		 ;; (when (or (= tp 0) (< (abs nth-tp) (abs tp)))
-      		 ;; 	(setf tp nth-tp))
-      		 ;; (when (or (= sl 0) (< (abs nth-sl) (abs sl)))
-      		 ;; 	(setf sl nth-sl))
-      		 ;; (when (or (= tp 0) (< (abs nth-tp) (abs tp)))
-      		 ;; 	(setf tp nth-tp))
-      		 ;; (when (or (= sl 0) (< (abs nth-sl) (abs sl)))
-      		 ;; 	(setf sl nth-sl))
-      		 (incf tp nth-tp)
-      		 (incf sl nth-sl)
-      		 ))
-      ;; (push consensus *consensus*)
+      ;; 		 ;; (incf tp (abs nth-tp))
+      ;; 		 ;; (incf sl (abs nth-sl))
+      ;; 		 ))
+
       (values (/ tp 1)
       	      (/ sl 1)
       	      activation
       	      (list (nth (position 0 idxs) ids)))
 
       ;; (values
-      ;;  (/ (* (abs tp) (if (/= dir 0) (/ dir (abs dir)) 0)) len)
-      ;;  (/ (* (abs sl) (if (/= dir 0) (- (/ dir (abs dir))) 0)) len)
+      ;;  (/ (* (abs tp) (if (/= dir 0) (/ dir (abs dir)) 0)) 1)
+      ;;  (/ (* (abs tp) (if (/= dir 0) (- (/ dir (abs dir))) 0)) 1)
       ;;  activation
       ;;  (list (nth (position 0 idxs) ids))
       ;;  )
@@ -1033,7 +1072,7 @@
 			  (< (* tp sl) 0)
 			  (> (abs (/ tp sl))
 			     hscom.hsage:*agents-min-rr-signal*)
-			  (> (abs (to-pips instrument sl)) 3)
+			  (> (abs (to-pips instrument sl)) *min-pips-sl*)
 			  ;; (< (to-pips instrument (abs sl)) 20)
 			  (/= (assoccess test-fitnesses :trades-won) 0)
 			  (/= (+ (assoccess test-fitnesses :trades-won)
@@ -1056,7 +1095,9 @@
   (unless (get-patterns instrument timeframe '(:BEARISH))
     (insert-pattern instrument timeframe :BEARISH))
   (unless (get-patterns instrument timeframe '(:STAGNATED))
-    (insert-pattern instrument timeframe :STAGNATED)))
+    (insert-pattern instrument timeframe :STAGNATED))
+  (unless (get-patterns instrument timeframe '(:SINGLE))
+    (insert-pattern instrument timeframe :SINGLE)))
 
 (defun init-patterns ()
   (loop for instrument in hscom.hsage:*instruments*
@@ -1298,6 +1339,25 @@ you"))
 ;; Choose perception functions
 ;; Choose input-outputs
 
+(defun plot-xy (xs ys)
+  (let ((output #P"/tmp/hermes-plot-xy.txt"))
+    (eazy-gnuplot:with-plots (*standard-output* :debug nil)
+      (eazy-gnuplot:gp-setup :xlabel "X"
+			     :ylabel "Y"
+			     :output output
+			     :terminal :dumb)
+      (loop for x in xs
+	    for y in ys
+	    do (eazy-gnuplot:plot (lambda ()
+				    (loop for x in x
+					  for y in y
+					  do (format t "~&~a ~a" x y)))
+				  :using '(1 2)
+				  :title ""
+				  :with '(:linespoint))))
+    (string-trim '(#\Page #\Newline) (hscom.utils:file-get-contents output))))
+;; (plot-xy (list (iota 10) (iota 10 :start 1)) (list (iota 10) (iota 10 :start 5)))
+
 (defun plot-rates (rates &optional (type :close-frac))
   (let ((output #P"/tmp/hermes-plot-rates.txt"))
     (eazy-gnuplot:with-plots (*standard-output* :debug nil)
@@ -1461,8 +1521,45 @@ you"))
 					 :direction-fn opposite-pred))))
 ;; (get-same-direction-outputs-idxs *rates* :lookahead-count 5)
 
+(defun get-same-direction-outputs-idxs-all (instrument rates &key (lookahead-count 10) (lookbehind-count 10) direction-fn)
+  (let* ((r (random-float 0 1))
+	 (pred (if direction-fn direction-fn (if (> r 0.5) #'plusp #'minusp)))
+	 (opposite-pred (if (> r 0.5) #'minusp #'plusp))
+	 (idxs (iota (- (length rates) lookahead-count lookbehind-count) :start lookbehind-count))
+	 (result))
+    (loop for idx in idxs
+	  do (let ((tp-sl (get-tp-sl (subseq rates idx) lookahead-count)))
+	       (when (and (funcall pred (assoccess tp-sl :tp))
+			  (/= (assoccess tp-sl :sl) 0)
+			  (> (abs (assoccess tp-sl :sl)) (from-pips instrument hscom.hsage:*min-sl*))
+			  (> (abs (/ (assoccess tp-sl :tp)
+				     (assoccess tp-sl :sl)))
+			     hscom.hsage:*agents-min-rr-creation*)
+			  (or (eq instrument :USD_CNH)
+			      (< (abs (assoccess tp-sl :tp)) (from-pips instrument hscom.hsage:*max-tp*))))
+		 (push idx result))))
+    (if (> (length result) 1)
+	result
+	(get-same-direction-outputs-idxs-all instrument rates
+					 :lookahead-count lookahead-count
+					 :lookbehind-count lookbehind-count
+					 :direction-fn opposite-pred))))
+;; (length (get-same-direction-outputs-idxs-all :AUD_USD *rates* :lookahead-count 10))
+
 (defun get-inputs-outputs (num-rules instrument rates perception-fn lookahead-count lookbehind-count &key direction-fn)
-  (let* ((idxs (sort (remove-duplicates (get-same-direction-outputs-idxs instrument rates num-rules :lookahead-count lookahead-count :lookbehind-count lookbehind-count :direction-fn direction-fn)) #'<))
+  (let* ((idxs (sort (remove-duplicates
+		      (if *exhaust-rules-in-creation-dataset-p*
+			  (get-same-direction-outputs-idxs-all
+			   instrument rates
+			   :lookahead-count lookahead-count
+			   :lookbehind-count lookbehind-count
+			   :direction-fn direction-fn)
+			  (get-same-direction-outputs-idxs
+			   instrument rates num-rules
+			   :lookahead-count lookahead-count
+			   :lookbehind-count lookbehind-count
+			   :direction-fn direction-fn)))
+		     #'<))
 	 (chosen-inputs (loop for idx in idxs collect (funcall perception-fn (get-input-dataset rates idx))))
 	 (chosen-outputs (loop for idx in idxs collect (get-tp-sl (get-output-dataset rates idx) lookahead-count))))
     (values chosen-inputs chosen-outputs idxs)))
@@ -1473,14 +1570,26 @@ you"))
    (let* ((v (loop
 	       for inputs in (apply #'mapcar #'list inputs)
 	       for idx from 0
-	       collect (let* ((min-input (apply #'min inputs))
-			      (max-input (apply #'max inputs))
+	       collect (let* (;; (min-input (apply #'min inputs))
+			      ;; (max-input (apply #'max inputs))
+			      (inputs (sort (copy-sequence 'list inputs) #'<))
 			      (v (flatten (loop
+					    for i from 0
 					    for input in inputs
+					    with max-inp-idx = (1- (length inputs))
 					    collect (list
-						     (vector min-input input)
-						     (vector max-input input)
-						     )))))
+						     (if (= i 0)
+							 (vector input input)
+							 (vector (nth (1- i) inputs) input))
+						     (if (= i max-inp-idx)
+							 (vector input input)
+							 (vector (nth (1+ i) inputs) input))
+						     )
+					    ;; collect (list
+					    ;; 	     (vector min-input input)
+					    ;; 	     (vector max-input input)
+					    ;; 	     )
+					    ))))
 			 (make-array (length v) :initial-contents v)))))
      (make-array (length v) :initial-contents v))
    (let* ((one-set-outputs
@@ -1534,7 +1643,7 @@ you"))
   ;; Don't return anything.
   (values))
 
-(defun optimization (instrument timeframe types gen-agent-fn rates seconds)
+(defun optimization (instrument timeframe types gen-agent-fn rates stop-count &optional (stop-criterion))
   ;; Checking if we need to initialize the agents collection.
   (let ((agents (if-let ((agents (get-agents-some instrument timeframe types)))
 		  (update-agents-fitnesses instrument timeframe types agents rates)
@@ -1542,12 +1651,15 @@ you"))
 			collect (evaluate-agent instrument timeframe (funcall gen-agent-fn) rates))))
 	(purged-agents))
     (push-to-log (format nil "~a agents retrieved to start optimization." (length agents)))
-    (push-to-log (format nil "Performing optimization for ~a seconds." seconds))
     (push-to-agents-log (format nil "<h4>~a (~a, ~a)</h4>~%" instrument (car types) (length agents)))
     (loop with first-iteration-p = t
-	  with until-timestamp = (local-time:timestamp+ (local-time:now) seconds :sec)
+	  with until-timestamp = (local-time:timestamp+ (local-time:now) stop-count :sec)
+	  with evaluations = 0
 	  do (if (and (not first-iteration-p)
-		      (local-time:timestamp> (local-time:now) until-timestamp))
+		      ;; (local-time:timestamp> (local-time:now) until-timestamp)
+		      (if (eq stop-criterion :time)
+		      	  (local-time:timestamp> (local-time:now) until-timestamp)
+		      	  (> evaluations stop-count)))
 		 (progn
 		   ;; Inserting new agents in Pareto Frontier.
 		   (push-to-log (format nil "Updating Pareto frontier with ~a agents." (length agents)))
@@ -1558,26 +1670,41 @@ you"))
 				    (add-agent agent instrument timeframe types))))
 		   (push-to-log "Pareto frontier updated successfully.")
 		   (return))
-		 (let* ((challenger (list (evaluate-agent instrument timeframe (funcall gen-agent-fn) rates)))
-			(is-dominated? (when hscom.hsage:*optimize-p*
-					 (is-agent-dominated? (car challenger) agents t))))
-		   ;; No longer the first iteration after this.
-		   (setf first-iteration-p nil)
-		   ;; Logging agent direction.
-		   (push-to-agent-directions-log instrument timeframe types (slot-value (first challenger) 'avg-tp))
-		   (unless is-dominated?
-		     ;; Purging agents.
-		     (loop for in-trial in agents
-			   do (if (and hscom.hsage:*optimize-p*
-				       (is-agent-dominated? in-trial challenger))
-				  (progn
-				    (push-to-log (format nil "Removing agent with ID ~a" (slot-value in-trial 'id)))
-				    (push-to-agents-log (format nil "Removing agent with ID ~a" (slot-value in-trial 'id)))
-				    (remove-agent in-trial instrument timeframe types))
-				  (push in-trial purged-agents)))
-		     (push (first challenger) purged-agents)
-		     (setf agents purged-agents)
-		     (setf purged-agents nil)))))))
+		 (block opt
+		   (let* ((challenger (list (evaluate-agent instrument timeframe (funcall gen-agent-fn) rates)))
+			  (is-dominated? (when hscom.hsage:*optimize-p*
+					   (agent-dominated?-pareto (car challenger) agents t))))
+		     ;; No longer the first iteration after this.
+		     (setf first-iteration-p nil)
+		     ;; Logging agent direction.
+		     (push-to-agent-directions-log instrument timeframe types (slot-value (first challenger) 'avg-tp))
+		     (incf evaluations)
+		     (when (and (> evaluations stop-count)
+		     		(eq stop-criterion :evaluations))
+		       (return-from opt))
+		     (unless is-dominated?
+		       ;; Purging agents.
+		       (loop named trials
+			     for in-trial in agents
+			     do (progn
+				  ;; (incf evaluations)
+				  (if (and hscom.hsage:*optimize-p*
+					   (agent-dominated?-pareto in-trial challenger))
+				      (progn
+					(push-to-log (format nil "Removing agent with ID ~a" (slot-value in-trial 'id)))
+					(push-to-agents-log (format nil "Removing agent with ID ~a" (slot-value in-trial 'id)))
+					(remove-agent in-trial instrument timeframe types))
+				      (push in-trial purged-agents))
+				  (when (and (> evaluations stop-count)
+				  	     (eq stop-criterion :evaluations))
+				    (return-from trials))
+				  ))
+		       (push (first challenger) purged-agents)
+		       (setf agents purged-agents)
+		       (setf purged-agents nil)
+		       (when (and (> evaluations stop-count)
+		       		  (eq stop-criterion :evaluations))
+			 (return-from opt)))))))))
 
 (defun agents-to-alists (agents)
   (let* ((agents-props (prepare-agents-properties agents))
@@ -1728,7 +1855,7 @@ you"))
 	  :where (:<= 'idx '$1))
 	 limit
 	 :alists)))
-;; (get-trades-grouped)
+;; (get-trades-grouped 10)
 
 (defun -get-trades-nested (limit)
   (conn (query (:select 
@@ -1775,7 +1902,6 @@ you"))
 						  :group-by 'patterns.instrument))))
 	       limit
 	       :alists)))
-
 ;; (length (-get-trades-nested 20))
 
 (defun get-trades-nested (limit)
@@ -1824,6 +1950,7 @@ you"))
 	 ;; 		    summing (assoccess trade :test-trades-lost)))
 	 ;; (total-return (loop for trade in trades
 	 ;; 		     summing (assoccess trade :test-total-return)))
+	 (test-trades-count 0)
 	 )
     (when trades
       ;; (format t "Total trades won: ~a. Total trades lost: ~a. Total trades: ~a. ~%Total return: ~a. Avg return: ~a.~%~%"
@@ -1840,12 +1967,15 @@ you"))
 		;; summing (to-pips
 		;; 	  (assoccess trade :instrument)
 		;; 	  (assoccess trade :result))
-		summing (to-pips
-			 (assoccess trade :instrument)
-			 (assoccess trade :test-avg-revenue))
+		summing (progn
+			  (incf test-trades-count (+ (assoccess trade :test-trades-won)
+						     (assoccess trade :test-trades-lost)))
+			  (to-pips
+			   (assoccess trade :instrument)
+			   (assoccess trade :test-avg-return)))
 		)
 	  (length trades))
-       (length trades))
+       test-trades-count)
       ;; (loop for trade in trades
       ;; 	    do (format t "market: :~a, result: ~a, test-total-return: ~5$, test-trades-won: ~a, test-trades-lost: ~a, rr: ~a~%"
       ;; 		       (assoccess trade :instrument)
@@ -1916,11 +2046,190 @@ you"))
 	      )))
  )
 
+(defun analysis (&key (granularity 10) (return-results-p nil) (label ""))
+  (let* ((trades (conn (query (:select 'trades.creation-time
+				       'trades.test-trades-won
+				       'trades.test-trades-lost
+				       'trades.test-avg-revenue
+				       'trades.test-avg-activation
+				       'trades.test-avg-return
+				       'trades.test-total-return
+				       'trades.tp
+				       'trades.sl
+				       'trades.activation
+				       'trades.decision
+				       'trades.result
+				       'trades.entry-price
+				       'trades.entry-time
+				       'trades.test-activations
+				       'trades.test-revenues
+				       'trades.test-returns
+				       :from 'trades
+				       :where (:= 'label label))
+			      :alists))))
+    (when trades
+      (let* ((acts (flatten (loop for trade in trades
+				  collect (coerce (assoccess trade :test-activations) 'list))))
+	     (revs (flatten (loop for trade in trades
+				  collect (coerce (assoccess trade :test-revenues) 'list))))
+	     (rets (flatten (loop for trade in trades
+				  collect (coerce (assoccess trade :test-returns) 'list)))))
+	(when (and acts revs rets (> (length acts) granularity))
+	  (unless return-results-p
+	    (format t "# of trades: ~a~%~%" (length acts)))
+	  ;; Uniform distribution returns.
+	  (let ((step (floor (/ (length acts) granularity)))
+      		(sorted-acts (hsage.utils:sorted-indexes acts #'<)))
+	    (unless return-results-p
+	      (format t "Competence Mean-Return SD-Return Mean-Revenue SD-Revenue Mean-Wins SD-Wins Precision Wins Losses Max-Returns Min-Returns n~%"))
+	    (let ((results (loop for ceiling from 0 below (- (length acts) step) by step
+      				 collect (let ((filtered-rets (loop for i from ceiling below (+ ceiling step)
+      								    collect (nth (position i sorted-acts) rets)))
+					       (filtered-revs (loop for i from ceiling below (+ ceiling step)
+      								    collect (nth (position i sorted-acts) revs))))
+					   (list (nth (position ceiling sorted-acts) acts)
+      						 (nth (position (+ ceiling step) sorted-acts) acts)
+						 (if filtered-rets
+      						     (mean filtered-rets)
+      						     0.0)
+						 (if filtered-rets
+      						     (standard-deviation filtered-rets)
+      						     0.0)
+						 (if filtered-revs
+      						     (mean filtered-revs)
+      						     0.0)
+						 (if filtered-revs
+      						     (standard-deviation filtered-revs)
+      						     0.0)
+						 (if filtered-rets
+      						     (if (remove-if-not #'plusp filtered-rets)
+							 (mean (remove-if-not #'plusp filtered-rets))
+							 0.0)
+      						     0.0)
+						 (if filtered-rets
+      						     (if (remove-if-not #'plusp filtered-rets)
+							 (standard-deviation (remove-if-not #'plusp filtered-rets))
+							 0.0)
+      						     0.0)
+						 (if filtered-rets
+      						     (* 100
+							(/ (length (remove-if-not #'plusp filtered-rets))
+							   (+ (length (remove-if-not #'plusp filtered-rets))
+							      (length (remove-if-not #'minusp filtered-rets)))))
+      						     0.0)
+						 (if filtered-rets
+      						     (length (remove-if-not #'plusp filtered-rets))
+      						     0.0)
+						 (if filtered-rets
+      						     (length (remove-if-not #'minusp filtered-rets))
+      						     0.0)
+						 (if filtered-rets
+      						     (apply #'max filtered-rets)
+      						     0.0)
+						 (if filtered-rets
+      						     (apply #'min filtered-rets)
+      						     0.0)
+						 (if filtered-rets
+      						     (length filtered-rets)
+      						     0.0))
+					   ))))
+	      (if return-results-p
+		  results
+		  (loop for result in results
+			do (apply #'format t "~2$-~2$ ~5$ ~5$ ~5$ ~5$ ~5$ ~5$ ~2$ ~a ~a ~5$ ~a ~a~%" result))))
+      	    ))))))
+;; (analysis :label "consensus-1" :granularity 20)
+;; (analysis :label (format nil "consensus-~a" hscom.hsage:*consensus-threshold*) :granularity 10)
+
+;; Plots
+;; Per market comparisons
+;; First quadrant, second quadrant, second half, etc.
+;; All together per market, all together
+;; Table with means and standard deviations. Hypothesis testing.
+
+(defun hypothesis-test (&key (numerator 0) (denominator 100) (granularity 100))
+  (let* ((label hscom.hsage:*consensus-threshold*)
+	 (no-results (analysis :granularity granularity :label "consensus-1" :return-results-p t))
+	 (yes-results (analysis :granularity granularity :label (format nil "consensus-~a" label) :return-results-p t)))
+    (when (and no-results yes-results)
+      (let ((n1 (reduce #'+ (mapcar #'last-elt (subseq no-results (* numerator (ceiling (/ (length no-results) denominator)))))))
+	    (mu1 (mean (mapcar #'third (subseq no-results (* numerator (ceiling (/ (length no-results) denominator)))))))
+	    (sd1 (mean (mapcar #'fourth (subseq no-results (* numerator (ceiling (/ (length no-results) denominator)))))))
+	    (n2 (reduce #'+ (mapcar #'last-elt (subseq yes-results (* numerator (ceiling (/ (length yes-results) denominator)))))))
+	    (mu2 (mean (mapcar #'third (subseq yes-results (* numerator (ceiling (/ (length yes-results) denominator)))))))
+	    (sd2 (mean (mapcar #'fourth (subseq yes-results (* numerator (ceiling (/ (length yes-results) denominator))))))))
+	(when (and (> sd1 0) (> sd2 0))
+	  (format t "NO CONSENSUS~%")
+	  (format t "n: ~a~%" n1)
+	  (format t "Mean: ~a~%" mu1)
+	  (format t "SD: ~a~%" sd1)
+	  (format t "~%CONSENSUS~%")
+	  (format t "n: ~a~%" n2)
+	  (format t "Mean: ~a~%" mu2)
+	  (format t "SD: ~a~%" sd2)
+	  (multiple-value-bind (significance t-statistic)
+	      (hsage.stat:t-test-two-sample mu1 sd1 n1 mu2 sd2 n2)
+	    (format t "~%significance: ~a~%" significance)
+	    (format t "t-statistic: ~a~%~%" t-statistic)))))
+    )
+  )
+;; (hypothesis-test)
+
+;; (length (aref (read-str (antecedents (first (get-agents-some :AUD_USD :M15 '((:SINGLE)))))) 0))
+
+;; (get-agents-count :AUD_USD :M15 '((:SINGLE)))
+;; (get-agents-count :USD_CHF :M15 '((:SINGLE)))
+;; (get-agents-count :EUR_USD :M15 '((:SINGLE)))
+
+
+;; (mean (mapcar #'third (analysis :granularity 10 :label "consensus-1" :return-results-p t)))
+;; (mean (mapcar #'third (analysis :granularity 10 :label "consensus-5" :return-results-p t)))
+;; (mean (mapcar #'fourth (analysis :granularity 10 :label "consensus-1" :return-results-p t)))
+;; (mean (mapcar #'fourth (analysis :granularity 10 :label "consensus-5" :return-results-p t)))
+
+(comment
+ (let ((granularity 10)
+       (lbls `(1 ,hscom.hsage:*consensus-threshold*)))
+   (plot-xy
+    (loop for label in lbls
+	  collect (loop for result in (analysis :granularity granularity :return-results-p t :label (format nil "consensus-~a" label))
+			collect (format nil "~2$-~2$" (first result) (second result))))
+    (loop for label in lbls
+	  collect (loop for result in (analysis :granularity granularity :return-results-p t :label (format nil "consensus-~a" label))
+			collect (format nil "~5$" (nth 2 result))))
+    ))
+
+ ;; Single mean return.
+ (let ((granularity 10)
+       (label 1))
+   (plot-xy
+    (list (loop for result in (analysis :granularity granularity :return-results-p t :label (format nil "consensus-~a" label))
+		collect (format nil "~2$-~2$" (first result) (second result))))
+    (list (loop for result in (analysis :granularity granularity :return-results-p t :label (format nil "consensus-~a" label))
+		collect (format nil "~5$" (nth 2 result))))))
+
+ ;; SD-Return.
+ (let ((granularity 10))
+   (plot-xy
+    (loop for result in (analysis granularity t)
+	  collect (format nil "~2$-~2$" (first result) (second result)))
+    (loop for result in (analysis granularity t)
+	  collect (format nil "~5$" (nth 3 result)))))
+
+ ;; Precision.
+ (let ((granularity 10))
+   (plot-xy
+    (loop for result in (analysis granularity t)
+	  collect (format nil "~2$-~2$" (first result) (second result)))
+    (loop for result in (analysis granularity t)
+	  collect (format nil "~5$" (nth 6 result)))))
+ )
+
 (comment
  (loop for instrument in hscom.hsage:*instruments*
        do (progn
 	    (format t "~a: " instrument)
-	    (loop for type in '((:bullish) (:bearish) (:stagnated))
+	    (loop for type in '((:single))
 		  do (format t "~a, " (length (get-agents-some instrument hscom.hsage:*train-tf* type))))
 	    (format t "~%"))
        finally (describe-trades 300 (lambda (trade) (and (not (eq (assoccess trade :activation) :null))

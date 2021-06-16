@@ -96,6 +96,7 @@
    (unless (table-exists-p 'trades)
      (query (:create-table 'trades
 			   ((id :type string)
+			    (label :type string)
 			    (agent-id :type (or db-null string))
 			    (creation-time :type integer)
 			    (decision :type string)

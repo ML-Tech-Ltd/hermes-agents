@@ -1,9 +1,8 @@
 ;; (ql:quickload :hermes-agents)
-;; (ql:quickload :mlforecasting)
-;; (mlforecasting:start :port 2001)
-;; (loop-optimize-test)
+;; (time (loop-optimize-test))
 ;; (clerk:calendar)
 ;; (progn (drop-database) (init-database) (init-patterns) (clear-logs) (when hscom.all:*is-production* (clear-jobs)))
+;; (progn (drop-database) (init-database))
 
 (defpackage hermes-agents
   (:use #:cl
@@ -23,7 +22,12 @@
 	#:hermes-agents.utils
 	#:hermes-agents.log)
   (:import-from #:hscom.utils
-		#:assoccess)
+		#:assoccess
+		#:dbg)
+  (:import-from #:hscom.hsage
+		#:*cores-count*
+		#:*iterations*
+		#:*print-hypothesis-test*)
   (:import-from #:hsage.log
 		#:log-stack
 		#:clear-logs)
@@ -38,7 +42,6 @@
 		#:add-agent
 		#:sync-agents
 		#:remove-agent
-		#:is-agent-dominated?
 		#:get-agents-count
 		#:wipe-agents
 		#:get-agent
@@ -70,9 +73,12 @@
 ;; (hsage.utils:refresh-memory)
 
 (setf lparallel:*kernel* (lparallel:make-kernel
-			  (let ((ideal-cores-count (1- (cl-cpus:get-number-of-processors))))
-			    (if (/= ideal-cores-count 0)
-				ideal-cores-count 1))))
+			  (if (or (<= *cores-count* 0)
+				  (>= *cores-count* (1- (cl-cpus:get-number-of-processors))))
+			      (let ((ideal-cores-count (1- (cl-cpus:get-number-of-processors))))
+				(if (/= ideal-cores-count 0)
+				    ideal-cores-count 1))
+			      *cores-count*)))
 
 (defun clear-jobs ()
   (when (> (length clerk:*jobs*) 0)
@@ -137,53 +143,62 @@
   (push-to-log (format nil "Trying to create signal for ~a ~a." instrument timeframe))
   (if hscom.hsage:*use-nested-signals-p*
       (test-most-activated-agents instrument timeframe type-groups testing-dataset :test-size hscom.hsage:*test-size*)
-      (test-agents instrument timeframe type-groups testing-dataset :test-size hscom.hsage:*test-size*)))
+      (progn
+	(let ((hscom.hsage:*consensus-threshold* 1))
+	  (test-agents instrument timeframe type-groups testing-dataset :test-size hscom.hsage:*test-size* :label (format nil "consensus-~a" hscom.hsage:*consensus-threshold*)))
+	(when (> hscom.hsage:*consensus-threshold* 1)
+	  (test-agents instrument timeframe type-groups testing-dataset :test-size hscom.hsage:*test-size* :label (format nil "consensus-~a" hscom.hsage:*consensus-threshold*))))))
 
 ;; TODO: Rename everywhere from TYPE -> STAGE where applicable (type being :creation, :training or :testing).
 ;; Most of the time TYPE is '(:BULLISH), for example.
 ;; TODO: Rename everywhere from TYPE/TYPES to PATTERN/PATTERNS.
 (defun -loop-get-dataset (instrument timeframe types stage dataset)
   "Stage can be :training or :creation."
-  (let ((type (first (flatten types))))
-    (if-let ((begin-end (gethash (list instrument timeframe type stage) hsinp.rates:*creation-training-datasets*)))
-      (let ((begin-time (first begin-end))
-	    (end-time (second begin-end)))
-	(hsinp.rates:get-rates-range-big instrument timeframe begin-time end-time))
-      (multiple-value-bind (from to)
-	  (get-rates-chunk-of-types dataset types
-				    :slide-step (if (eq stage :training)
-						    hscom.hsage:*train-slide-step*
-						    hscom.hsage:*creation-slide-step*)
-				    :min-chunk-size (if (eq stage :training)
-							hscom.hsage:*train-min-chunk-size*
-							hscom.hsage:*creation-min-chunk-size*)
-				    :max-chunk-size (if (eq stage :training)
-							hscom.hsage:*train-max-chunk-size*
-							hscom.hsage:*creation-max-chunk-size*)
-				    :stagnation-threshold hscom.hsage:*stagnation-threshold*)
-	(let ((ds (subseq dataset from to)))
-	  (push-to-log (format nil "~a dataset created successfully. Size: ~s. Dataset from ~a to ~a."
-			       stage
-			       (length ds)
-			       (local-time:unix-to-timestamp (/ (read-from-string (assoccess (first ds) :time)) 1000000))
-			       (local-time:unix-to-timestamp (/ (read-from-string (assoccess (last-elt ds) :time)) 1000000))))
-	  ds)))))
+  (let* ((type (first (flatten types)))
+	 (begin-end (gethash (list instrument timeframe type stage) hsinp.rates:*creation-training-datasets*)))
+    (cond (begin-end (let ((begin-time (first begin-end))
+			   (end-time (second begin-end)))
+		       (hsinp.rates:get-rates-range-big instrument timeframe begin-time end-time)))
+	  ((eq type :single) dataset)
+	  (t (multiple-value-bind (from to)
+		 (get-rates-chunk-of-types dataset types
+					   :slide-step (if (eq stage :training)
+							   hscom.hsage:*train-slide-step*
+							   hscom.hsage:*creation-slide-step*)
+					   :min-chunk-size (if (eq stage :training)
+							       hscom.hsage:*train-min-chunk-size*
+							       hscom.hsage:*creation-min-chunk-size*)
+					   :max-chunk-size (if (eq stage :training)
+							       hscom.hsage:*train-max-chunk-size*
+							       hscom.hsage:*creation-max-chunk-size*)
+					   :stagnation-threshold hscom.hsage:*stagnation-threshold*)
+	       (let ((ds (subseq dataset from to)))
+		 (push-to-log (format nil "~a dataset created successfully. Size: ~s. Dataset from ~a to ~a."
+				      stage
+				      (length ds)
+				      (local-time:unix-to-timestamp (/ (read-from-string (assoccess (first ds) :time)) 1000000))
+				      (local-time:unix-to-timestamp (/ (read-from-string (assoccess (last-elt ds) :time)) 1000000))))
+		 ds))))))
 
 (defun -loop-optimize (instrument timeframe types full-creation-dataset full-training-dataset agents-count)
   (let* ((training-dataset (-loop-get-dataset instrument timeframe types :training full-training-dataset))
 	 (creation-dataset (-loop-get-dataset instrument timeframe types :creation full-creation-dataset)))
     (push-to-log "<b>OPTIMIZATION.</b><hr/>")
     (push-to-log (format nil "~a agents retrieved for pattern ~s." agents-count types))
-    (optimization instrument timeframe types
-		  (lambda () (let ((beliefs (gen-random-perceptions hscom.hsage:*number-of-agent-inputs*)))
-			       (gen-agent hscom.hsage:*number-of-agent-rules*
-					  instrument
-					  creation-dataset
-					  (assoccess beliefs :perception-fns)
-					  (assoccess beliefs :lookahead-count)
-					  (assoccess beliefs :lookbehind-count))))
-		  training-dataset
-		  hscom.hsage:*seconds-to-optimize-per-pattern*)
+    (let ((hscom.hsage:*consensus-threshold* 1))
+      (optimization instrument timeframe types
+		    (lambda () (let ((beliefs (gen-random-perceptions hscom.hsage:*number-of-agent-inputs*)))
+				 (gen-agent hscom.hsage:*number-of-agent-rules*
+					    instrument
+					    creation-dataset
+					    (assoccess beliefs :perception-fns)
+					    (assoccess beliefs :lookahead-count)
+					    (assoccess beliefs :lookbehind-count))))
+		    training-dataset
+		    (if (eq hscom.hsage:*stop-criteria* :time)
+			hscom.hsage:*seconds-to-optimize-per-pattern*
+			hscom.hsage:*optimization-agent-evaluations*)
+		    hscom.hsage:*stop-criteria*))
     (push-to-log "Optimization process completed.")
     (push-to-log "Syncing agents.")
     (sync-agents instrument timeframe types)))
@@ -195,14 +210,18 @@
 		       (local-time:unix-to-timestamp (/ (read-from-string (assoccess (last-elt dataset) :time)) 1000000)))))
 
 (defun -loop-get-rates (instrument timeframe)
-  ;; We don't want our data feed provider to ban us.
-  (sleep 1)
-  (fracdiff
-   (if hscom.all:*is-production*
-       (get-rates-count-big instrument timeframe
-			    (+ hscom.hsage:*max-creation-dataset-size* hscom.hsage:*max-training-dataset-size* hscom.hsage:*max-testing-dataset-size*))
-       (get-rates-random-count-big instrument timeframe
-				   (+ hscom.hsage:*max-creation-dataset-size* hscom.hsage:*max-training-dataset-size* hscom.hsage:*max-testing-dataset-size*)))))
+  (let ((size (max (+ hscom.hsage:*max-creation-dataset-size*
+		      hscom.hsage:*max-training-dataset-size*
+		      hscom.hsage:*max-testing-dataset-size*)
+		   ;; For fracdiff.
+		   5000)))
+    (fracdiff
+     (if hscom.all:*is-production*
+	 (progn
+	   ;; We don't want our data feed provider to ban us.
+	   (sleep 1)
+	   (get-rates-count-big instrument timeframe size))
+	 (get-rates-random-count-big instrument timeframe size)))))
 
 (defun -loop-test-all ()
   "We run this every `hscom.hsage:*seconds-interval-testing*` seconds."
@@ -226,17 +245,17 @@
 		  (push-to-log (format nil "<br/><b>STARTING ~s ~s.</b><hr/>" instrument timeframe))
 		  (let* ((rates (-loop-get-rates instrument timeframe))
 			 (dataset-size (length rates)))
-		    (let ((full-training-dataset (subseq rates
-							 (- dataset-size
-							    hscom.hsage:*max-testing-dataset-size*
-							    hscom.hsage:*max-training-dataset-size*)
-							 (- dataset-size
-							    hscom.hsage:*max-testing-dataset-size*)))
-			  (full-creation-dataset (subseq rates
-							 0
-							 (- dataset-size
-							    hscom.hsage:*max-testing-dataset-size*
-							    hscom.hsage:*max-training-dataset-size*)))
+		    (let* ((full-training-dataset (subseq rates
+							  (- dataset-size
+							     hscom.hsage:*max-testing-dataset-size*
+							     hscom.hsage:*max-training-dataset-size*)
+							  (- dataset-size
+							     hscom.hsage:*max-testing-dataset-size*)))
+			   (full-creation-dataset (subseq rates
+							  0
+							  (- dataset-size
+							     hscom.hsage:*max-testing-dataset-size*
+							     hscom.hsage:*max-training-dataset-size*)))
 			  (testing-dataset (when (not hscom.all:*is-production*)
 					     (let ((dataset (subseq rates
 								    (- dataset-size
@@ -252,7 +271,10 @@
 			(-loop-test instrument timeframe hscom.hsage:*type-groups* testing-dataset))))
 		  (-loop-validate))
 		(hsage.utils:refresh-memory)
-		(sync-datasets-to-database)))
+		(sync-datasets-to-database)
+		(when *print-hypothesis-test*
+		  (hsage.trading::hypothesis-test))
+		))
 	hscom.hsage:*instruments*)
   (unless hscom.all:*is-production*
     (wipe-agents)))
@@ -269,5 +291,8 @@
     ;; run every `hscom.hsage:*seconds-interval-testing*` seconds.
     (when hscom.all:*is-production*
       (create-signals-job hscom.hsage:*seconds-interval-testing*))
-    (loop (unless (is-market-close))
-	  (-loop-optimize-test-validate))))
+    (if (< *iterations* 0)
+	(loop (unless (is-market-close))
+	      (-loop-optimize-test-validate))
+	(loop repeat *iterations*
+	      do (-loop-optimize-test-validate)))))

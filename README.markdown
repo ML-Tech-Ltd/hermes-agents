@@ -77,6 +77,7 @@ sudo su - postgres -c "createuser mlfx"
 sudo su - postgres -c "createdb mlfx"
 sudo -u postgres psql
 GRANT ALL PRIVILEGES ON DATABASE mlfx TO mlfx;
+\password mlfx
 ```
 
 - Emacs configuration

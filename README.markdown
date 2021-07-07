@@ -39,12 +39,12 @@ git clone https://github.com/ml-tech-ltd/cl-rest-server.git
 
 ```
 git clone git@github.com:ml-tech-ltd/hermes-common.git # Private Repo
-git clone https://github.com/ml-tech-ltd/hermes-agents.git
-git clone https://github.com/ml-tech-ltd/hermes-evolution.git
-git clone https://github.com/ml-tech-ltd/hermes-input.git
-git clone https://github.com/ml-tech-ltd/hermes-intuition.git
-git clone https://github.com/ml-tech-ltd/hermes-perception.git
-git clone https://github.com/ml-tech-ltd/hermes-research.git
+git clone git@github.com:ml-tech-ltd/hermes-agents.git
+git clone git@github.com:ml-tech-ltd/hermes-evolution.git
+git clone git@github.com:ml-tech-ltd/hermes-input.git
+git clone git@github.com:ml-tech-ltd/hermes-intuition.git
+git clone git@github.com:ml-tech-ltd/hermes-perception.git
+git clone git@github.com:ml-tech-ltd/hermes-research.git
 ```
 
 - Install qlot:

@@ -27,7 +27,11 @@
   (:import-from #:hscom.hsage
 		#:*cores-count*
 		#:*iterations*
-		#:*print-hypothesis-test*)
+		#:*print-hypothesis-test*
+		#:*test-size-human-strategies-signals*
+		#:*test-size-human-strategies-metrics*)
+  (:import-from #:hsper
+		#:get-human-strategies)
   (:import-from #:hsage.log
 		#:log-stack
 		#:clear-logs)
@@ -49,7 +53,8 @@
 		#:update-agents-fitnesses
 		#:init-patterns
 		#:validate-trades
-		#:get-trade-result)
+		#:get-trade-result
+		#:test-human-strategy)
   (:import-from #:hsinp.db
 		#:conn)
   (:import-from #:hsage.db
@@ -115,9 +120,43 @@
 	  (loop for rate in rates do (print (assoccess rate :high-bid)))))))
 ;; (->diff-close-frac-bid *rates* :offset 1)
 
-(defun create-signals-job (seconds)
-  (eval `(clerk:job "Creating signals" every ,(read-from-string (format nil "~a.seconds" seconds)) (-loop-test-all)))
-  (clerk:start))
+(defun -loop-test-human-strategies (&key (testingp nil))
+  (let ((human-strategies (get-human-strategies))
+	(test-size (if testingp
+		       *test-size-human-strategies-metrics*
+		       *test-size-human-strategies-signals*)))
+    (dolist (human-strategy human-strategies)
+      (dolist (instrument (assoccess human-strategy :instruments))
+	(dolist (timeframe (assoccess human-strategy :timeframes))
+	  (unless (is-market-close)
+	    (let* ((human-rates (-get-rates instrument
+					    timeframe
+					    test-size)))
+	      ;; Human strategies metrics.
+	      (test-human-strategy instrument timeframe
+				   ;; (assoccess human-strategy :types)
+				   '((:single))
+				   human-rates
+				   (assoccess human-strategy :model)
+				   (assoccess human-strategy :lookbehind-count)
+				   :test-size test-size
+				   :label (assoccess human-strategy :label)
+				   :testingp testingp))
+	    ;; We don't want our data feed provider to ban us.
+	    ;; We also want to go easy on those database reads (`agents-count`).
+	    (when hscom.all:*is-production*
+	      (sleep 1))))))))
+
+(defun create-job-human-strategies-metrics (seconds)
+  "We run this every `hscom.hsage#:*seconds-interval-testing-human-strategies-metrics*` seconds."
+  ;; Let's run it once immediately.
+  (eval `(clerk:job "Creating human strategies metrics" every ,(read-from-string (format nil "~a.seconds" seconds))
+		    (-loop-test-human-strategies :testingp t))))
+;; (create-human-strategies-metrics-job 10)
+
+(defun create-job-signals (seconds)
+  "We run this every `hscom.hsage#:*seconds-interval-testing*` seconds."
+  (eval `(clerk:job "Creating signals" every ,(read-from-string (format nil "~a.seconds" seconds)) (-loop-test-all))))
 
 ;; (require 'sb-sprof)
 ;; (sb-sprof:start-profiling)
@@ -209,6 +248,14 @@
 		       (local-time:unix-to-timestamp (/ (read-from-string (assoccess (first dataset) :time)) 1000000))
 		       (local-time:unix-to-timestamp (/ (read-from-string (assoccess (last-elt dataset) :time)) 1000000)))))
 
+(defun -get-rates (instrument timeframe size)
+  (if hscom.all:*is-production*
+      (progn
+	;; We don't want our data feed provider to ban us.
+	(sleep 1)
+	(get-rates-count-big instrument timeframe size))
+      (get-rates-random-count-big instrument timeframe size)))
+
 (defun -loop-get-rates (instrument timeframe)
   (let ((size (max (+ hscom.hsage:*max-creation-dataset-size*
 		      hscom.hsage:*max-training-dataset-size*
@@ -216,18 +263,12 @@
 		   ;; For fracdiff.
 		   5000)))
     (fracdiff
-     (if hscom.all:*is-production*
-	 (progn
-	   ;; We don't want our data feed provider to ban us.
-	   (sleep 1)
-	   (get-rates-count-big instrument timeframe size))
-	 (get-rates-random-count-big instrument timeframe size)))))
+     (-get-rates instrument timeframe size))))
 
 (defun -loop-test-all ()
   "We run this every `hscom.hsage:*seconds-interval-testing*` seconds."
   (dolist (instrument hscom.hsage:*instruments*)
     (dolist (timeframe hscom.hsage:*timeframes*)
-      hscom.hsage:*max-testing-dataset-size*
       (unless (is-market-close)
 	(let ((agents-count (get-agents-count instrument timeframe hscom.hsage:*type-groups*)))
 	  (when (> agents-count 0)
@@ -239,11 +280,19 @@
 	(sleep 1)))))
 
 (defun -loop-optimize-test-validate ()
+  ;; Let's start by gathering the human strategies metrics when in development mode.
+  (when (not hscom.all:*is-production*)
+    (-loop-test-human-strategies :testingp t))
+  ;; Human strategies signals. Let's evaluate human strategies first regardless of development or production mode.
+  (-loop-test-human-strategies :testingp nil)
   (pmap nil (lambda (instrument)
 	      (dolist (timeframe hscom.hsage:*timeframes*)
 		(unless (is-market-close)
 		  (push-to-log (format nil "<br/><b>STARTING ~s ~s.</b><hr/>" instrument timeframe))
 		  (let* ((rates (-loop-get-rates instrument timeframe))
+			 (human-rates (-get-rates instrument
+						  timeframe
+						  *test-size-human-strategies-signals*))
 			 (dataset-size (length rates)))
 		    (let* ((full-training-dataset (subseq rates
 							  (- dataset-size
@@ -256,25 +305,25 @@
 							  (- dataset-size
 							     hscom.hsage:*max-testing-dataset-size*
 							     hscom.hsage:*max-training-dataset-size*)))
-			  (testing-dataset (when (not hscom.all:*is-production*)
+			   (testing-dataset (when (not hscom.all:*is-production*)
 					     (let ((dataset (subseq rates
 								    (- dataset-size
 								       hscom.hsage:*max-testing-dataset-size*))))
 					       (-loop-log-testing-dataset dataset)
 					       dataset)))
-			  (agents-count (get-agents-count instrument timeframe hscom.hsage:*type-groups*)))
+			   (agents-count (get-agents-count instrument timeframe hscom.hsage:*type-groups*)))
 		      ;; Optimization.
 		      (loop for types in hscom.hsage:*type-groups*
 			    do (-loop-optimize instrument timeframe types full-creation-dataset full-training-dataset agents-count))
 		      ;; Signal creation. Development.
 		      (when (not hscom.all:*is-production*)
-			(-loop-test instrument timeframe hscom.hsage:*type-groups* testing-dataset))))
+			(-loop-test instrument timeframe hscom.hsage:*type-groups* testing-dataset))
+		      ))
 		  (-loop-validate))
 		(hsage.utils:refresh-memory)
 		(sync-datasets-to-database)
 		(when *print-hypothesis-test*
-		  (hsage.trading::hypothesis-test))
-		))
+		  (hsage.trading::hypothesis-test))))
 	hscom.hsage:*instruments*)
   (unless hscom.all:*is-production*
     (wipe-agents)))
@@ -290,7 +339,9 @@
     ;; Signal creation. Production. We create a cron job for this to be
     ;; run every `hscom.hsage:*seconds-interval-testing*` seconds.
     (when hscom.all:*is-production*
-      (create-signals-job hscom.hsage:*seconds-interval-testing*))
+      (create-job-signals hscom.hsage:*seconds-interval-testing*)
+      (create-job-human-strategies-metrics hscom.hsage:*seconds-interval-testing-human-strategies-metrics*)
+      (clerk:start))
     (if (< *iterations* 0)
 	(loop (unless (is-market-close))
 	      (-loop-optimize-test-validate))

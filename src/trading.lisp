@@ -12,7 +12,8 @@
   (:import-from #:hscom.hsage
 		#:*fis-method*
 		#:*min-pips-sl*
-		#:*exhaust-rules-in-creation-dataset-p*)
+		#:*exhaust-rules-in-creation-dataset-p*
+		#:*type-groups*)
   (:import-from #:hsper
 		#:get-perceptions
 		#:nth-perception)
@@ -1884,7 +1885,7 @@ you"))
   (let ((markets (make-hash-table)))
     (loop for instrument in hscom.hsage:*forex*
 	  do (let ((agents (make-hash-table)))
-	       (loop for types in '(:bullish :bearish :stagnated)
+	       (loop for types in *type-groups*
 		     do (let ((values (agents-to-alists (get-agents-some instrument hscom.hsage:*train-tf* (list types) limit offset))))
 			  (when values
 			    (setf (gethash types agents) values))

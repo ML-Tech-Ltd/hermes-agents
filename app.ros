@@ -8,6 +8,7 @@ exec ros -Q dynamic-space-size=2048 -- $0 "$@"
   #+quicklisp(ql:quickload '() :silent t)
   )
 
+(ql:quickload :hermes-agents)
 (defpackage :ros.script.app.3837034731
   (:use :cl)
   (:import-from #:hermes-agents

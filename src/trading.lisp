@@ -52,6 +52,7 @@
 	   #:get-agent
 	   #:get-agents-some
 	   #:get-agents-all
+	   #:get-agent-by-id
 	   #:get-agents-count
 	   #:agents-to-alists
 	   #:test-most-activated-agents
@@ -1064,11 +1065,14 @@
   	    ;; Returning result.
   	    dominatedp)))))
 
-(defun get-agent-by-id (agent-id)
-  (car (conn (query (:limit (:select '* :from 'agents :where (:= 'id agent-id)) 1) (:dao agent)))))
-  
-;; (get-agent-by-id "F9E434C2-1C4B-4C85-9E29-973A26399B3F")
-;; (slot-value (get-agent-by-id "F9E434C2-1C4B-4C85-9E29-973A26399B3F") 'id)
+(defun get-agent-by-id (agent-id &key (ret-type :dao))
+  (cond 
+    ((eq ret-type :alist)
+     (conn (query (:select '* :from 'agents :where (:= 'id agent-id)) :alist)))
+    (t
+     (car (conn (query (:limit (:select '* :from 'agents :where (:= 'id agent-id)) 1) (:dao agent)))))))
+;; (get-agent-by-id "F9E434C2-1C4B-4C85-9E29-973A26399B3F" :ret-type :alist)
+;; (slot-value (get-agent-by-id "F9E434C2-1C4B-4C85-9E29-973A26399B3F") 'perception-fns)
 
 (defun get-agent (instrument timeframe types agent-id)
   (find agent-id (gethash (list instrument timeframe types) *agents-cache*)

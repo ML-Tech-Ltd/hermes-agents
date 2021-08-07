@@ -1,6 +1,6 @@
 (defpackage hermes-agents.db
   (:use :cl :postmodern)
-  (:import-from #:hsinp.db
+  (:import-from #:hscom.db
 		#:conn)
   (:export #:init-database
 	   #:drop-database)

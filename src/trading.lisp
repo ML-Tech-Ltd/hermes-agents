@@ -1,6 +1,6 @@
 (defpackage hermes-agents.trading
   (:use #:cl #:alexandria #:postmodern #:hsage.log)
-  (:import-from #:hsinp.db
+  (:import-from #:hscom.db
 		#:conn)
   (:import-from #:hscom.utils
 		#:format-table
@@ -1063,6 +1063,12 @@
   		      (log-agent :default agent))))
   	    ;; Returning result.
   	    dominatedp)))))
+
+(defun get-agent-by-id (agent-id)
+  (car (conn (query (:limit (:select '* :from 'agents :where (:= 'id agent-id)) 1) (:dao agent)))))
+  
+;; (get-agent-by-id "F9E434C2-1C4B-4C85-9E29-973A26399B3F")
+;; (slot-value (get-agent-by-id "F9E434C2-1C4B-4C85-9E29-973A26399B3F") 'id)
 
 (defun get-agent (instrument timeframe types agent-id)
   (find agent-id (gethash (list instrument timeframe types) *agents-cache*)

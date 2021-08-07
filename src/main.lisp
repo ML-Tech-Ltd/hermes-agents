@@ -55,7 +55,7 @@
 		#:validate-trades
 		#:get-trade-result
 		#:test-human-strategy)
-  (:import-from #:hsinp.db
+  (:import-from #:hscom.db
 		#:conn)
   (:import-from #:hsage.db
 		#:init-database

@@ -30,6 +30,7 @@
 	       :defenum
 	       :fare-mop
 	       :fare-memoization
+	       :defenum
 
 	       ;; logging
 	       :dissect

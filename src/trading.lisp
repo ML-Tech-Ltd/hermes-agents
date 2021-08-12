@@ -1,5 +1,7 @@
 (defpackage hermes-agents.trading
   (:use #:cl #:alexandria #:postmodern #:hsage.log)
+  (:import-from #:defenum
+		#:defenum)
   (:import-from #:hscom.db
 		#:conn)
   (:import-from #:hscom.utils
@@ -76,6 +78,15 @@
 	   #:delete-trades)
   (:nicknames #:hsage.trading))
 (in-package :hermes-agents.trading)
+
+;; (defenum perceptions
+;;     (decompress
+;;      fuzzy-rule
+;;      perception-fn
+;;      ))
+
+;; '(0 )
+;; '()
 
 ;; (defparameter *rates* (hsinp.rates:fracdiff (hsinp.rates:get-rates-count-big :AUD_USD :H1 10000)))
 (defparameter *agents-cache* (make-hash-table :test 'equal :synchronized t))
@@ -2058,6 +2069,7 @@ you"))
 					    'trades.decision
 					    'trades.entry-price
 					    'trades.entry-time
+					    'trades.result
 				    :distinct-on 'trades.id
 				    :from 'trades
 				    :inner-join 'patterns-trades

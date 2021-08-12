@@ -1933,6 +1933,7 @@ you"))
 						'patterns.timeframe
 						'patterns.type
 						'trades.id
+						'trades.label
 						'trades.creation-time
 						'trades.test-trades-won
 						'trades.test-trades-lost
@@ -1961,6 +1962,8 @@ you"))
       (conn (query (:order-by (:select 'patterns.instrument
 				       'patterns.timeframe
 				       'patterns.type
+				       'trades.id
+				       'trades.label
 				       'trades.creation-time
 				       'trades.test-trades-won
 				       'trades.test-trades-lost
@@ -1991,6 +1994,7 @@ you"))
 			   'patterns.timeframe
 			   'patterns.type
 			   'trades.id
+			   'trades.label
 			   'trades.creation-time
 			   'trades.test-trades-won
 			   'trades.test-trades-lost
@@ -2021,7 +2025,7 @@ you"))
 		   offset
 		   :alists)
 	    (query (:raw (-get-trades)) :alists))))
-;; (get-trades-flat 2 4)
+;; (get-trades-flat 2 0)
 
 (defun get-trades-grouped (&optional (limit 10))
   (conn (query
@@ -2056,6 +2060,7 @@ you"))
 					    'patterns.timeframe
 					    'patterns.type
 					    'trades.id
+					    'trades.label
 					    'trades.creation-time
 					    'trades.test-trades-won
 					    'trades.test-trades-lost
@@ -2324,8 +2329,8 @@ you"))
 		  (loop for result in results
 			do (apply #'format t "~2$-~2$ ~5$ ~5$ ~5$ ~5$ ~5$ ~5$ ~2$ ~a ~a ~5$ ~a ~a~%" result))))
       	    ))))))
-;; (analysis :label "consensus-1" :granularity 20)
-;; (analysis :label (format nil "consensus-~a" hscom.hsage:*consensus-threshold*) :granularity 10)
+;; (analysis :label "hermes.consensus-1" :granularity 20)
+;; (analysis :label (format nil "hermes.consensus-~a" hscom.hsage:*consensus-threshold*) :granularity 10)
 
 ;; Plots
 ;; Per market comparisons
@@ -2335,8 +2340,8 @@ you"))
 
 (defun hypothesis-test (&key (numerator 0) (denominator 100) (granularity 100))
   (let* ((label hscom.hsage:*consensus-threshold*)
-	 (no-results (analysis :granularity granularity :label "consensus-1" :return-results-p t))
-	 (yes-results (analysis :granularity granularity :label (format nil "consensus-~a" label) :return-results-p t)))
+	 (no-results (analysis :granularity granularity :label "hermes.consensus-1" :return-results-p t))
+	 (yes-results (analysis :granularity granularity :label (format nil "hermes.consensus-~a" label) :return-results-p t)))
     (when (and no-results yes-results)
       (let ((n1 (reduce #'+ (mapcar #'last-elt (subseq no-results (* numerator (ceiling (/ (length no-results) denominator)))))))
 	    (mu1 (mean (mapcar #'third (subseq no-results (* numerator (ceiling (/ (length no-results) denominator)))))))
@@ -2368,20 +2373,20 @@ you"))
 ;; (get-agents-count :EUR_USD :M15 '((:SINGLE)))
 
 
-;; (mean (mapcar #'third (analysis :granularity 10 :label "consensus-1" :return-results-p t)))
-;; (mean (mapcar #'third (analysis :granularity 10 :label "consensus-5" :return-results-p t)))
-;; (mean (mapcar #'fourth (analysis :granularity 10 :label "consensus-1" :return-results-p t)))
-;; (mean (mapcar #'fourth (analysis :granularity 10 :label "consensus-5" :return-results-p t)))
+;; (mean (mapcar #'third (analysis :granularity 10 :label "hermes.consensus-1" :return-results-p t)))
+;; (mean (mapcar #'third (analysis :granularity 10 :label "hermes.consensus-5" :return-results-p t)))
+;; (mean (mapcar #'fourth (analysis :granularity 10 :label "hermes.consensus-1" :return-results-p t)))
+;; (mean (mapcar #'fourth (analysis :granularity 10 :label "hermes.consensus-5" :return-results-p t)))
 
 (comment
  (let ((granularity 10)
        (lbls `(1 ,hscom.hsage:*consensus-threshold*)))
    (plot-xy
     (loop for label in lbls
-	  collect (loop for result in (analysis :granularity granularity :return-results-p t :label (format nil "consensus-~a" label))
+	  collect (loop for result in (analysis :granularity granularity :return-results-p t :label (format nil "hermes.consensus-~a" label))
 			collect (format nil "~2$-~2$" (first result) (second result))))
     (loop for label in lbls
-	  collect (loop for result in (analysis :granularity granularity :return-results-p t :label (format nil "consensus-~a" label))
+	  collect (loop for result in (analysis :granularity granularity :return-results-p t :label (format nil "hermes.consensus-~a" label))
 			collect (format nil "~5$" (nth 2 result))))
     ))
 
@@ -2389,9 +2394,9 @@ you"))
  (let ((granularity 10)
        (label 1))
    (plot-xy
-    (list (loop for result in (analysis :granularity granularity :return-results-p t :label (format nil "consensus-~a" label))
+    (list (loop for result in (analysis :granularity granularity :return-results-p t :label (format nil "hermes.consensus-~a" label))
 		collect (format nil "~2$-~2$" (first result) (second result))))
-    (list (loop for result in (analysis :granularity granularity :return-results-p t :label (format nil "consensus-~a" label))
+    (list (loop for result in (analysis :granularity granularity :return-results-p t :label (format nil "hermes.consensus-~a" label))
 		collect (format nil "~5$" (nth 2 result))))))
 
  ;; SD-Return.

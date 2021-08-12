@@ -184,9 +184,9 @@
       (test-most-activated-agents instrument timeframe type-groups testing-dataset :test-size hscom.hsage:*test-size*)
       (progn
 	(let ((hscom.hsage:*consensus-threshold* 1))
-	  (test-agents instrument timeframe type-groups testing-dataset :test-size hscom.hsage:*test-size* :label (format nil "consensus-~a" hscom.hsage:*consensus-threshold*)))
+	  (test-agents instrument timeframe type-groups testing-dataset :test-size hscom.hsage:*test-size* :label (format nil "hermes.consensus-~a" hscom.hsage:*consensus-threshold*)))
 	(when (> hscom.hsage:*consensus-threshold* 1)
-	  (test-agents instrument timeframe type-groups testing-dataset :test-size hscom.hsage:*test-size* :label (format nil "consensus-~a" hscom.hsage:*consensus-threshold*))))))
+	  (test-agents instrument timeframe type-groups testing-dataset :test-size hscom.hsage:*test-size* :label (format nil "hermes.consensus-~a" hscom.hsage:*consensus-threshold*))))))
 
 ;; TODO: Rename everywhere from TYPE -> STAGE where applicable (type being :creation, :training or :testing).
 ;; Most of the time TYPE is '(:BULLISH), for example.

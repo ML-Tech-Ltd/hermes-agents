@@ -62,9 +62,10 @@
   (read-from-string str))
 
 (defun refresh-memory ()
-  (fare-memoization:unmemoize 'read-str)
+  ;; (fare-memoization:unmemoize 'read-str)
   (sb-ext:gc :full t)
-  (fare-memoization:memoize 'read-str))
+  ;; (fare-memoization:memoize 'read-str)
+  )
 
 (defun sorted-indexes (list &optional (sort-fn #'<))
   (loop

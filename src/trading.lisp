@@ -18,7 +18,8 @@
 		#:*type-groups*)
   (:import-from #:hsper
 		#:get-perceptions
-		#:nth-perception)
+		#:nth-perception
+		#:get-perceptions-count)
   (:import-from #:hsinp.rates
 		#:to-pips
 		#:get-tp-sl
@@ -31,8 +32,7 @@
 		#:push-to-log)
   (:import-from #:hsage.utils
 		#:prepare-agents-properties
-		#:format-rr
-		#:read-str)
+		#:format-rr)
   (:import-from #:hsint
 		#:eval-ifis-gen
 		#:eval-ifis-idx)
@@ -79,23 +79,23 @@
   (:nicknames #:hsage.trading))
 (in-package :hermes-agents.trading)
 
-;; (defenum perceptions
-;;     (decompress
-;;      fuzzy-rule
-;;      perception-fn
-;;      ))
-
-;; '(0 )
-;; '()
+(defenum perceptions
+    (decompress
+     fuzzy-rule
+     perception-function
+     ))
 
 ;; (defparameter *rates* (hsinp.rates:fracdiff (hsinp.rates:get-rates-count-big :AUD_USD :H1 10000)))
 (defparameter *agents-cache* (make-hash-table :test 'equal :synchronized t))
+;; (maphash (lambda (k v) (print v)) *agents-cache*)
 
 (defclass agent ()
   ((id :col-type string :initform (format nil "~a" (uuid:make-v4-uuid)) :initarg :id)
-   (perception-fns :col-type string :initarg :perception-fns :accessor perception-fns)
    (lookahead-count :col-type integer :initarg :lookahead-count :accessor lookahead-count)
    (lookbehind-count :col-type integer :initarg :lookbehind-count :accessor lookbehind-count)
+   (perceptions-count :col-type integer :initarg :perceptions-count :accessor perceptions-count)
+   (rules-count :col-type integer :initarg :rules-count :accessor rules-count)
+   (perception-fns :col-type string :initarg :perception-fns :accessor perception-fns)
    (antecedents :col-type string :initarg :antecedents :accessor antecedents)
    (consequents :col-type string :initarg :consequents :accessor consequents)
    (creation-begin-time :col-type (or db-null int8) :initarg :creation-begin-time :initform :null)
@@ -892,16 +892,18 @@
   (let ((perception-fn (gen-perception-fn (perception-fns agent))))
     (cond ((eq *fis-method* :index)
 	   (eval-ifis-idx (funcall perception-fn rates)
-			  (read-str (slot-value agent 'antecedents))
-			  (read-str (slot-value agent 'consequents))))
+			  (slot-value agent 'antecedents)
+			  (slot-value agent 'consequents)))
 	  (t
 	   (eval-ifis-gen (funcall perception-fn rates)
-			  (read-str (slot-value agent 'antecedents))
-			  (read-str (slot-value agent 'consequents))))
+			  (slot-value agent 'antecedents)
+			  (slot-value agent 'consequents)
+			  (slot-value agent 'perceptions-count)
+			  (slot-value agent 'rules-count)))
 	  )))
 
 (defun gen-perception-fn (perception-params)
-  (hsper:gen-perception-fn (read-str perception-params)))
+  (hsper:gen-perception-fn perception-params))
 
 (defun update-agent-fitnesses (instrument timeframe types agent rates)
   (let* ((agents (gethash (list instrument timeframe types) *agents-cache*))
@@ -1574,8 +1576,8 @@ you"))
 (defun plot-agent-rules (agent)
   (let ((output #P"/tmp/hermes-plot-fuzzy.txt"))
     (let (antecedents consequents)
-      (loop for antecedent across (read-str (antecedents agent))
-	    for perc-fn across (read-str (perception-fns agent))
+      (loop for antecedent across (antecedents agent)
+	    for perc-fn across (perception-fns agent)
 	    do (progn
 		 (eazy-gnuplot:with-plots (*standard-output* :debug nil)
 		   (eazy-gnuplot:gp-setup :xlabel (string-upcase (format nil "~a" (nth-perception (aref perc-fn 0))))
@@ -1599,7 +1601,7 @@ you"))
 	    (sls))
 	;; Collecting all TPs and SLs first.
 	;; They're all the same (constrained to rules).
-	(let ((cons (aref (read-str (consequents agent)) 0)))
+	(let ((cons (aref (consequents agent) 0)))
 	  (loop
 	    ;; We need to ignore the repeated line.
 	    for i from 0 below (length cons) by 2
@@ -1648,32 +1650,38 @@ you"))
 			   (apply #'concatenate 'string antecedents))
 	      (concatenate 'string
 			   (format nil "  Consequents:~%~%")
-			   (apply #'concatenate 'string consequents))
-	      )
-      )))
+			   (apply #'concatenate 'string consequents))))))
 ;; (plot-agent-rules *agent*)
-;; (defparameter *agent* (gen-agent 3 :AUD_USD *rates* (hscom.utils:assoccess (hsper:gen-random-perceptions 1) :perception-fns) 10 100))
+;; (defparameter *agent* (gen-agent 2 :AUD_USD *rates* (hscom.utils:assoccess (hsper:gen-random-perceptions 3) :perception-fns) 10 100))
 ;; (antecedents *agent*)
 ;; (consequents *agent*)
 
-;; (aref (read-str (consequents *agent*)) 0)
-;; (hsint:eval-ifis '(1 2 3)
-;; 		 (read-str (antecedents *agent*))
-;; 		 (read-str (consequents *agent*)))
+;; (aref (consequents *agent*) 0)
+;; (hsint:eval-ifis-gen '(1.1744353952569169 1.1847066666666666 1.17137625)
+;; 		     (antecedents *agent*)
+;; 		     (consequents *agent*)
+;; 		     (perceptions-count *agent*)
+;; 		     (rules-count *agent*))
+;; (make-ifis *agent* 3 :AUD_USD *rates*)
 
-
+;; (conn (query (:select (:count 'antecedents) :from 'agents) :alist))
+;; (length (assoccess (conn (query (:select 'antecedents :from 'agents) :alist)) :antecedents))
+;; (get-perceptions-count (assoccess (conn (query (:select 'antecedents :from 'agents) :alist)) :antecedents))
 
 (defun gen-agent (num-rules instrument rates perception-fns lookahead-count lookbehind-count)
   (let ((agent (make-instance 'agent)))
     (setf (slot-value agent 'creation-begin-time) (read-from-string (assoccess (first rates) :time)))
     (setf (slot-value agent 'creation-end-time) (read-from-string (assoccess (last-elt rates) :time)))
-    (setf (slot-value agent 'perception-fns) (format nil "~s" perception-fns))
+    (setf (slot-value agent 'perception-fns) perception-fns)
     (setf (slot-value agent 'lookahead-count) lookahead-count)
     (setf (slot-value agent 'lookbehind-count) lookbehind-count)
+    (setf (slot-value agent 'rules-count) num-rules)
+    (setf (slot-value agent 'perceptions-count)
+	  (get-perceptions-count perception-fns))
     (multiple-value-bind (antecedents consequents)
     	(make-ifis agent num-rules instrument rates)
-      (setf (slot-value agent 'antecedents) (format nil "~s" antecedents))
-      (setf (slot-value agent 'consequents) (format nil "~s" consequents)))
+      (setf (slot-value agent 'antecedents) antecedents)
+      (setf (slot-value agent 'consequents) consequents))
     agent))
 
 (defun gen-agents (num-agents num-rules instrument rates perception-fns lookahead-count lookbehind-count)
@@ -1748,50 +1756,41 @@ you"))
 	 (chosen-inputs (loop for idx in idxs collect (funcall perception-fn (get-input-dataset rates idx))))
 	 (chosen-outputs (loop for idx in idxs collect (get-tp-sl (get-output-dataset rates idx) lookahead-count))))
     (values chosen-inputs chosen-outputs idxs)))
-;; (time (let ((perc (hsper:gen-random-perceptions 2))) (get-inputs-outputs 10 :AUD_USD *rates* (hsper:gen-perception-fn (hscom.utils:assoccess perc :perception-fns)) (hscom.utils:assoccess perc :lookahead-count) (hscom.utils:assoccess perc :lookbehind-count))))
+
+(comment
+ (let ((perc (hsper:gen-random-perceptions 2)))
+   (get-inputs-outputs 10 :AUD_USD *rates*
+		       (hsper:gen-perception-fn (hscom.utils:assoccess perc :perception-fns))
+		       (hscom.utils:assoccess perc :lookahead-count)
+		       (hscom.utils:assoccess perc :lookbehind-count)))
+ )
 
 (defun make-ant-con (inputs outputs)
   (values
-   (let* ((v (loop
-	       for inputs in (apply #'mapcar #'list inputs)
-	       for idx from 0
-	       collect (let* (;; (min-input (apply #'min inputs))
-			      ;; (max-input (apply #'max inputs))
-			      (inputs (sort (copy-sequence 'list inputs) #'<))
-			      (v (flatten (loop
-					    for i from 0
-					    for input in inputs
-					    with max-inp-idx = (1- (length inputs))
-					    collect (list
-						     (if (= i 0)
-							 (vector input input)
-							 (vector (nth (1- i) inputs) input))
-						     (if (= i max-inp-idx)
-							 (vector input input)
-							 (vector (nth (1+ i) inputs) input))
-						     )
-					    ;; collect (list
-					    ;; 	     (vector min-input input)
-					    ;; 	     (vector max-input input)
-					    ;; 	     )
-					    ))))
-			 (make-array (length v) :initial-contents v)))))
+   (let* ((v (flatten
+	      (loop
+		for inputs in (apply #'mapcar #'list inputs)
+		for idx from 0
+		collect (let ((inputs (sort (copy-sequence 'list inputs) #'<)))
+			  (loop
+			    for i from 0
+			    for input in inputs
+			    with max-inp-idx = (1- (length inputs))
+			    collect (cond ((= i 0)
+					   (list input input (nth (1+ i) inputs) input))
+					  ((= i max-inp-idx)
+					   (list (nth (1- i) inputs) input input input))
+					  (t (list (nth (1- i) inputs) input (nth (1+ i) inputs) input)))))))))
      (make-array (length v) :initial-contents v))
-   (let* ((one-set-outputs
-	    (flatten (loop for output in outputs
-			   collect (let* ((tp (assoccess output :tp))
-					  (sl (assoccess output :sl)))
-				     ;; Consequent creation.
-				     (list (vector (vector 0 tp)
-						   (vector (* hscom.hsage:*n-times-sl-for-max-sl* sl) sl))
-					   ;; We need to repeat the consequent for the "other side" of the triangle.
-					   (vector (vector 0 tp)
-						   (vector (* hscom.hsage:*n-times-sl-for-max-sl* sl) sl))
-					   )))))
-	  (one-set-outputs-v (make-array (length one-set-outputs) :initial-contents one-set-outputs))
-	  (v (loop repeat (length (first inputs))
-		   collect one-set-outputs-v)))
+   (let* ((v (flatten
+	      (loop for output in outputs
+		    collect (let* ((tp (assoccess output :tp))
+				   (sl (assoccess output :sl)))
+			      ;; Consequent creation.
+			      (list 0 tp
+				    (* hscom.hsage:*n-times-sl-for-max-sl* sl) sl))))))
      (make-array (length v) :initial-contents v))))
+;; (make-ifis *agent* 3 :AUD_USD *rates*)
 
 (defun make-ifis (agent num-rules instrument rates)
   "Analytical version."
@@ -1801,7 +1800,9 @@ you"))
     (multiple-value-bind (chosen-inputs chosen-outputs)
 	(get-inputs-outputs num-rules instrument rates perception-fn lookahead-count lookbehind-count)
       (make-ant-con chosen-inputs chosen-outputs))))
-;; (make-ifis *agent* 2 :AUD_USD *rates*)
+;; (plot-agent-rules *agent*)
+
+;; (length (read-from-string (assoccess (conn (query (:select 'antecedents :from 'agents) :alist)) :antecedents)))
 
 (defun log-agent (type agent)
   (let ((agent-id (slot-value agent 'id))
@@ -2193,7 +2194,7 @@ you"))
   (with-open-stream (s (make-string-output-stream))
     (format s "<h3>AGENTS POOL.</h3><hr/>")
     (loop for instrument in hscom.hsage:*forex*
-	  do (loop for types in '((:bullish) (:bearish) (:stagnated))
+	  do (loop for types in '((:single))
 		   do (let* ((agents-props (prepare-agents-properties (get-agents-some instrument hscom.hsage:*train-tf* types)))
 			     (agents-count (get-agents-count instrument hscom.hsage:*train-tf* types))
 			     (vals (loop for agent-props in agents-props
@@ -2366,7 +2367,7 @@ you"))
   )
 ;; (hypothesis-test)
 
-;; (length (aref (read-str (antecedents (first (get-agents-some :AUD_USD :M15 '((:SINGLE)))))) 0))
+;; (length (aref (antecedents (first (get-agents-some :AUD_USD :M15 '((:SINGLE))))) 0))
 
 ;; (get-agents-count :AUD_USD :M15 '((:SINGLE)))
 ;; (get-agents-count :USD_CHF :M15 '((:SINGLE)))

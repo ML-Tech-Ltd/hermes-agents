@@ -1079,12 +1079,29 @@
   	    dominatedp)))))
 
 (defun get-agent-by-id (agent-id &key (ret-type :dao))
-  (cond 
-    ((eq ret-type :alist)
-     (conn (query (:select '* :from 'agents :where (:= 'id agent-id)) :alist)))
-    (t
-     (car (conn (query (:limit (:select '* :from 'agents :where (:= 'id agent-id)) 1) (:dao agent)))))))
-;; (get-agent-by-id "F9E434C2-1C4B-4C85-9E29-973A26399B3F" :ret-type :alist)
+  (let (result)
+    (loop for key being each hash-key of *agents-cache*
+	  for agents being each hash-value of *agents-cache*
+	  do (loop for agent in agents
+		   do (progn
+			;; TODO: We can't be certain `key`s will always have this structure.
+			(when (string= (slot-value agent 'id) agent-id)
+			  ;; (print (type-of (json:encode-json-to-string agent)))
+			  (if (eq ret-type :dao)
+			      (setf result agent)
+			      (let ((pre-result (json:decode-json-from-string (json:encode-json-to-string agent))))
+				(push `(:instrument . ,(first key)) pre-result)
+				(push `(:timeframe . ,(second key)) pre-result)
+				(push `(:type . ,(third key)) pre-result)
+				(setf result pre-result))
+			      )))))
+    result))
+;; (get-agent-by-id "9B394F8B-EA70-441E-907E-FEA02F035E0F" :ret-type :alist)
+
+;; for key being each hash-key of *agents-cache*
+;; for value being each hash-value of *agents-cache*
+
+;; (get-agent-by-id "5530FA06-85AD-4D95-AFF1-0F8220702E6D" :ret-type :alist)
 ;; (slot-value (get-agent-by-id "F9E434C2-1C4B-4C85-9E29-973A26399B3F") 'perception-fns)
 
 (defun get-agent (instrument timeframe types agent-id)

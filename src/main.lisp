@@ -4,6 +4,9 @@
 ;; (progn (drop-database) (init-database) (init-patterns) (clear-logs) (when hscom.all:*is-production* (clear-jobs)))
 ;; (progn (drop-database) (init-database))
 
+;; (ql-dist:enable (ql-dist:find-dist "ultralisp"))
+;; (ql:system-apropos "genetic")
+
 (defpackage hermes-agents
   (:use #:cl
 	#:local-time
@@ -120,7 +123,7 @@
 	  (loop for rate in rates do (print (assoccess rate :high-bid)))))))
 ;; (->diff-close-frac-bid *rates* :offset 1)
 
-(defun -loop-test-human-strategies (&key (testingp nil))
+(defun -loop-test-hybrid-strategies (&key (testingp nil))
   (let ((human-strategies (get-human-strategies))
 	(test-size (if testingp
 		       *test-size-human-strategies-metrics*
@@ -138,6 +141,36 @@
 				   '((:single))
 				   human-rates
 				   (assoccess human-strategy :model)
+				   (assoccess human-strategy :lookbehind-count)
+				   :test-size test-size
+				   :label (assoccess human-strategy :label)
+				   :testingp testingp))
+	    ;; We don't want our data feed provider to ban us.
+	    ;; We also want to go easy on those database reads (`agents-count`).
+	    (when hscom.all:*is-production*
+	      (sleep 1))))))))
+
+(defun -loop-test-human-strategies (&key (testingp nil))
+  (let ((human-strategies (get-human-strategies))
+	(test-size (if testingp
+		       *test-size-human-strategies-metrics*
+		       *test-size-human-strategies-signals*)))
+    (dolist (human-strategy human-strategies)
+      (dolist (instrument (assoccess human-strategy :instruments))
+	(dolist (timeframe (assoccess human-strategy :timeframes))
+	  (unless (is-market-close)
+	    (let* ((human-rates (-get-rates instrument
+					    timeframe
+					    test-size)))
+	      ;; Human strategies metrics.
+	      (test-human-strategy instrument timeframe
+				   ;; (assoccess human-strategy :types)
+				   '((:single))
+				   human-rates
+				   (lambda (input-dataset)
+				     (funcall (assoccess human-strategy :model)
+					      input-dataset
+					      (assoccess human-strategy :args-default)))
 				   (assoccess human-strategy :lookbehind-count)
 				   :test-size test-size
 				   :label (assoccess human-strategy :label)

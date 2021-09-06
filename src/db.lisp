@@ -16,6 +16,12 @@
 			    (begin-time :type int8)
 			    (end-time :type int8))
 			   (:primary-key id))))
+   (unless (table-exists-p 'hybrids)
+     (query (:create-table 'hybrids
+			   ((id :type string)
+			    (begin-time :type int8)
+			    (end-time :type int8))
+			   (:primary-key id))))
    (unless (table-exists-p 'rates)
      (query (:create-table 'rates
 			   ((time :type string)

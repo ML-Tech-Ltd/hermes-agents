@@ -1,3 +1,4 @@
+(ql-dist:enable (ql-dist:find-dist "ultralisp"))
 (defsystem "hermes-agents"
   :version "0.1.0"
   :author ""
@@ -31,6 +32,7 @@
 	       :fare-mop
 	       :fare-memoization
 	       :defenum
+	       :genetic-algorithm
 
 	       ;; logging
 	       :dissect

@@ -19,7 +19,9 @@
   (:import-from #:hsper
 		#:get-perceptions
 		#:nth-perception
-		#:get-perceptions-count)
+		#:get-perceptions-count
+		#:get-human-strategies
+		#:=>strategy-rsi-stoch-macd)
   (:import-from #:hsinp.rates
 		#:to-pips
 		#:get-tp-sl
@@ -447,7 +449,9 @@
   (- (hsinp.rates:->close (last-elt rates))
      (hsinp.rates:->close (first rates))))
 
-(defun evaluate-trade (tp sl rates) "Refactorize this."(let ((starting-rate (if (plusp tp)
+(defun evaluate-trade (tp sl rates)
+  "Refactorize this."
+  (let ((starting-rate (if (plusp tp)
 			   ;; We need to use `open` because it's when we start.
 			   (hsinp.rates:->open-ask (first rates))
 			   (hsinp.rates:->open-bid (first rates))))
@@ -530,8 +534,146 @@
        ;; (< (to-pips instrument (abs sl)) 20)
        (/= (assoccess test-fitnesses :trades-won) 0)
        (/= (+ (assoccess test-fitnesses :trades-won)
-	      (assoccess test-fitnesses :trades-lost))
+	       (assoccess test-fitnesses :trades-lost))
 	   0)))
+
+(defun test-hybrid-strategy (instrument timeframe types testing-dataset model lookbehind-count &key (test-size 50) (label "") (testingp t))
+  (defparameter *coco*
+    (genetic-algorithm:run-ga (((a 0 10)
+				(b 14 20)
+				(c 5 20)
+				(d 5 20)
+				(e 3 20)
+				(f 12 20)
+				(g 12 30)
+				(h 26 30)
+				(i 26 30)
+				(j 9 20))
+			  :maximize t
+			  :population-size 20
+			  :max-iterations 5
+			  :mutation-rate 0.01)
+
+      (let ((fits (-evaluate-model
+		   :instrument :EUR_USD
+		   :timeframe :M15
+		   :types '((:single))
+		   :rates (get-input-dataset *rates* 1000)
+		   :model (lambda (input-dataset)
+			    (=>strategy-rsi-stoch-macd input-dataset a b c d e f g h i j))
+		   :idx 300
+		   :test-size 300)))
+	(dbg "fitness:" (assoccess fits :avg-return)))
+      ))
+
+  (let ((fits (-evaluate-model
+	       :instrument :EUR_USD
+	       :timeframe :M15
+	       :types '((:single))
+	       :rates (get-input-dataset *rates* 1000)
+	       :model (lambda (input-dataset)
+			(apply #'=>strategy-rsi-stoch-macd input-dataset (genetic-algorithm:get-gens *coco*)))
+	       :idx 300
+	       :test-size 300)))
+    (assoccess fits :avg-return)))
+;; (test-hybrid-strategy )
+
+(defun gen-search-space (human-strategy)
+  (mapcar (lambda (parameter range)
+	    (cons parameter range))
+	  (assoccess human-strategy :parameters)
+	  (assoccess human-strategy :args-ranges)))
+
+(defun meow (human-strategy maximize population-size max-iterations mutation-rate)
+  (let ((search-space (mapcar (lambda (parameter range)
+				(cons parameter range))
+			      (assoccess human-strategy :parameters)
+			      (assoccess human-strategy :args-ranges)))
+	;; (maximize t)
+	;; (population-size 10)
+	;; (max-iterations 10)
+	;; (mutation-rate 0.1)
+	(body '((+ HERMES-PERCEPTION::OFFSET HERMES-PERCEPTION::N-RSI)))
+	)
+    ;; (macrolet ((woof (search-space maximize population-size max-iterations mutation-rate &rest body)
+    ;; 		 `(genetic-algorithm:run-ga (,search-space
+    ;; 					:maximize ,maximize
+    ;; 					:population-size ,population-size
+    ;; 					:max-iterations ,max-iterations
+    ;; 					:mutation-rate ,mutation-rate)
+    ;; 		    body)))
+    ;;   (woof search-space maximize population-size max-iterations mutation-rate body))
+    (eval `(genetic-algorithm:run-ga (,search-space
+				 :maximize ,maximize
+				 :population-size ,population-size
+				 :max-iterations ,max-iterations
+				 :mutation-rate ,mutation-rate)
+	     ,@body))
+    ))
+;; (meow (first (hsper:get-human-strategies)) t 10 10 0.1)
+
+(defun optimize-human-strategy (instrument timeframe types input-dataset human-strategy)
+  (let ((search-space (mapcar (lambda (parameter range)
+				(cons parameter range))
+			      (assoccess human-strategy :parameters)
+			      (assoccess human-strategy :args-ranges))))
+    (eval `(-set-search-space ,search-space t 20 5 0.01
+			      (let ((fits (-evaluate-model
+					   :instrument ,instrument
+					   :timeframe ,timeframe
+					   :types ,types
+					   :rates ,input-dataset
+					   :model ,(lambda (input-dataset)
+						     (=>strategy-rsi-stoch-macd input-dataset a b c d e f g h i j))
+					   :idx 300
+					   :test-size 300)))
+				(dbg "fitness:" (assoccess fits :avg-return)))))
+    ;; (genetic-algorithm:run-ga (search-space
+    ;; 			  :maximize t
+    ;; 			  :population-size 20
+    ;; 			  :max-iterations 5
+    ;; 			  :mutation-rate 0.01)
+    ;;   (let ((fits (-evaluate-model
+    ;; 		   :instrument instrument
+    ;; 		   :timeframe timeframe
+    ;; 		   :types types
+    ;; 		   :rates input-dataset
+    ;; 		   :model (lambda (input-dataset)
+    ;; 			    (=>strategy-rsi-stoch-macd input-dataset a b c d e f g h i j))
+    ;; 		   :idx 300
+    ;; 		   :test-size 300)))
+    ;; 	(dbg "fitness:" (assoccess fits :avg-return))))
+    ))
+;; (optimize-human-strategy :EUR_USD :M15 '((:single)) (get-input-dataset *rates* 1000) (hsper:get-human-strategies))
+
+(let ((instrument :EUR_USD)
+      (timeframe :M15)
+      (types '((:single))))
+  (genetic-algorithm:run-ga (((a 0 10)
+			      (b 14 20)
+			      (c 5 20)
+			      (d 5 20)
+			      (e 3 20)
+			      (f 12 20)
+			      (g 12 30)
+			      (h 26 30)
+			      (i 26 30)
+			      (j 9 20))
+			:maximize t
+			:population-size 20
+			:max-iterations 5
+			:mutation-rate 0.01)
+    (let ((fits (-evaluate-model
+		 :instrument instrument
+		 :timeframe timeframe
+		 :types types
+		 :rates (get-input-dataset *rates* 1000)
+		 :model (lambda (input-dataset)
+			  (=>strategy-rsi-stoch-macd input-dataset a b c d e f g h i j))
+		 :idx 300
+		 :test-size 300)))
+      (dbg "fitness:" (assoccess fits :avg-return)))
+    ))
 
 (defun test-human-strategy (instrument timeframe types testing-dataset model lookbehind-count &key (test-size 50) (label "") (testingp t))
   (multiple-value-bind (tp sl activation)
@@ -562,17 +704,20 @@
 ;; (funcall (assoccess (first (hsper:get-human-strategies)) :model) *rates*)
 
 (comment
- (length *rates*)
- (loop for i from 1500 below 3000
-       do (progn
-	    (format t ".~%")
-	    (test-human-strategy :EUR_USD :M15 '((:bullish))
-				 (get-input-dataset *rates* i)
-				 (assoccess (first (hsper:get-human-strategies)) :model)
-				 (assoccess (first (hsper:get-human-strategies)) :lookbehind-count)
-				 :test-size 500
-				 :label (assoccess (first (hsper:get-human-strategies)) :label))))
- )
+  (length *rates*)
+  (loop for i from 1500 below 3000
+	do (progn
+	     (format t ".~%")
+	     (print (test-human-strategy :EUR_USD :M15 '((:single))
+					 (get-input-dataset *rates* i)
+					 (lambda (input-dataset)
+					   (funcall (assoccess (first (hsper:get-human-strategies)) :model)
+						    input-dataset
+						    (assoccess (first (hsper:get-human-strategies)) :args-default)))
+					 (assoccess (first (hsper:get-human-strategies)) :lookbehind-count)
+					 :test-size 500
+					 :label (assoccess (first (hsper:get-human-strategies)) :label)))))
+  )
 
 (defun test-agents (instrument timeframe types testing-dataset &key (test-size 50) (label ""))
   (multiple-value-bind (tp sl activation agent-ids)

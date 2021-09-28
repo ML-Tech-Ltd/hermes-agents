@@ -1,4 +1,4 @@
-(ql-dist:enable (ql-dist:find-dist "ultralisp"))
+(ql-dist:disable (ql-dist:find-dist "ultralisp"))
 (defsystem "hermes-agents"
   :version "0.1.0"
   :author ""

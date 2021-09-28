@@ -10,7 +10,9 @@
 		#:assoccess
 		#:assoccess-default
 		#:random-float
-		#:dbg)
+		#:dbg
+		#:stringify
+		#:whole-reals-to-integers)
   (:import-from #:hscom.hsage
 		#:*fis-method*
 		#:*min-pips-sl*
@@ -38,6 +40,13 @@
   (:import-from #:hsint
 		#:eval-ifis-gen
 		#:eval-ifis-idx)
+  (:import-from #:genetic-algorithm
+		#:get-gens
+		#:select-the-best
+		#:get-fit
+		#:make-being
+		#:-population-
+		#:-best-being-)
   (:export #:agent
 	   #:log-agent
 	   #:optimization
@@ -77,7 +86,13 @@
 	   #:get-global-revenue
 	   #:validate-trades
 	   #:re-validate-trades
-	   #:delete-trades)
+	   #:delete-trades
+	   #:get-hybrid
+	   #:get-human-name
+	   #:get-hybrid-name
+	   #:best-individual
+	   #:test-hybrid-strategy
+	   #:get-hybrid-id)
   (:nicknames #:hsage.trading))
 (in-package :hermes-agents.trading)
 
@@ -154,7 +169,7 @@
   (:keys pattern-id trade-id))
 
 (defclass pattern ()
-  ((id :col-type string :initform (format nil "~a" (uuid:make-v4-uuid)) :initarg :id)
+  ((id :col-type string :initform (format nil "~a" (uuid:make-v4-uuid)) :initarg :id :accessor id)
    (type :col-type string :initarg :type)
    (instrument :col-type string :initarg :instrument)
    (timeframe :col-type string :initarg :timeframe))
@@ -163,9 +178,9 @@
   (:keys id))
 
 (defclass trade ()
-  ((id :col-type string :initform (format nil "~a" (uuid:make-v4-uuid)) :initarg :id)
+  ((id :col-type string :initform (format nil "~a" (uuid:make-v4-uuid)) :initarg :id :accessor id)
    (label :col-type string :initform "" :initarg :label)
-   (agent-id :col-type (or db-null string) :initform (format nil "~a" (uuid:make-v4-uuid)) :initarg :agent-id)
+   (owner-id :col-type (or db-null string) :initform (format nil "~a" (uuid:make-v4-uuid)) :initarg :owner-id)
    (creation-time :col-type integer :initarg :creation-time)
    (decision :col-type string :initarg :decision)
    (result :col-type (or db-null double-float) :initarg :result)
@@ -244,7 +259,69 @@
   (:table-name trades)
   (:keys id))
 
-(defun insert-trade-human (agent-id instrument timeframe types train-fitnesses test-fitnesses tp sl activation rates creation-time label &key (metric-or-signal :signal))
+(defclass metrics ()
+  ((id :col-type string :initform (format nil "~a" (uuid:make-v4-uuid)) :initarg :id :accessor id)
+   (begin-time :col-type integer :initarg :begin-time :accessor begin-time)
+   (end-time :col-type integer :initarg :end-time :accessor end-time)
+   (dataset-size :col-type integer :initarg :dataset-size :accessor dataset-size)
+   (avg-revenue :col-type double-float :initarg :avg-revenue :accessor avg-revenue)
+   (stdev-revenue :col-type double-float :initarg :stdev-revenue :accessor stdev-revenue)
+   (total-revenue :col-type double-float :initarg :total-revenue :accessor total-revenue)
+   (avg-return :col-type double-float :initarg :avg-return :accessor avg-return)
+   (total-return :col-type double-float :initarg :total-return :accessor total-return)
+   (avg-max-pos :col-type double-float :initarg :avg-max-pos :accessor avg-max-pos)
+   (stdev-max-pos :col-type double-float :initarg :stdev-max-pos :accessor stdev-max-pos)
+   (avg-max-neg :col-type double-float :initarg :avg-max-neg :accessor avg-max-neg)
+   (stdev-max-neg :col-type double-float :initarg :stdev-max-neg :accessor stdev-max-neg)
+   (avg-tp :col-type double-float :initarg :avg-tp :accessor avg-tp)
+   (stdev-tp :col-type double-float :initarg :stdev-tp :accessor stdev-tp)
+   (avg-sl :col-type double-float :initarg :avg-sl :accessor avg-sl)
+   (stdev-sl :col-type double-float :initarg :stdev-sl :accessor stdev-sl)
+   (avg-activation :col-type double-float :initarg :avg-activation :accessor avg-activation)
+   (stdev-activation :col-type double-float :initarg :stdev-activation :accessor stdev-activation)
+   (max-tp :col-type double-float :initarg :max-tp :accessor max-tp)
+   (min-tp :col-type double-float :initarg :min-tp :accessor min-tp)
+   (max-sl :col-type double-float :initarg :max-sl :accessor max-sl)
+   (min-sl :col-type double-float :initarg :min-sl :accessor min-sl)
+   (trades-won :col-type double-float :initarg :trades-won :accessor trades-won)
+   (trades-lost :col-type double-float :initarg :trades-lost :accessor trades-lost)
+   (revenues :col-type float[] :initarg :revenues :accessor revenues)
+   (entry-times :col-type float[] :initarg :entry-times :accessor entry-times)
+   (exit-times :col-type float[] :initarg :exit-times :accessor exit-times)
+   (entry-prices :col-type float[] :initarg :entry-prices :accessor entry-prices)
+   (exit-prices :col-type float[] :initarg :exit-prices :accessor exit-prices)
+   (tps :col-type float[] :initarg :tps :accessor tps)
+   (sls :col-type float[] :initarg :sls :accessor sls)
+   (activations :col-type float[] :initarg :activations :accessor activations)
+   (returns :col-type float[] :initarg :returns :accessor returns))
+  (:metaclass postmodern:dao-class)
+  (:table-name metricses)
+  (:keys id))
+
+(defclass evaluation ()
+  ((metrics-id :col-type string :initarg :metrics-id :accessor metrics-id)
+   (owner-id :col-type string :initarg :owner-id :accessor owner-id)
+   (label :col-type string :initform "" :initarg :label :accessor label)
+   (iterations :col-type bigint :initarg :iterations :accessor iterations))
+  (:metaclass postmodern:dao-class)
+  (:table-name evaluations)
+  (:keys metrics-id owner-id label))
+
+(defclass hybrid ()
+  ((id :col-type string :initform (format nil "~a" (uuid:make-v4-uuid)) :initarg :id :accessor id)
+   (instrument :col-type string :initarg :instrument :accessor instrument)
+   (timeframe :col-type string :initarg :timeframe :accessor timeframe)
+   (name :col-type string :initform "" :initarg :name :accessor name)
+   (population :col-type float[] :initarg :population :accessor population)
+   (best-individual :col-type float[] :initarg :best-individual :accessor best-individual))
+  (:metaclass postmodern:dao-class)
+  (:table-name hybrids)
+  (:keys id))
+
+(defun get-hybrid-id (hybrid)
+  (id hybrid))
+
+(defun insert-trade-human (owner-id instrument timeframe types train-fitnesses test-fitnesses tp sl activation rates creation-time label &key (metric-or-signal :signal))
   (conn (let* ((trade-id (assoccess (query (:select 'patterns.*
 						    (:as 'trades.id 'tid)
 						    :distinct-on 'trades.id
@@ -353,12 +430,12 @@
 		    (setf (slot-value trade 'test-returns) (apply #'vector (assoccess-default test-fitnesses :returns '(0.0))))
 		    
 		    (update-dao trade)))
-	      (insert-trade agent-id instrument timeframe types train-fitnesses test-fitnesses tp sl activation rates creation-time label)))))
+	      (insert-trade owner-id instrument timeframe types train-fitnesses test-fitnesses tp sl activation rates creation-time label)))))
 
-(defun insert-trade (agent-id instrument timeframe types train-fitnesses test-fitnesses tp sl activation rates creation-time label)
+(defun insert-trade (owner-id instrument timeframe types train-fitnesses test-fitnesses tp sl activation rates creation-time label)
   (conn (let ((patterns (get-patterns instrument timeframe types))
 	      (trade (make-dao 'trade
-			       :agent-id agent-id
+			       :owner-id owner-id
 			       :label label
 			       :creation-time creation-time
 			       :decision (if (or (= sl 0) (= tp 0))
@@ -421,24 +498,24 @@
 			       :test-trades-won (assoccess-default test-fitnesses :trades-won -1)
 			       :train-trades-lost (assoccess-default train-fitnesses :trades-lost -1)
 			       :test-trades-lost (assoccess-default test-fitnesses :trades-lost -1)
-			       :train-revenues (apply #'vector (assoccess train-fitnesses :revenues))
-			       :test-revenues (apply #'vector (assoccess test-fitnesses :revenues))
-			       :train-entry-times (apply #'vector (assoccess train-fitnesses :entry-times))
-			       :test-entry-times (apply #'vector (assoccess test-fitnesses :entry-times))
-			       :train-exit-times (apply #'vector (assoccess train-fitnesses :exit-times))
-			       :test-exit-times (apply #'vector (assoccess test-fitnesses :exit-times))
-			       :train-entry-prices (apply #'vector (assoccess train-fitnesses :entry-prices))
-			       :test-entry-prices (apply #'vector (assoccess test-fitnesses :entry-prices))
-			       :train-exit-prices (apply #'vector (assoccess train-fitnesses :exit-prices))
-			       :test-exit-prices (apply #'vector (assoccess test-fitnesses :exit-prices))
-			       :train-tps (apply #'vector (assoccess train-fitnesses :tps))
-			       :test-tps (apply #'vector (assoccess test-fitnesses :tps))
-			       :train-sls (apply #'vector (assoccess train-fitnesses :sls))
-			       :test-sls (apply #'vector (assoccess test-fitnesses :sls))
-			       :train-activations (apply #'vector (assoccess train-fitnesses :activations))
-			       :test-activations (apply #'vector (assoccess test-fitnesses :activations))
-			       :train-returns (apply #'vector (assoccess train-fitnesses :returns))
-			       :test-returns (apply #'vector (assoccess test-fitnesses :returns))
+			       :train-revenues (apply #'vector (assoccess-default train-fitnesses :revenues '(0.0)))
+			       :test-revenues (apply #'vector (assoccess-default test-fitnesses :revenues '(0.0)))
+			       :train-entry-times (apply #'vector (assoccess-default train-fitnesses :entry-times '(0.0)))
+			       :test-entry-times (apply #'vector (assoccess-default test-fitnesses :entry-times '(0.0)))
+			       :train-exit-times (apply #'vector (assoccess-default train-fitnesses :exit-times '(0.0)))
+			       :test-exit-times (apply #'vector (assoccess-default test-fitnesses :exit-times '(0.0)))
+			       :train-entry-prices (apply #'vector (assoccess-default train-fitnesses :entry-prices '(0.0)))
+			       :test-entry-prices (apply #'vector (assoccess-default test-fitnesses :entry-prices '(0.0)))
+			       :train-exit-prices (apply #'vector (assoccess-default train-fitnesses :exit-prices '(0.0)))
+			       :test-exit-prices (apply #'vector (assoccess-default test-fitnesses :exit-prices '(0.0)))
+			       :train-tps (apply #'vector (assoccess-default train-fitnesses :tps '(0.0)))
+			       :test-tps (apply #'vector (assoccess-default test-fitnesses :tps '(0.0)))
+			       :train-sls (apply #'vector (assoccess-default train-fitnesses :sls '(0.0)))
+			       :test-sls (apply #'vector (assoccess-default test-fitnesses :sls '(0.0)))
+			       :train-activations (apply #'vector (assoccess-default train-fitnesses :activations '(0.0)))
+			       :test-activations (apply #'vector (assoccess-default test-fitnesses :activations '(0.0)))
+			       :train-returns (apply #'vector (assoccess-default train-fitnesses :returns '(0.0)))
+			       :test-returns (apply #'vector (assoccess-default test-fitnesses :returns '(0.0)))
 			       )))
 	  (loop for pattern in patterns
 		do (make-dao 'pattern-trade
@@ -537,143 +614,247 @@
 	       (assoccess test-fitnesses :trades-lost))
 	   0)))
 
-(defun test-hybrid-strategy (instrument timeframe types testing-dataset model lookbehind-count &key (test-size 50) (label "") (testingp t))
-  (defparameter *coco*
-    (genetic-algorithm:run-ga (((a 0 10)
-				(b 14 20)
-				(c 5 20)
-				(d 5 20)
-				(e 3 20)
-				(f 12 20)
-				(g 12 30)
-				(h 26 30)
-				(i 26 30)
-				(j 9 20))
-			  :maximize t
-			  :population-size 20
-			  :max-iterations 5
-			  :mutation-rate 0.01)
+;;
+;; (get-hybrid :EUR_USD :M15 "")
 
-      (let ((fits (-evaluate-model
-		   :instrument :EUR_USD
-		   :timeframe :M15
-		   :types '((:single))
-		   :rates (get-input-dataset *rates* 1000)
-		   :model (lambda (input-dataset)
-			    (=>strategy-rsi-stoch-macd input-dataset a b c d e f g h i j))
-		   :idx 300
-		   :test-size 300)))
-	(dbg "fitness:" (assoccess fits :avg-return)))
-      ))
+(defun insert-metrics (metrics)
+  (conn (make-dao 'metrics
+		  :begin-time (assoccess-default metrics :begin-time -1)
+		  :end-time (assoccess-default metrics :end-time -1)
+		  :dataset-size (assoccess-default metrics :dataset-size -1)
+		  :avg-revenue (assoccess-default metrics :avg-revenue 0)
+		  :stdev-revenue (assoccess-default metrics :stdev-revenue -1)
+		  :total-revenue (assoccess-default metrics :total-revenue 0)
+		  :avg-return (assoccess-default metrics :avg-return 0)
+		  :total-return (assoccess-default metrics :total-return 0)
+		  :avg-max-pos (assoccess-default metrics :avg-max-pos 0)
+		  :stdev-max-pos (assoccess-default metrics :stdev-max-pos -1)
+		  :avg-max-neg (assoccess-default metrics :avg-max-neg 0)
+		  :stdev-max-neg (assoccess-default metrics :stdev-max-neg -1)
+		  :avg-tp (assoccess-default metrics :avg-tp 0)
+		  :stdev-tp (assoccess-default metrics :stdev-tp -1)
+		  :avg-sl (assoccess-default metrics :avg-sl 0)
+		  :stdev-sl (assoccess-default metrics :stdev-sl -1)
+		  :avg-activation (assoccess-default metrics :avg-activation 0)
+		  :stdev-activation (assoccess-default metrics :stdev-activation -1)
+		  :max-tp (assoccess-default metrics :max-tp 0)
+		  :min-tp (assoccess-default metrics :min-tp 0)
+		  :max-sl (assoccess-default metrics :max-sl 0)
+		  :min-sl (assoccess-default metrics :min-sl 0)
+		  :trades-won (assoccess-default metrics :trades-won -1)
+		  :trades-lost (assoccess-default metrics :trades-lost -1)
+		  :revenues (apply #'vector (assoccess metrics :revenues))
+		  :entry-times (apply #'vector (assoccess metrics :entry-times))
+		  :exit-times (apply #'vector (assoccess metrics :exit-times))
+		  :entry-prices (apply #'vector (assoccess metrics :entry-prices))
+		  :exit-prices (apply #'vector (assoccess metrics :exit-prices))
+		  :tps (apply #'vector (assoccess metrics :tps))
+		  :sls (apply #'vector (assoccess metrics :sls))
+		  :activations (apply #'vector (assoccess metrics :activations))
+		  :returns (apply #'vector (assoccess metrics :returns)))))
 
-  (let ((fits (-evaluate-model
-	       :instrument :EUR_USD
-	       :timeframe :M15
-	       :types '((:single))
-	       :rates (get-input-dataset *rates* 1000)
-	       :model (lambda (input-dataset)
-			(apply #'=>strategy-rsi-stoch-macd input-dataset (genetic-algorithm:get-gens *coco*)))
-	       :idx 300
-	       :test-size 300)))
-    (assoccess fits :avg-return)))
-;; (test-hybrid-strategy )
+(defun insert-evaluation (metrics-id owner-id label iterations)
+  (conn (make-dao 'evaluation
+		  :metrics-id metrics-id
+		  :owner-id owner-id
+		  :label label
+		  :iterations iterations)))
 
-(defun gen-search-space (human-strategy)
+(defun get-metricses (owner-id label)
+  (conn (query (:select '* :from 'metricses
+			:where (:= 'id
+				   (:select 'metrics-id :from 'evaluations
+					    :where (:and (:= 'owner-id owner-id)
+							 (:= 'label label)))))
+	       (:dao metrics))))
+;; (avg-revenue (get-metricses "66D36D97-EE28-4C3B-8239-9D096542DE2B" "train"))
+
+(defun get-hybrid (instrument timeframe name)
+  (first (conn (query (:select '* :from 'hybrids :where (:and (:= 'instrument (stringify instrument))
+							      (:= 'timeframe (stringify timeframe))
+							      (:= 'name name)))
+		      (:dao hybrid)))))
+;; (best-individual (get-hybrid :EUR_USD :M15 "human.rsi-stoch-macd"))
+
+(defun get-hybrid-by-id (id)
+  (conn (get-dao 'hybrid id)))
+;; (name (get-hybrid-by-id "66D36D97-EE28-4C3B-8239-9D096542DE2B"))
+
+(defun get-hybrid-iterations (instrument timeframe name label)
+  (let ((hybrid (get-hybrid instrument timeframe name)))
+    (assoccess (conn (query (:order-by (:select 'iterations :from 'evaluations
+						:where (:and (:= 'owner-id (id hybrid))
+							     (:= 'label label)))
+				       (:desc 'iterations))
+			    :alist))
+	       :iterations)))
+;; (get-hybrid-iterations :EUR_USD :M15 "human.rsi-stoch-macd" "train")
+
+(defun insert-hybrid (instrument timeframe name label iterations population best-individual metrics)
+  (conn (let* ((existing-hybrid (get-hybrid instrument timeframe name))
+	       (hybrid (if existing-hybrid
+			   (progn
+			     (setf (population existing-hybrid)
+				   (if (vectorp population) population (apply #'vector population)))
+			     (setf (best-individual existing-hybrid)
+				   (if (vectorp best-individual) best-individual (apply #'vector best-individual)))
+			     (update-dao existing-hybrid))
+			 (make-dao 'hybrid
+				   :instrument instrument
+				   :timeframe timeframe
+				   :iterations iterations
+				   :name name
+				   :population (if (vectorp population) population (apply #'vector population))
+				   :best-individual (if (vectorp best-individual) best-individual (apply #'vector best-individual)))))
+	       (metrics-dao (insert-metrics metrics)))
+	  (insert-evaluation (id metrics-dao)
+			     (id hybrid)
+			     label
+			     (if existing-hybrid
+				 (+ iterations (get-hybrid-iterations instrument timeframe name label))
+			       iterations)))))
+
+(defun get-human-name (human-strategy)
+  (format nil "human.~a" (assoccess human-strategy :name)))
+(defun get-hybrid-name (human-strategy)
+  (format nil "hybrid.~a" (assoccess human-strategy :name)))
+
+(defun gen-search-space (parameters ranges)
   (mapcar (lambda (parameter range)
 	    (cons parameter range))
-	  (assoccess human-strategy :parameters)
-	  (assoccess human-strategy :args-ranges)))
+	  parameters
+	  ranges))
 
-(defun meow (human-strategy maximize population-size max-iterations mutation-rate)
-  (let ((search-space (mapcar (lambda (parameter range)
-				(cons parameter range))
-			      (assoccess human-strategy :parameters)
-			      (assoccess human-strategy :args-ranges)))
-	;; (maximize t)
-	;; (population-size 10)
-	;; (max-iterations 10)
-	;; (mutation-rate 0.1)
-	(body '((+ HERMES-PERCEPTION::OFFSET HERMES-PERCEPTION::N-RSI)))
-	)
-    ;; (macrolet ((woof (search-space maximize population-size max-iterations mutation-rate &rest body)
-    ;; 		 `(genetic-algorithm:run-ga (,search-space
-    ;; 					:maximize ,maximize
-    ;; 					:population-size ,population-size
-    ;; 					:max-iterations ,max-iterations
-    ;; 					:mutation-rate ,mutation-rate)
-    ;; 		    body)))
-    ;;   (woof search-space maximize population-size max-iterations mutation-rate body))
+;; (gen-search-space (first (hsper:get-human-strategies)))
+;; (gen-search-space (assoccess (first (hsper:get-human-strategies)) :parameters)
+;; 		  (whole-reals-to-integers (best-individual (get-hybrid :EUR_USD :M15 "human.rsi-stoch-macd"))))
+
+(defun gen-population-from-genomes (search-space genomes genome-size parameters)
+  (loop for i from 0 below (length genomes) by genome-size
+	collect (let* ((values (whole-reals-to-integers (subseq genomes i (+ i genome-size))))
+		       (gen-values (flatten (mapcar (lambda (gen value)
+						      (list (make-keyword gen) value))
+						    parameters
+						    values))))
+		  (apply #'make-being search-space gen-values))))
+;; (gen-population-from-genomes )
+
+;; (apply #'list '(1 2 3 4) '(10 20 30 40))
+
+;; (make-being '((offset 10 20) (n-rsi 10 20)) :offset 30 :n-rsi 20 :fit 10)
+
+(defun optimize-human-strategy (instrument timeframe types input-dataset human-strategy &key
+					   (maximize nil) (population-size 100)
+					   (max-iterations 100) (mutation-rate 0.1)
+					   (test-size 1000) (fitness-metric :avg-revenue))
+  (let ((search-space (gen-search-space
+		       (assoccess human-strategy :parameters)
+		       (assoccess human-strategy :args-ranges)))
+	(get-fit-fn (lambda (fit)
+		      (assoccess (get-fit fit) fitness-metric)))
+	(existing-hybrid (get-hybrid instrument
+				     timeframe
+				     (get-hybrid-name human-strategy))))
     (eval `(genetic-algorithm:run-ga (,search-space
-				 :maximize ,maximize
-				 :population-size ,population-size
-				 :max-iterations ,max-iterations
-				 :mutation-rate ,mutation-rate)
-	     ,@body))
-    ))
-;; (meow (first (hsper:get-human-strategies)) t 10 10 0.1)
+				      :maximize ,maximize
+				      :population-size ,population-size
+				      :max-iterations ,max-iterations
+				      :mutation-rate ,mutation-rate
+				      :first-generation (when ,(when existing-hybrid t)
+							  (let* ((hybrid (get-hybrid ,instrument
+										     ,timeframe
+										     ,(get-hybrid-name human-strategy)))
+								 (genomes (population hybrid))
+								 (best (best-individual hybrid)))
+							    (gen-population-from-genomes
+							     ',search-space
+							     genomes
+							     (length best)
+							     ',(assoccess human-strategy :parameters))
+							    ))
+				      :get-fit-fn (lambda (fit)
+				      		    (assoccess (genetic-algorithm:get-fit fit) ,fitness-metric))
+				      ;; :after-each-iteration (describe (first genetic-algorithm:-population-))
+				      :finally
+				      (let* ((best-individual (select-the-best -population-
+									       :get-fit-fn ,get-fit-fn))
+					     (best-genome (get-gens best-individual))
+					     (best-fitness (get-fit best-individual))
+					     (population-genomes (flatten (mapcar (lambda (ind)
+										    (get-gens ind))
+										  -population-))))
+					(insert-hybrid ,(stringify instrument)
+						       ,(stringify timeframe)
+						       ,(get-hybrid-name human-strategy)
+						       "train"
+						       ,max-iterations
+						       population-genomes
+						       best-genome
+						       best-fitness)))
+				     (-evaluate-model
+				      :instrument ,instrument
+				      :timeframe ,timeframe
+				      :types ',types
+				      :rates ',input-dataset
+				      :model (lambda (input-dataset)
+					       (funcall ,(assoccess human-strategy :fn)
+							input-dataset
+							,@(assoccess human-strategy :parameters)))
+				      :idx ,(assoccess human-strategy :lookbehind-count)
+				      :test-size ,test-size)))))
 
-(defun optimize-human-strategy (instrument timeframe types input-dataset human-strategy)
-  (let ((search-space (mapcar (lambda (parameter range)
-				(cons parameter range))
-			      (assoccess human-strategy :parameters)
-			      (assoccess human-strategy :args-ranges))))
-    (eval `(-set-search-space ,search-space t 20 5 0.01
-			      (let ((fits (-evaluate-model
-					   :instrument ,instrument
-					   :timeframe ,timeframe
-					   :types ,types
-					   :rates ,input-dataset
-					   :model ,(lambda (input-dataset)
-						     (=>strategy-rsi-stoch-macd input-dataset a b c d e f g h i j))
-					   :idx 300
-					   :test-size 300)))
-				(dbg "fitness:" (assoccess fits :avg-return)))))
-    ;; (genetic-algorithm:run-ga (search-space
-    ;; 			  :maximize t
-    ;; 			  :population-size 20
-    ;; 			  :max-iterations 5
-    ;; 			  :mutation-rate 0.01)
-    ;;   (let ((fits (-evaluate-model
-    ;; 		   :instrument instrument
-    ;; 		   :timeframe timeframe
-    ;; 		   :types types
-    ;; 		   :rates input-dataset
-    ;; 		   :model (lambda (input-dataset)
-    ;; 			    (=>strategy-rsi-stoch-macd input-dataset a b c d e f g h i j))
-    ;; 		   :idx 300
-    ;; 		   :test-size 300)))
-    ;; 	(dbg "fitness:" (assoccess fits :avg-return))))
-    ))
-;; (optimize-human-strategy :EUR_USD :M15 '((:single)) (get-input-dataset *rates* 1000) (hsper:get-human-strategies))
+;; (genetic-algorithm:get-gens *coco*)
+;; (genetic-algorithm:get-name (first (genetic-algorithm:get-genome *coco*)))
 
-(let ((instrument :EUR_USD)
-      (timeframe :M15)
-      (types '((:single))))
-  (genetic-algorithm:run-ga (((a 0 10)
-			      (b 14 20)
-			      (c 5 20)
-			      (d 5 20)
-			      (e 3 20)
-			      (f 12 20)
-			      (g 12 30)
-			      (h 26 30)
-			      (i 26 30)
-			      (j 9 20))
-			:maximize t
-			:population-size 20
-			:max-iterations 5
-			:mutation-rate 0.01)
-    (let ((fits (-evaluate-model
-		 :instrument instrument
-		 :timeframe timeframe
-		 :types types
-		 :rates (get-input-dataset *rates* 1000)
-		 :model (lambda (input-dataset)
-			  (=>strategy-rsi-stoch-macd input-dataset a b c d e f g h i j))
-		 :idx 300
-		 :test-size 300)))
-      (dbg "fitness:" (assoccess fits :avg-return)))
-    ))
+(comment
+ ;; (defparameter *rates* (hsinp.rates:fracdiff (hsinp.rates:get-rates-count-big :AUD_USD :H1 10000)))
+ (defparameter *coco*
+   (optimize-human-strategy :EUR_USD :M15 '((:single))
+			    (get-input-dataset *rates* 500)
+			    (first (hsper:get-human-strategies))
+			    :maximize t
+			    :population-size 20
+			    :max-iterations 1
+			    :mutation-rate 0.0
+			    :test-size 1000
+			    :fitness-metric :avg-revenue)
+   )
+ )
+
+(comment
+ (-evaluate-model
+  :instrument :EUR_USD
+  :timeframe :M15
+  :types '((:single))
+  :rates (get-input-dataset *rates* 1500)
+  :model (lambda (input-dataset)
+	   (apply #'=>STRATEGY-RSI-STOCH-MACD
+		  input-dataset
+		  ;; (assoccess (first (hsper:get-human-strategies)) :args-default)
+		  '(0 17 17 19 9 28 38 13 18 5)
+		  ))
+  :idx (assoccess (first (hsper:get-human-strategies)) :lookbehind-count)
+  :test-size 1000))
+
+;;
+
+(defun test-hybrid-strategy (instrument timeframe types hybrid-id testing-dataset model lookbehind-count &key (test-size 50) (label "") (testingp t))
+  (multiple-value-bind (tp sl activation)
+      (funcall model testing-dataset)
+    (let ((test-fitnesses (-evaluate-model
+			   :instrument instrument
+			   :timeframe timeframe
+			   :types types
+			   :rates testing-dataset
+			   :model model
+			   :idx lookbehind-count
+			   :test-size test-size)))
+      (when test-fitnesses
+	(push-to-log "Tested hybrid strategy successfully."))
+      (push-to-log (format nil "Prediction. TP: ~a, SL: ~a." tp sl))
+      ;; We're going to allow any trade to pass (not using -TEST-CONDITIONS).
+      (insert-trade hybrid-id instrument timeframe types test-fitnesses test-fitnesses tp sl activation testing-dataset (local-time:timestamp-to-unix (local-time:now)) label)
+      (push-to-log "Trade created successfully."))))
 
 (defun test-human-strategy (instrument timeframe types testing-dataset model lookbehind-count &key (test-size 50) (label "") (testingp t))
   (multiple-value-bind (tp sl activation)
@@ -693,6 +874,7 @@
       (insert-trade-human "" instrument timeframe types test-fitnesses test-fitnesses tp sl activation testing-dataset (local-time:timestamp-to-unix (local-time:now)) label :metric-or-signal (if testingp :metric :signal))
       (push-to-log "Trade created successfully."))))
 ;; (test-human-strategy :EUR_USD :M15 '((:bullish)) *rates* (assoccess (first (hsper:get-human-strategies)) :model) (assoccess (first (hsper:get-human-strategies)) :lookbehind-count) :test-size 500 :label "human")
+
 (comment
   (defparameter *rates* (hsinp.rates:get-rates-random-count-big :EUR_USD :M15 2000))
   (test-human-strategy :EUR_USD :M15 '((:rsi :macd :stoch)) (subseq *rates* 0 ) (assoccess (first (hsper:get-human-strategies)) :model) (assoccess (first (hsper:get-human-strategies)) :lookbehind-count) :test-size 200 :label "human" :testingp t)
@@ -963,6 +1145,21 @@
 		(subseq seq offset (+ offset limit))))
 	seq)))
 
+(defun agent-correct-perception-fns (agent)
+  "TODO: Add some error handling, as we're not returning anything."
+  (let ((perception-fns (slot-value agent 'perception-fns)))
+    (loop for idx from 0 below (length perception-fns)
+	  do (multiple-value-bind (i r)
+				  (round (aref perception-fns idx))
+				  (when (= r 0)
+				    (setf (aref perception-fns idx) i)))))
+  (values))
+
+(comment
+ (let ((agent (gen-agent 3 :AUD_USD (subseq *rates* 0 1000) (hscom.utils:assoccess (hsper:gen-random-perceptions 2) :perception-fns) 10 100)))
+   (agent-correct-perception-fns agent)
+   (slot-value agent 'perception-fns)))
+
 (defun get-agents-some (instrument timeframe types &optional (limit -1) (offset 0))
   (let (result)
     (loop for type in (flatten types)
@@ -973,6 +1170,7 @@
 		 (let* ((agent-ids (get-agent-ids-from-patterns instrument timeframe type))
 			(agents (conn (query (:select '* :from 'agents :where (:in 'id (:set agent-ids)))
 					     (:dao agent)))))
+		   (map nil #'agent-correct-perception-fns agents)
 		   (setf (gethash (list instrument timeframe type) *agents-cache*) agents)
 		   (loop for agent in (limit-seq agents limit offset)
 			 do (push agent result))))))

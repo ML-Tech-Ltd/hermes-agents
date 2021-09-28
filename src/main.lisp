@@ -3,9 +3,8 @@
 ;; (clerk:calendar)
 ;; (progn (drop-database) (init-database) (init-patterns) (clear-logs) (when hscom.all:*is-production* (clear-jobs)))
 ;; (progn (drop-database) (init-database))
-
+;; (ql-dist:disable (ql-dist:find-dist "ultralisp"))
 ;; (ql-dist:enable (ql-dist:find-dist "ultralisp"))
-;; (ql:system-apropos "genetic")
 
 (defpackage hermes-agents
   (:use #:cl
@@ -26,8 +25,13 @@
 	#:hermes-agents.log)
   (:import-from #:hscom.utils
 		#:assoccess
-		#:dbg)
+		#:dbg
+		#:whole-reals-to-integers)
   (:import-from #:hscom.hsage
+		#:*hybrid-maximize-p*
+		#:*hybrid-population-size*
+		#:*hybrid-iterations*
+		#:*hybrid-mutation-rate*
 		#:*cores-count*
 		#:*iterations*
 		#:*print-hypothesis-test*
@@ -57,7 +61,14 @@
 		#:init-patterns
 		#:validate-trades
 		#:get-trade-result
-		#:test-human-strategy)
+		#:test-human-strategy
+		#:optimize-human-strategy
+		#:get-hybrid
+		#:get-human-name
+		#:get-hybrid-name
+		#:best-individual
+		#:test-hybrid-strategy
+		#:get-hybrid-id)
   (:import-from #:hscom.db
 		#:conn)
   (:import-from #:hsage.db
@@ -123,62 +134,68 @@
 	  (loop for rate in rates do (print (assoccess rate :high-bid)))))))
 ;; (->diff-close-frac-bid *rates* :offset 1)
 
-(defun -loop-test-hybrid-strategies (&key (testingp nil))
-  (let ((human-strategies (get-human-strategies))
-	(test-size (if testingp
-		       *test-size-human-strategies-metrics*
-		       *test-size-human-strategies-signals*)))
-    (dolist (human-strategy human-strategies)
-      (dolist (instrument (assoccess human-strategy :instruments))
-	(dolist (timeframe (assoccess human-strategy :timeframes))
-	  (unless (is-market-close)
-	    (let* ((human-rates (-get-rates instrument
-					    timeframe
-					    test-size)))
-	      ;; Human strategies metrics.
-	      (test-human-strategy instrument timeframe
-				   ;; (assoccess human-strategy :types)
-				   '((:single))
-				   human-rates
-				   (assoccess human-strategy :model)
-				   (assoccess human-strategy :lookbehind-count)
-				   :test-size test-size
-				   :label (assoccess human-strategy :label)
-				   :testingp testingp))
-	    ;; We don't want our data feed provider to ban us.
-	    ;; We also want to go easy on those database reads (`agents-count`).
-	    (when hscom.all:*is-production*
-	      (sleep 1))))))))
+(defmacro -loop-human-strategies (testingp &rest body)
+  `(let ((human-strategies (get-human-strategies))
+	 (test-size (if ,testingp
+			*test-size-human-strategies-metrics*
+			*test-size-human-strategies-signals*)))
+     (dolist (human-strategy human-strategies)
+       (dolist (instrument (assoccess human-strategy :instruments))
+	 (dolist (timeframe (assoccess human-strategy :timeframes))
+	   (unless (is-market-close)
+	     (let* ((human-rates (-get-rates instrument
+					     timeframe
+					     test-size)))
+	       ,@body)
+	     ;; We don't want our data feed provider to ban us.
+	     ;; We also want to go easy on those database reads (`agents-count`).
+	     (when hscom.all:*is-production*
+	       (sleep 1))))))))
+
+(defun -loop-optimize-human-strategies (&key (testingp nil))
+  (-loop-human-strategies
+   testingp
+   (optimize-human-strategy instrument timeframe '((:single))
+			    human-rates
+			    human-strategy
+			    :maximize *hybrid-maximize-p*
+			    :population-size *hybrid-population-size*
+			    :max-iterations *hybrid-iterations*
+			    :mutation-rate *hybrid-mutation-rate*
+			    :test-size test-size
+			    :fitness-metric :avg-revenue)))
 
 (defun -loop-test-human-strategies (&key (testingp nil))
-  (let ((human-strategies (get-human-strategies))
-	(test-size (if testingp
-		       *test-size-human-strategies-metrics*
-		       *test-size-human-strategies-signals*)))
-    (dolist (human-strategy human-strategies)
-      (dolist (instrument (assoccess human-strategy :instruments))
-	(dolist (timeframe (assoccess human-strategy :timeframes))
-	  (unless (is-market-close)
-	    (let* ((human-rates (-get-rates instrument
-					    timeframe
-					    test-size)))
-	      ;; Human strategies metrics.
-	      (test-human-strategy instrument timeframe
-				   ;; (assoccess human-strategy :types)
-				   '((:single))
-				   human-rates
-				   (lambda (input-dataset)
-				     (funcall (assoccess human-strategy :model)
-					      input-dataset
-					      (assoccess human-strategy :args-default)))
-				   (assoccess human-strategy :lookbehind-count)
-				   :test-size test-size
-				   :label (assoccess human-strategy :label)
-				   :testingp testingp))
-	    ;; We don't want our data feed provider to ban us.
-	    ;; We also want to go easy on those database reads (`agents-count`).
-	    (when hscom.all:*is-production*
-	      (sleep 1))))))))
+  (-loop-human-strategies
+   testingp
+   ;; Testing hybrid strategy.
+   (let ((hybrid (get-hybrid instrument timeframe (get-hybrid-name human-strategy))))
+     (when hybrid
+       (test-hybrid-strategy instrument timeframe
+			    '((:single))
+			    (get-hybrid-id hybrid)
+			    human-rates
+			    (lambda (input-dataset)
+			      (funcall (assoccess human-strategy :model)
+				       input-dataset
+				       (whole-reals-to-integers (best-individual hybrid))))
+			    (assoccess human-strategy :lookbehind-count)
+			    :test-size test-size
+			    :label (get-hybrid-name human-strategy)
+			    :testingp testingp)))
+   ;; Testing human strategy.
+   (test-human-strategy instrument timeframe
+			;; (assoccess human-strategy :types)
+			'((:single))
+			human-rates
+			(lambda (input-dataset)
+			  (funcall (assoccess human-strategy :model)
+				   input-dataset
+				   (assoccess human-strategy :args-default)))
+			(assoccess human-strategy :lookbehind-count)
+			:test-size test-size
+			:label (get-human-name human-strategy)
+			:testingp testingp)))
 
 (defun create-job-human-strategies-metrics (seconds)
   "We run this every `hscom.hsage#:*seconds-interval-testing-human-strategies-metrics*` seconds."
@@ -186,6 +203,12 @@
   (eval `(clerk:job "Creating human strategies metrics" every ,(read-from-string (format nil "~a.seconds" seconds))
 		    (-loop-test-human-strategies :testingp t))))
 ;; (create-human-strategies-metrics-job 10)
+
+(defun create-job-optimize-human-strategies (seconds)
+  "We run this every `hscom.hsage#:*seconds-interval-testing-human-strategies-metrics*` seconds."
+  ;; Let's run it once immediately.
+  (eval `(clerk:job "Optimizing human strategies to create hybrid strategies" every ,(read-from-string (format nil "~a.seconds" seconds))
+		    (-loop-optimize-human-strategies :testingp t))))
 
 (defun create-job-signals (seconds)
   "We run this every `hscom.hsage#:*seconds-interval-testing*` seconds."
@@ -315,6 +338,7 @@
 (defun -loop-optimize-test-validate ()
   ;; Let's start by gathering the human strategies metrics when in development mode.
   (when (not hscom.all:*is-production*)
+    (-loop-optimize-human-strategies :testingp t)
     (-loop-test-human-strategies :testingp t))
   ;; Human strategies signals. Let's evaluate human strategies first regardless of development or production mode.
   (-loop-test-human-strategies :testingp nil)
@@ -374,6 +398,7 @@
     (when hscom.all:*is-production*
       (create-job-signals hscom.hsage:*seconds-interval-testing*)
       (create-job-human-strategies-metrics hscom.hsage:*seconds-interval-testing-human-strategies-metrics*)
+      (create-job-optimize-human-strategies hscom.hsage:*seconds-interval-optimizing-human-strategies*)
       (clerk:start))
     (if (< *iterations* 0)
 	(loop (unless (is-market-close))

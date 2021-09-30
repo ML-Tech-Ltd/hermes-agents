@@ -599,14 +599,16 @@
 ;; (evaluate-trade 0.0015 -0.0020 (get-output-dataset *rates* 3))
 ;; (get-tp-sl (get-output-dataset *rates* 188))
 
-(defun -test-conditions (instrument tp sl test-fitnesses)
+(defun -test-conditions (instrument tp sl test-fitnesses &key (humanp nil))
   (and (/= tp 0)
        ;; (if (not (eq instrument :USD_CNH)) (< (assoccess prediction :tp) 100) t)
        (> (abs tp) (abs sl))
        (/= sl 0)
        (< (* tp sl) 0)
-       (> (abs (/ tp sl))
-	  hscom.hsage:*agents-min-rr-signal*)
+       (if humanp
+	   t
+	   (> (abs (/ tp sl))
+	      hscom.hsage:*agents-min-rr-signal*))
        (> (abs (to-pips instrument sl)) *min-pips-sl*)
        ;; (< (to-pips instrument (abs sl)) 20)
        (/= (assoccess test-fitnesses :trades-won) 0)
@@ -853,7 +855,8 @@
 	(push-to-log "Tested hybrid strategy successfully."))
       (push-to-log (format nil "Prediction. TP: ~a, SL: ~a." tp sl))
       ;; We're going to allow any trade to pass (not using -TEST-CONDITIONS).
-      (insert-trade hybrid-id instrument timeframe types test-fitnesses test-fitnesses tp sl activation testing-dataset (local-time:timestamp-to-unix (local-time:now)) label)
+      (when (-test-conditions instrument tp sl test-fitnesses :humanp t)
+	(insert-trade hybrid-id instrument timeframe types test-fitnesses test-fitnesses tp sl activation testing-dataset (local-time:timestamp-to-unix (local-time:now)) label))
       (push-to-log "Trade created successfully."))))
 
 (defun test-human-strategy (instrument timeframe types testing-dataset model lookbehind-count &key (test-size 50) (label "") (testingp t))

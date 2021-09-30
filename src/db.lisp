@@ -16,6 +16,28 @@
 			    (begin-time :type int8)
 			    (end-time :type int8))
 			   (:primary-key id))))
+   
+   (unless (table-exists-p 'indicators)
+     ;; Used only for reports, not by our code.
+     (query (:create-table 'indicators
+			   ((id :type string)
+			    (name :type string)
+			    (parameters :type (or db-null text[])))
+			   (:primary-key id))))
+   (unless (table-exists-p 'strategies)
+     ;; Used only for reports, not by our code.
+     (query (:create-table 'strategies
+			   ((owner-id :type string)
+			    (indicator-id :type string))
+			   (:primary-key id))))
+   (unless (table-exists-p 'humans)
+     ;; Used only for reports, not by our code.
+     (query (:create-table 'humans
+			   ((id :type string)
+			    (name :type string)
+			    (arguments :type (or db-null float[])))
+			   (:primary-key id))))
+   
    (unless (table-exists-p 'metricses)
      (query (:create-table 'metricses
 			   ((id :type string)

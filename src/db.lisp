@@ -29,7 +29,7 @@
      (query (:create-table 'strategies
 			   ((owner-id :type string)
 			    (indicator-id :type string))
-			   (:primary-key id))))
+			   (:primary-key owner-id indicator-id))))
    (unless (table-exists-p 'humans)
      ;; Used only for reports, not by our code.
      (query (:create-table 'humans

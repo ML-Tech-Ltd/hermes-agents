@@ -1,7 +1,7 @@
 ;; (ql:quickload :hermes-agents)
 ;; (time (loop-optimize-test))
 ;; (clerk:calendar)
-;; (progn (drop-database) (init-database) (init-patterns) (clear-logs) (when hscom.all:*is-production* (clear-jobs)))
+;; (progn (hsage.db:drop-database) (hsage.db:init-database) (hsage.trading:init-patterns) (hsage.log:clear-logs) (when hscom.all:*is-production* (hsage::clear-jobs)))
 ;; (progn (drop-database) (init-database))
 ;; (ql-dist:disable (ql-dist:find-dist "ultralisp"))
 ;; (ql-dist:enable (ql-dist:find-dist "ultralisp"))
@@ -22,7 +22,8 @@
 	#:hermes-agents.db
 	#:hermes-agents.km
 	#:hermes-agents.utils
-	#:hermes-agents.log)
+	#:hermes-agents.log
+	#:hscom.log)
   (:import-from #:hscom.utils
 		#:assoccess
 		#:dbg
@@ -199,16 +200,18 @@
 
 (defun create-job-human-strategies-metrics (seconds)
   "We run this every `hscom.hsage#:*seconds-interval-testing-human-strategies-metrics*` seconds."
-  ;; Let's run it once immediately.
-  (eval `(clerk:job "Creating human strategies metrics" every ,(read-from-string (format nil "~a.seconds" seconds))
-		    (-loop-test-human-strategies :testingp t))))
+  (when *run-human-and-hybrid-p*
+    ;; Let's run it once immediately.
+    (eval `(clerk:job "Creating human strategies metrics" every ,(read-from-string (format nil "~a.seconds" seconds))
+		      (-loop-test-human-strategies :testingp t)))))
 ;; (create-human-strategies-metrics-job 10)
 
 (defun create-job-optimize-human-strategies (seconds)
   "We run this every `hscom.hsage#:*seconds-interval-testing-human-strategies-metrics*` seconds."
-  ;; Let's run it once immediately.
-  (eval `(clerk:job "Optimizing human strategies to create hybrid strategies" every ,(read-from-string (format nil "~a.seconds" seconds))
-		    (-loop-optimize-human-strategies :testingp t))))
+  (when hscom.hsage:*run-human-and-hybrid-p*
+    ;; Let's run it once immediately.
+    (eval `(clerk:job "Optimizing human strategies to create hybrid strategies" every ,(read-from-string (format nil "~a.seconds" seconds))
+		      (-loop-optimize-human-strategies :testingp t)))))
 
 (defun create-job-signals (seconds)
   "We run this every `hscom.hsage#:*seconds-interval-testing*` seconds."
@@ -276,10 +279,10 @@
 		 ds))))))
 
 (defun -loop-optimize (instrument timeframe types full-creation-dataset full-training-dataset agents-count)
+  ($log $trace :-> :-loop-optimize)
   (let* ((training-dataset (-loop-get-dataset instrument timeframe types :training full-training-dataset))
 	 (creation-dataset (-loop-get-dataset instrument timeframe types :creation full-creation-dataset)))
-    (push-to-log "<b>OPTIMIZATION.</b><hr/>")
-    (push-to-log (format nil "~a agents retrieved for pattern ~s." agents-count types))
+    ($log $info (format nil "~a agents retrieved for pattern ~s." agents-count types))
     (let ((hscom.hsage:*consensus-threshold* 1))
       (optimization instrument timeframe types
 		    (lambda () (let ((beliefs (gen-random-perceptions hscom.hsage:*number-of-agent-inputs*)))
@@ -294,9 +297,9 @@
 			hscom.hsage:*seconds-to-optimize-per-pattern*
 			hscom.hsage:*optimization-agent-evaluations*)
 		    hscom.hsage:*stop-criteria*))
-    (push-to-log "Optimization process completed.")
-    (push-to-log "Syncing agents.")
-    (sync-agents instrument timeframe types)))
+    ($log $info "Optimization process completed.")
+    (sync-agents instrument timeframe types)
+    ($log $trace :<- :-loop-optimize)))
 
 (defun -loop-log-testing-dataset (dataset)
   (push-to-log (format nil "Testing dataset created successfully. Size: ~s. Dataset from ~a to ~a."
@@ -337,44 +340,48 @@
 
 (defun -loop-optimize-test-validate ()
   ;; Let's start by gathering the human strategies metrics when in development mode.
-  (when (not hscom.all:*is-production*)
+  ($log $trace :-> :-loop-optimize-test-validate)
+  (when (and (not hscom.all:*is-production*)
+	     hscom.hsage:*run-human-and-hybrid-p*)
     (-loop-optimize-human-strategies :testingp t)
     (-loop-test-human-strategies :testingp t))
   ;; Human strategies signals. Let's evaluate human strategies first regardless of development or production mode.
-  (-loop-test-human-strategies :testingp nil)
+  (when hscom.hsage:*run-human-and-hybrid-p*
+      (-loop-test-human-strategies :testingp nil))
   (pmap nil (lambda (instrument)
 	      (dolist (timeframe hscom.hsage:*timeframes*)
 		(unless (is-market-close)
-		  (push-to-log (format nil "<br/><b>STARTING ~s ~s.</b><hr/>" instrument timeframe))
 		  (let* ((rates (-loop-get-rates instrument timeframe))
-			 (human-rates (-get-rates instrument
-						  timeframe
-						  *test-size-human-strategies-signals*))
+			 ;; (human-rates (-get-rates instrument
+			 ;; 			  timeframe
+			 ;; 			  *test-size-human-strategies-signals*))
 			 (dataset-size (length rates)))
 		    (let* ((full-training-dataset (subseq rates
 							  (- dataset-size
-							     hscom.hsage:*max-testing-dataset-size*
-							     hscom.hsage:*max-training-dataset-size*)
+							      hscom.hsage:*max-testing-dataset-size*
+							      hscom.hsage:*max-training-dataset-size*)
 							  (- dataset-size
-							     hscom.hsage:*max-testing-dataset-size*)))
+							      hscom.hsage:*max-testing-dataset-size*)))
 			   (full-creation-dataset (subseq rates
 							  0
 							  (- dataset-size
-							     hscom.hsage:*max-testing-dataset-size*
-							     hscom.hsage:*max-training-dataset-size*)))
+							      hscom.hsage:*max-testing-dataset-size*
+							      hscom.hsage:*max-training-dataset-size*)))
 			   (testing-dataset (when (not hscom.all:*is-production*)
-					     (let ((dataset (subseq rates
-								    (- dataset-size
-								       hscom.hsage:*max-testing-dataset-size*))))
-					       (-loop-log-testing-dataset dataset)
-					       dataset)))
+					      (let ((dataset (subseq rates
+								     (- dataset-size
+									 hscom.hsage:*max-testing-dataset-size*))))
+						(-loop-log-testing-dataset dataset)
+						dataset)))
 			   (agents-count (get-agents-count instrument timeframe hscom.hsage:*type-groups*)))
+		      ($log $info "Beginning agent optimization process.")
 		      ;; Optimization.
 		      (loop for types in hscom.hsage:*type-groups*
 			    do (-loop-optimize instrument timeframe types full-creation-dataset full-training-dataset agents-count))
 		      ;; Signal creation. Development.
 		      (when (not hscom.all:*is-production*)
 			(-loop-test instrument timeframe hscom.hsage:*type-groups* testing-dataset))
+		      ($log $info "Done agent optimization process.")
 		      ))
 		  (-loop-validate))
 		(hsage.utils:refresh-memory)
@@ -383,7 +390,8 @@
 		  (hsage.trading::hypothesis-test))))
 	hscom.hsage:*instruments*)
   (unless hscom.all:*is-production*
-    (wipe-agents)))
+    (wipe-agents))
+  ($log $trace :<- :-loop-optimize-test-validate))
 
 (defun loop-optimize-test ()
   (handler-bind ((error (lambda (c)

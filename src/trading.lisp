@@ -1,5 +1,5 @@
 (defpackage hermes-agents.trading
-  (:use #:cl #:alexandria #:postmodern #:hsage.log)
+  (:use #:cl #:alexandria #:postmodern #:hsage.log #:hscom.log)
   (:import-from #:defenum
 		#:defenum)
   (:import-from #:hscom.db
@@ -599,22 +599,19 @@
 ;; (evaluate-trade 0.0015 -0.0020 (get-output-dataset *rates* 3))
 ;; (get-tp-sl (get-output-dataset *rates* 188))
 
-(defun -test-conditions (instrument tp sl test-fitnesses &key (humanp nil))
+(defun -test-conditions (instrument tp sl test-fitnesses &key (hybridp nil))
   (and (/= tp 0)
        ;; (if (not (eq instrument :USD_CNH)) (< (assoccess prediction :tp) 100) t)
        (> (abs tp) (abs sl))
        (/= sl 0)
        (< (* tp sl) 0)
-       (if humanp
+       (if hybridp
 	   t
 	   (> (abs (/ tp sl))
 	      hscom.hsage:*agents-min-rr-signal*))
        (> (abs (to-pips instrument sl)) *min-pips-sl*)
        ;; (< (to-pips instrument (abs sl)) 20)
-       (/= (assoccess test-fitnesses :trades-won) 0)
-       (/= (+ (assoccess test-fitnesses :trades-won)
-	       (assoccess test-fitnesses :trades-lost))
-	   0)))
+       (/= (assoccess test-fitnesses :trades-won) 0)))
 
 ;;
 ;; (get-hybrid :EUR_USD :M15 "")
@@ -855,7 +852,7 @@
 	(push-to-log "Tested hybrid strategy successfully."))
       (push-to-log (format nil "Prediction. TP: ~a, SL: ~a." tp sl))
       ;; We're going to allow any trade to pass (not using -TEST-CONDITIONS).
-      (when (-test-conditions instrument tp sl test-fitnesses :humanp t)
+      (when (-test-conditions instrument tp sl test-fitnesses :hybridp t)
 	(insert-trade hybrid-id instrument timeframe types test-fitnesses test-fitnesses tp sl activation testing-dataset (local-time:timestamp-to-unix (local-time:now)) label))
       (push-to-log "Trade created successfully."))))
 
@@ -1087,8 +1084,10 @@
 			   :timeframe (format nil "~a" timeframe))))
 
 (defun wipe-agents ()
-  (conn (query (:delete-from 'agents :where (:= 1 1)))
-	(query (:delete-from 'agents-patterns :where (:= 1 1)))))
+  (when hscom.hsage:*wipe-agents-p*
+    ($log $trace :-> :wipe-agents)
+    (conn (query (:delete-from 'agents :where (:= 1 1)))
+	  (query (:delete-from 'agents-patterns :where (:= 1 1))))))
 ;; (wipe-agents)
 
 (defun get-patterns (instrument timeframe types)
@@ -1120,8 +1119,11 @@
   ;; Get agents from cache (A2)
   ;; Update or add agents from A1 using A2
   ;; Delete agents found in A1 but not in A2
+  ($log $trace :-> :sync-agents)
   (let ((A1 (get-agents-some instrument timeframe types))
 	(A2 (get-agents-from-cache instrument timeframe types)))
+    ($log $debug "Database agents:" (length A1))
+    ($log $debug "Cache agents:" (length A2))
     (conn
      ;; First we update existing agents on database and insert the new ones.
      ;; If the algorithm crashes, we at least keep some of the agents updated and new ones.
@@ -1135,7 +1137,8 @@
 	     do (let* ((id (slot-value agent 'id))
 		       (foundp (find id ids :test #'string=)))
 		  (unless foundp
-		    (delete-dao agent))))))))
+		    (delete-dao agent)))))))
+  ($log $trace :<- :sync-agents))
 ;; (time (sync-agents :AUD_USD hscom.hsage:*train-tf* '(:BULLISH)))
 
 (defun limit-seq (seq limit offset)
@@ -1180,7 +1183,7 @@
     result))
 ;; (time (get-agents-some :AUD_USD hscom.hsage:*train-tf* '(:bullish) 3 2))
 ;; (time (get-agents-some :EUR_USD hscom.hsage:*train-tf* '(:bullish :stagnated :bearish) 3 10))
-;; (agents-to-alists (get-agents-some :AUD_USD hscom.hsage:*train-tf* '(:BULLISH)))
+;; (agents-to-alists (get-agents-some :AUD_USD hscom.hsage:*train-tf* '(:SINGLE)))
 
 (defun add-agent (agent instrument timeframe types)
   "Works with *agents-cache*"
@@ -1439,6 +1442,7 @@
 				(push `(:instrument . ,(first key)) pre-result)
 				(push `(:timeframe . ,(second key)) pre-result)
 				(push `(:type . ,(third key)) pre-result)
+				(push `(:r/r . ,(format-rr (assoccess pre-result :avg-sl) (assoccess pre-result :avg-tp))) pre-result)
 				(setf result pre-result))
 			      )))))
     result))
@@ -2353,7 +2357,7 @@ you"))
 		   :alists))))
 ;; (get-trades)
 
-(defun -get-trades ()
+(defun -get-trades (strategy)
   (sql (:order-by (:select 'patterns.instrument
 			   'patterns.timeframe
 			   'patterns.type
@@ -2378,18 +2382,19 @@ you"))
 			   :inner-join 'patterns-trades
 			   :on (:= 'trades.id 'patterns-trades.trade-id)
 			   :inner-join 'patterns
-			   :on (:= 'patterns-trades.pattern-id 'patterns.id))
+		    :on (:= 'patterns-trades.pattern-id 'patterns.id)
+		    :where (:like 'trades.label (string-downcase (format nil "%~a%" strategy))))
 		  'trades.id
 		  (:desc 'trades.creation-time))))
 
-(defun get-trades-flat (&optional (limit -1) (offset 0))
+(defun get-trades-flat (&optional (limit -1) (offset 0) (strategy ""))
   (conn (if (plusp limit)
-	    (query (:limit (:raw (-get-trades)) '$1 '$2)
+	    (query (:limit (:raw (-get-trades strategy)) '$1 '$2)
 		   limit
 		   offset
 		   :alists)
-	    (query (:raw (-get-trades)) :alists))))
-;; (get-trades-flat 2 0)
+	    (query (:raw (-get-trades strategy)) :alists))))
+;; (get-trades-flat -1 0 :hermes)
 
 (defun get-trades-grouped (&optional (limit 10))
   (conn (query

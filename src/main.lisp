@@ -200,7 +200,7 @@
 
 (defun create-job-human-strategies-metrics (seconds)
   "We run this every `hscom.hsage#:*seconds-interval-testing-human-strategies-metrics*` seconds."
-  (when *run-human-and-hybrid-p*
+  (when hscom.hsage:*run-human-and-hybrid-p*
     ;; Let's run it once immediately.
     (eval `(clerk:job "Creating human strategies metrics" every ,(read-from-string (format nil "~a.seconds" seconds))
 		      (-loop-test-human-strategies :testingp t)))))

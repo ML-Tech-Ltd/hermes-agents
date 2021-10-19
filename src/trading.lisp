@@ -1,5 +1,5 @@
 (defpackage hermes-agents.trading
-  (:use #:cl #:alexandria #:postmodern #:hsage.log #:hscom.log)
+  (:use #:cl #:alexandria #:postmodern #:hsage.log #:hscom.log #:hu.dwim.def)
   (:import-from #:defenum
 		#:defenum)
   (:import-from #:hscom.db
@@ -681,15 +681,14 @@
   (conn (get-dao 'hybrid id)))
 ;; (name (get-hybrid-by-id "66D36D97-EE28-4C3B-8239-9D096542DE2B"))
 
-(defun get-hybrid-iterations (instrument timeframe name label)
+(defun get-hybrid-iterations (instrument timeframe name)
   (let ((hybrid (get-hybrid instrument timeframe name)))
     (assoccess (conn (query (:order-by (:select 'iterations :from 'evaluations
-						:where (:and (:= 'owner-id (id hybrid))
-							     (:= 'label label)))
+						:where (:and (:= 'owner-id (id hybrid))))
 				       (:desc 'iterations))
 			    :alist))
 	       :iterations)))
-;; (get-hybrid-iterations :EUR_USD :M15 "human.rsi-stoch-macd" "train")
+;; (get-hybrid-iterations :EUR_USD :M15 "human.rsi-stoch-macd")
 
 (defun insert-hybrid (instrument timeframe name label iterations population best-individual metrics)
   (conn (let* ((existing-hybrid (get-hybrid instrument timeframe name))
@@ -712,7 +711,8 @@
 			     (id hybrid)
 			     label
 			     (if existing-hybrid
-				 (+ iterations (get-hybrid-iterations instrument timeframe name label))
+				 (if-let ((iter (get-hybrid-iterations instrument timeframe name)))
+				   (+ iterations iter) 0)
 			       iterations)))))
 
 (defun get-human-name (human-strategy)
@@ -744,11 +744,19 @@
 
 ;; (make-being '((offset 10 20) (n-rsi 10 20)) :offset 30 :n-rsi 20 :fit 10)
 
-(defun optimize-human-strategy (instrument timeframe types input-dataset human-strategy &key
-					   (maximize nil) (population-size 100)
-					   (max-iterations 100) (mutation-rate 0.1)
-					   (test-size 1000) (fitness-metric :avg-revenue))
-  (let ((search-space (gen-search-space
+;; (apply #'funcall human-strategy
+;;        *input-dataset*
+;;        *best-genome*)
+
+(defun optimize-human-strategy (instrument timeframe types
+				input-dataset train-size
+				human-strategy
+				&key (maximize nil) (population-size 100)
+				  (max-iterations 100) (mutation-rate 0.1)
+				  (test-size 1000) (fitness-metric :avg-revenue))
+  (let ((train-dataset (subseq input-dataset 0 train-size))
+	(test-dataset (subseq input-dataset train-size))
+	(search-space (gen-search-space
 		       (assoccess human-strategy :parameters)
 		       (assoccess human-strategy :args-ranges)))
 	(get-fit-fn (lambda (fit)
@@ -757,52 +765,72 @@
 				     timeframe
 				     (get-hybrid-name human-strategy))))
     (eval `(genetic-algorithm:run-ga (,search-space
-				      :maximize ,maximize
-				      :population-size ,population-size
-				      :max-iterations ,max-iterations
-				      :mutation-rate ,mutation-rate
-				      :first-generation (when ,(when existing-hybrid t)
-							  (let* ((hybrid (get-hybrid ,instrument
-										     ,timeframe
-										     ,(get-hybrid-name human-strategy)))
-								 (genomes (population hybrid))
-								 (best (best-individual hybrid)))
-							    (gen-population-from-genomes
-							     ',search-space
-							     genomes
-							     (length best)
-							     ',(assoccess human-strategy :parameters))
-							    ))
-				      :get-fit-fn (lambda (fit)
-				      		    (assoccess (genetic-algorithm:get-fit fit) ,fitness-metric))
-				      ;; :after-each-iteration (describe (first genetic-algorithm:-population-))
-				      :finally
-				      (let* ((best-individual (select-the-best -population-
-									       :get-fit-fn ,get-fit-fn))
-					     (best-genome (get-gens best-individual))
-					     (best-fitness (get-fit best-individual))
-					     (population-genomes (flatten (mapcar (lambda (ind)
-										    (get-gens ind))
-										  -population-))))
-					(insert-hybrid ,(stringify instrument)
-						       ,(stringify timeframe)
-						       ,(get-hybrid-name human-strategy)
-						       "train"
-						       ,max-iterations
-						       population-genomes
-						       best-genome
-						       best-fitness)))
-				     (-evaluate-model
-				      :instrument ,instrument
-				      :timeframe ,timeframe
-				      :types ',types
-				      :rates ',input-dataset
-				      :model (lambda (input-dataset)
-					       (funcall ,(assoccess human-strategy :fn)
-							input-dataset
-							,@(assoccess human-strategy :parameters)))
-				      :idx ,(assoccess human-strategy :lookbehind-count)
-				      :test-size ,test-size)))))
+				 :maximize ,maximize
+				 :population-size ,population-size
+				 :max-iterations ,max-iterations
+				 :mutation-rate ,mutation-rate
+				 :first-generation (when ,(when existing-hybrid t)
+						     (let* ((hybrid (get-hybrid ,instrument
+										,timeframe
+										,(get-hybrid-name human-strategy)))
+							    (genomes (population hybrid))
+							    (best (best-individual hybrid)))
+						       (gen-population-from-genomes
+							',search-space
+							genomes
+							(length best)
+							',(assoccess human-strategy :parameters))
+						       ))
+				 :get-fit-fn (lambda (fit)
+					       (assoccess (genetic-algorithm:get-fit fit) ,fitness-metric))
+				 ;; :after-each-iteration (describe (first genetic-algorithm:-population-))
+				 :finally
+				 (let* ((best-individual (select-the-best -population-
+									  :get-fit-fn ,get-fit-fn))
+					(best-genome (get-gens best-individual))
+					(best-fitness (get-fit best-individual))
+					(population-genomes (flatten (mapcar (lambda (ind)
+									       (get-gens ind))
+									     -population-)))
+					(test-metrics (-evaluate-model
+						       :instrument ,instrument
+						       :timeframe ,timeframe
+						       :types ',types
+						       :rates ',test-dataset
+						       :model (lambda (input-dataset)
+							        (apply #'funcall ,(assoccess human-strategy :fn)
+								       input-dataset
+								       best-genome))
+						       :idx ,(assoccess human-strategy :lookbehind-count)
+						       :test-size ,test-size)))
+				   (insert-hybrid ,(stringify instrument)
+						  ,(stringify timeframe)
+						  ,(get-hybrid-name human-strategy)
+						  "train"
+						  ,max-iterations
+						  population-genomes
+						  best-genome
+						  best-fitness)
+				   (insert-hybrid ,(stringify instrument)
+						  ,(stringify timeframe)
+						  ,(get-hybrid-name human-strategy)
+						  "test"
+						  ,max-iterations
+						  population-genomes
+						  best-genome
+						  test-metrics)
+				   ))
+	     (-evaluate-model
+	      :instrument ,instrument
+	      :timeframe ,timeframe
+	      :types ',types
+	      :rates ',train-dataset
+	      :model (lambda (input-dataset)
+		       (funcall ,(assoccess human-strategy :fn)
+				input-dataset
+				,@(assoccess human-strategy :parameters)))
+	      :idx ,(assoccess human-strategy :lookbehind-count)
+	      :test-size ,test-size)))))
 
 ;; (genetic-algorithm:get-gens *coco*)
 ;; (genetic-algorithm:get-name (first (genetic-algorithm:get-genome *coco*)))
@@ -923,7 +951,7 @@
   (let* ((types (flatten types)))
     (loop for agent in (get-agents-some instrument timeframe types) maximize (slot-value agent 'lookbehind-count))))
 
-(defun -evaluate-model (&key instrument timeframe types rates model idx test-size)
+(def (function d) -evaluate-model (&key instrument timeframe types rates model idx test-size)
   "Used for EVALUATE-AGENT and EVALUATE-AGENTS."
   (push-to-log "Trying to evaluate model.")
   (let* ((max-lookbehind (get-max-lookbehind instrument timeframe types))
@@ -2289,71 +2317,71 @@ you"))
 (defun get-trades (&optional limit offset segment)
   (if limit
       (conn (query (:select 
-		    '*
-		    :from
-		    (:as (:select '*
-				  (:as (:over (:row-number)
-					      (:partition-by 'instrument 'timeframe
-							     :order-by
-							     (:desc 'creation-time)
-							     (:desc 'activation)))
-				   :idx)
-				  :from
-				  (:as (:select 'patterns.instrument
-						'patterns.timeframe
-						'patterns.type
-						'trades.id
-						'trades.label
-						'trades.creation-time
-						'trades.test-trades-won
-						'trades.test-trades-lost
-						'trades.test-avg-revenue
-						'trades.test-avg-activation
-						'trades.test-avg-return
-						'trades.test-total-return
-						'trades.tp
-						'trades.sl
-						'trades.activation
-						'trades.decision
-						'trades.result
-						'trades.entry-price
-						'trades.entry-time
-						:distinct-on 'trades.id
-						:from 'trades
-						:inner-join 'patterns-trades
-						:on (:= 'trades.id 'patterns-trades.trade-id)
-						:inner-join 'patterns
-						:on (:= 'patterns-trades.pattern-id 'patterns.id))
-				       'full-results))
-			 'idx-results)
-		    :where (:<= 'idx '$1))
+		       '*
+		     :from
+		     (:as (:select '*
+			    (:as (:over (:row-number)
+					(:partition-by 'instrument 'timeframe
+						       :order-by
+						       (:desc 'creation-time)
+						       (:desc 'activation)))
+			     :idx)
+			    :from
+			    (:as (:select 'patterns.instrument
+				   'patterns.timeframe
+				   'patterns.type
+				   'trades.id
+				   'trades.label
+				   'trades.creation-time
+				   'trades.test-trades-won
+				   'trades.test-trades-lost
+				   'trades.test-avg-revenue
+				   'trades.test-avg-activation
+				   'trades.test-avg-return
+				   'trades.test-total-return
+				   'trades.tp
+				   'trades.sl
+				   'trades.activation
+				   'trades.decision
+				   'trades.result
+				   'trades.entry-price
+				   'trades.entry-time
+				   :distinct-on 'trades.id
+				   :from 'trades
+				   :inner-join 'patterns-trades
+				   :on (:= 'trades.id 'patterns-trades.trade-id)
+				   :inner-join 'patterns
+				   :on (:= 'patterns-trades.pattern-id 'patterns.id))
+				 'full-results))
+			  'idx-results)
+		     :where (:<= 'idx '$1))
 		   limit
 		   :alists))
       (conn (query (:order-by (:select 'patterns.instrument
-				       'patterns.timeframe
-				       'patterns.type
-				       'trades.id
-				       'trades.label
-				       'trades.creation-time
-				       'trades.test-trades-won
-				       'trades.test-trades-lost
-				       'trades.test-avg-revenue
-				       'trades.test-avg-activation
-				       'trades.test-avg-return
-				       'trades.test-total-return
-				       'trades.tp
-				       'trades.sl
-				       'trades.activation
-				       'trades.decision
-				       'trades.result
-				       'trades.entry-price
-				       'trades.entry-time
-			       :distinct-on 'trades.id
-			       :from 'trades
-			       :inner-join 'patterns-trades
-			       :on (:= 'trades.id 'patterns-trades.trade-id)
-			       :inner-join 'patterns
-			       :on (:= 'patterns-trades.pattern-id 'patterns.id))
+				'patterns.timeframe
+				'patterns.type
+				'trades.id
+				'trades.label
+				'trades.creation-time
+				'trades.test-trades-won
+				'trades.test-trades-lost
+				'trades.test-avg-revenue
+				'trades.test-avg-activation
+				'trades.test-avg-return
+				'trades.test-total-return
+				'trades.tp
+				'trades.sl
+				'trades.activation
+				'trades.decision
+				'trades.result
+				'trades.entry-price
+				'trades.entry-time
+				:distinct-on 'trades.id
+				:from 'trades
+				:inner-join 'patterns-trades
+				:on (:= 'trades.id 'patterns-trades.trade-id)
+				:inner-join 'patterns
+				:on (:= 'patterns-trades.pattern-id 'patterns.id))
 			      'trades.id
 			      (:desc 'trades.creation-time))
 		   :alists))))

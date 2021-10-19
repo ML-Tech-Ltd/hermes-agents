@@ -1,5 +1,6 @@
 ;; (ql:quickload :hermes-agents)
 ;; (time (loop-optimize-test))
+;; (ql:quickload :hu.dwim.def)
 ;; (clerk:calendar)
 ;; (progn (hsage.db:drop-database) (hsage.db:init-database) (hsage.trading:init-patterns) (hsage.log:clear-logs) (when hscom.all:*is-production* (hsage::clear-jobs)))
 ;; (progn (drop-database) (init-database))
@@ -14,6 +15,7 @@
 	#:postmodern
 	#:alexandria
 	#:computable-reals
+	#:hu.dwim.def
 	#:defenum
 	#:fare-mop
 	#:hermes-input
@@ -137,16 +139,18 @@
 
 (defmacro -loop-human-strategies (testingp &rest body)
   `(let ((human-strategies (get-human-strategies))
-	 (test-size (if ,testingp
-			*test-size-human-strategies-metrics*
-			*test-size-human-strategies-signals*)))
+	 (dataset-size (if ,testingp
+			   (+ hscom.hsage:*train-size-hybrid-strategies-metrics*
+			       hscom.hsage:*test-size-hybrid-strategies-metrics*)
+			   (+ hscom.hsage:*train-size-hybrid-strategies-signals*
+			       hscom.hsage:*test-size-hybrid-strategies-signals*))))
      (dolist (human-strategy human-strategies)
        (dolist (instrument (assoccess human-strategy :instruments))
 	 (dolist (timeframe (assoccess human-strategy :timeframes))
 	   (unless (is-market-close)
-	     (let* ((human-rates (-get-rates instrument
-					     timeframe
-					     test-size)))
+	     (let* ((input-dataset (-get-rates instrument
+					       timeframe
+					       dataset-size)))
 	       ,@body)
 	     ;; We don't want our data feed provider to ban us.
 	     ;; We also want to go easy on those database reads (`agents-count`).
@@ -157,13 +161,16 @@
   (-loop-human-strategies
    testingp
    (optimize-human-strategy instrument timeframe '((:single))
-			    human-rates
+			    input-dataset
+			    (if testingp
+			        hscom.hsage:*train-size-hybrid-strategies-metrics*
+				hscom.hsage:*train-size-hybrid-strategies-signals*)
 			    human-strategy
 			    :maximize *hybrid-maximize-p*
 			    :population-size *hybrid-population-size*
 			    :max-iterations *hybrid-iterations*
 			    :mutation-rate *hybrid-mutation-rate*
-			    :test-size test-size
+			    :test-size dataset-size
 			    :fitness-metric :avg-revenue)))
 
 (defun -loop-test-human-strategies (&key (testingp nil))
@@ -173,30 +180,34 @@
    (let ((hybrid (get-hybrid instrument timeframe (get-hybrid-name human-strategy))))
      (when hybrid
        (test-hybrid-strategy instrument timeframe
-			    '((:single))
-			    (get-hybrid-id hybrid)
-			    human-rates
-			    (lambda (input-dataset)
-			      (funcall (assoccess human-strategy :model)
-				       input-dataset
-				       (whole-reals-to-integers (best-individual hybrid))))
-			    (assoccess human-strategy :lookbehind-count)
-			    :test-size test-size
-			    :label (get-hybrid-name human-strategy)
-			    :testingp testingp)))
+			     '((:single))
+			     (get-hybrid-id hybrid)
+			     (subseq input-dataset
+				     (if testingp
+					 hscom.hsage:*train-size-hybrid-strategies-metrics*
+					 hscom.hsage:*train-size-hybrid-strategies-signals*))
+			     (lambda (input-dataset)
+			       (funcall (assoccess human-strategy :model)
+					input-dataset
+				        (whole-reals-to-integers (best-individual hybrid))))
+			     (assoccess human-strategy :lookbehind-count)
+			     :test-size dataset-size
+			     :label (get-hybrid-name human-strategy)
+			     :testingp testingp)))
    ;; Testing human strategy.
    (test-human-strategy instrument timeframe
 			;; (assoccess human-strategy :types)
 			'((:single))
-			human-rates
+			input-dataset
 			(lambda (input-dataset)
 			  (funcall (assoccess human-strategy :model)
 				   input-dataset
 				   (assoccess human-strategy :args-default)))
 			(assoccess human-strategy :lookbehind-count)
-			:test-size test-size
+			:test-size dataset-size
 			:label (get-human-name human-strategy)
-			:testingp testingp)))
+			:testingp testingp))
+  )
 
 (defun create-job-human-strategies-metrics (seconds)
   "We run this every `hscom.hsage#:*seconds-interval-testing-human-strategies-metrics*` seconds."
@@ -393,7 +404,7 @@
     (wipe-agents))
   ($log $trace :<- :-loop-optimize-test-validate))
 
-(defun loop-optimize-test ()
+(def (function d) loop-optimize-test ()
   (handler-bind ((error (lambda (c)
 			  (log-stack c))))
     (when (is-market-close)

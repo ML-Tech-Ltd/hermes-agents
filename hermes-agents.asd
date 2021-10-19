@@ -9,6 +9,7 @@
                :cl-mathstats
 	       :cl-ppcre
 	       :clerk
+	       :hu.dwim.def
                ;; :magicl
 	       :cl-csv
                :computable-reals

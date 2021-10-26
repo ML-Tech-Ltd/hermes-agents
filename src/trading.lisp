@@ -2389,34 +2389,34 @@ you"))
 
 (defun -get-trades (strategy instrument timeframe)
   (sql (:order-by (:select 'patterns.instrument
-			   'patterns.timeframe
-			   'patterns.type
-			   'trades.id
-			   'trades.label
-			   'trades.creation-time
-			   'trades.test-trades-won
-			   'trades.test-trades-lost
-			   'trades.test-avg-revenue
-			   'trades.test-avg-activation
-			   'trades.test-avg-return
-			   'trades.test-total-return
-			   'trades.tp
-			   'trades.sl
-			   'trades.activation
-			   'trades.decision
-			   'trades.result
-			   'trades.entry-price
-			   'trades.entry-time
-			   :distinct-on 'trades.id
-			   :from 'trades
-			   :inner-join 'patterns-trades
-			   :on (:= 'trades.id 'patterns-trades.trade-id)
-			   :inner-join 'patterns
+		    'patterns.timeframe
+		    'patterns.type
+		    'trades.id
+		    'trades.label
+		    'trades.creation-time
+		    'trades.test-trades-won
+		    'trades.test-trades-lost
+		    'trades.test-avg-revenue
+		    'trades.test-avg-activation
+		    'trades.test-avg-return
+		    'trades.test-total-return
+		    'trades.tp
+		    'trades.sl
+		    'trades.activation
+		    'trades.decision
+		    'trades.result
+		    'trades.entry-price
+		    'trades.entry-time
+		    ;; :distinct-on 'trades.id
+		    :from 'trades
+		    :inner-join 'patterns-trades
+		    :on (:= 'trades.id 'patterns-trades.trade-id)
+		    :inner-join 'patterns
 		    :on (:= 'patterns-trades.pattern-id 'patterns.id)
 		    :where (:and (:like 'trades.label (string-downcase (format nil "%~a%" strategy)))
 				 (:like 'patterns.instrument (string-upcase (format nil "%~a%" instrument)))
 				 (:like 'patterns.timeframe (string-upcase (format nil "%~a%" timeframe)))))
-		  'trades.id
+		  ;; 'trades.id
 		  (:desc 'trades.creation-time))))
 
 (defun get-trades-flat (&optional (limit -1) (offset 0) (strategy "")
@@ -2428,6 +2428,8 @@ you"))
 		   :alists)
 	    (query (:raw (-get-trades strategy instrument timeframe)) :alists))))
 ;; (get-trades-flat -1 0 :hermes :USD_CHF)
+;; (get-trades-flat -1 0)
+;; (loop for trade in (get-trades-flat -1 0) do (print (local-time:unix-to-timestamp (assoccess trade :creation-time))))
 
 (defun get-trades-grouped (&optional (limit 10))
   (conn (query

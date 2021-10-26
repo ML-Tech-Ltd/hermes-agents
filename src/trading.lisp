@@ -2387,7 +2387,7 @@ you"))
 		   :alists))))
 ;; (get-trades)
 
-(defun -get-trades (strategy)
+(defun -get-trades (strategy instrument timeframe)
   (sql (:order-by (:select 'patterns.instrument
 			   'patterns.timeframe
 			   'patterns.type
@@ -2413,18 +2413,21 @@ you"))
 			   :on (:= 'trades.id 'patterns-trades.trade-id)
 			   :inner-join 'patterns
 		    :on (:= 'patterns-trades.pattern-id 'patterns.id)
-		    :where (:like 'trades.label (string-downcase (format nil "%~a%" strategy))))
+		    :where (:and (:like 'trades.label (string-downcase (format nil "%~a%" strategy)))
+				 (:like 'patterns.instrument (string-upcase (format nil "%~a%" instrument)))
+				 (:like 'patterns.timeframe (string-upcase (format nil "%~a%" timeframe)))))
 		  'trades.id
 		  (:desc 'trades.creation-time))))
 
-(defun get-trades-flat (&optional (limit -1) (offset 0) (strategy ""))
+(defun get-trades-flat (&optional (limit -1) (offset 0) (strategy "")
+			  (instrument "") (timeframe "M15"))
   (conn (if (plusp limit)
-	    (query (:limit (:raw (-get-trades strategy)) '$1 '$2)
+	    (query (:limit (:raw (-get-trades strategy instrument timeframe)) '$1 '$2)
 		   limit
 		   offset
 		   :alists)
-	    (query (:raw (-get-trades strategy)) :alists))))
-;; (get-trades-flat -1 0 :hermes)
+	    (query (:raw (-get-trades strategy instrument timeframe)) :alists))))
+;; (get-trades-flat -1 0 :hermes :USD_CHF)
 
 (defun get-trades-grouped (&optional (limit 10))
   (conn (query

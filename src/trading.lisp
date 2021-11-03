@@ -2501,7 +2501,7 @@ you"))
                                                                   (:like 'patterns.timeframe (string-upcase (format nil "%~a%" timeframe))))) :alists))))))
     (if with-human-p
         (let ((all (sort (append trades humans)
-                         #'<
+                         #'>
                          :key (lambda (trade)
                                 (assoccess trade :creation-time)))))
           (if (plusp limit)

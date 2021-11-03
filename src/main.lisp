@@ -206,8 +206,7 @@
 			(assoccess human-strategy :lookbehind-count)
 			:test-size dataset-size
 			:label (get-human-name human-strategy)
-			:testingp testingp))
-  )
+			:testingp testingp)))
 
 (defun create-job-human-strategies-metrics (seconds)
   "We run this every `hscom.hsage#:*seconds-interval-testing-human-strategies-metrics*` seconds."
@@ -328,8 +327,8 @@
 
 (defun -loop-get-rates (instrument timeframe)
   (let ((size (max (+ hscom.hsage:*max-creation-dataset-size*
-		      hscom.hsage:*max-training-dataset-size*
-		      hscom.hsage:*max-testing-dataset-size*)
+		       hscom.hsage:*max-training-dataset-size*
+		       hscom.hsage:*max-testing-dataset-size*)
 		   ;; For fracdiff.
 		   5000)))
     (fracdiff
@@ -358,7 +357,7 @@
     (-loop-test-human-strategies :testingp t))
   ;; Human strategies signals. Let's evaluate human strategies first regardless of development or production mode.
   (when hscom.hsage:*run-human-and-hybrid-p*
-      (-loop-test-human-strategies :testingp nil))
+    (-loop-test-human-strategies :testingp nil))
   (pmap nil (lambda (instrument)
 	      (dolist (timeframe hscom.hsage:*timeframes*)
 		(unless (is-market-close)

@@ -183,6 +183,7 @@
 			    (activation :type double-float)
 			    (entry-price :type double-float)
 			    (entry-time :type (or db-null integer))
+			    (exit-time :type (or db-null integer))
 
 			    (train-begin-time :type int8)
 			    (train-end-time :type int8)

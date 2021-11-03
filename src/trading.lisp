@@ -102,7 +102,7 @@
      perception-function
      ))
 
-;; (defparameter *rates* (hsinp.rates:fracdiff (hsinp.rates:get-rates-count-big :AUD_USD :H1 10000)))
+;; (defparameter *rates* (hsinp.rates:fracdiff (hsinp.rates:get-rates-count-big :AUD_USD :H1 20000)))
 (defparameter *agents-cache* (make-hash-table :test 'equal :synchronized t))
 ;; (maphash (lambda (k v) (print v)) *agents-cache*)
 
@@ -189,6 +189,7 @@
    (activation :col-type double-float :initarg :activation)
    (entry-price :col-type double-float :initarg :entry-price)
    (entry-time :col-type double-float :initarg :entry-time)
+   (exit-time :col-type double-float :initarg :exit-time)
    (train-begin-time :col-type integer :initarg :train-begin-time :accessor train-begin-time)
    (train-end-time :col-type integer :initarg :train-end-time)
    (test-begin-time :col-type integer :initarg :test-begin-time)
@@ -699,13 +700,13 @@
 			     (setf (best-individual existing-hybrid)
 				   (if (vectorp best-individual) best-individual (apply #'vector best-individual)))
 			     (update-dao existing-hybrid))
-			 (make-dao 'hybrid
-				   :instrument instrument
-				   :timeframe timeframe
-				   :iterations iterations
-				   :name name
-				   :population (if (vectorp population) population (apply #'vector population))
-				   :best-individual (if (vectorp best-individual) best-individual (apply #'vector best-individual)))))
+                           (make-dao 'hybrid
+                                     :instrument instrument
+                                     :timeframe timeframe
+                                     :iterations iterations
+                                     :name name
+                                     :population (if (vectorp population) population (apply #'vector population))
+                                     :best-individual (if (vectorp best-individual) best-individual (apply #'vector best-individual)))))
 	       (metrics-dao (insert-metrics metrics)))
 	  (insert-evaluation (id metrics-dao)
 			     (id hybrid)
@@ -713,7 +714,8 @@
 			     (if existing-hybrid
 				 (if-let ((iter (get-hybrid-iterations instrument timeframe name)))
 				   (+ iterations iter) 0)
-			       iterations)))))
+                                 iterations))
+          hybrid)))
 
 (defun get-human-name (human-strategy)
   (format nil "human.~a" (assoccess human-strategy :name)))
@@ -792,17 +794,17 @@
 					(population-genomes (flatten (mapcar (lambda (ind)
 									       (get-gens ind))
 									     -population-)))
-					(test-metrics (-evaluate-model
-						       :instrument ,instrument
-						       :timeframe ,timeframe
-						       :types ',types
-						       :rates ',test-dataset
-						       :model (lambda (input-dataset)
-							        (apply #'funcall ,(assoccess human-strategy :fn)
-								       input-dataset
-								       best-genome))
-						       :idx ,(assoccess human-strategy :lookbehind-count)
-						       :test-size ,test-size)))
+					(test-metrics (time (-evaluate-model
+                                                             :instrument ,instrument
+                                                             :timeframe ,timeframe
+                                                             :types ',types
+                                                             :rates ',test-dataset
+                                                             :model (lambda (input-dataset)
+                                                                      (apply #'funcall ,(assoccess human-strategy :fn)
+                                                                             input-dataset
+                                                                             best-genome))
+                                                             :idx ,(assoccess human-strategy :lookbehind-count)
+                                                             :test-size ,test-size))))
 				   (insert-hybrid ,(stringify instrument)
 						  ,(stringify timeframe)
 						  ,(get-hybrid-name human-strategy)
@@ -812,14 +814,13 @@
 						  best-genome
 						  best-fitness)
 				   (insert-hybrid ,(stringify instrument)
-						  ,(stringify timeframe)
-						  ,(get-hybrid-name human-strategy)
-						  "test"
-						  ,max-iterations
-						  population-genomes
-						  best-genome
-						  test-metrics)
-				   ))
+                                                  ,(stringify timeframe)
+                                                  ,(get-hybrid-name human-strategy)
+                                                  "test"
+                                                  ,max-iterations
+                                                  population-genomes
+                                                  best-genome
+                                                  test-metrics)))
 	     (-evaluate-model
 	      :instrument ,instrument
 	      :timeframe ,timeframe
@@ -830,25 +831,35 @@
 				input-dataset
 				,@(assoccess human-strategy :parameters)))
 	      :idx ,(assoccess human-strategy :lookbehind-count)
-	      :test-size ,test-size)))))
+	      :test-size ,train-size)))))
 
 ;; (genetic-algorithm:get-gens *coco*)
 ;; (genetic-algorithm:get-name (first (genetic-algorithm:get-genome *coco*)))
 
 (comment
- ;; (defparameter *rates* (hsinp.rates:fracdiff (hsinp.rates:get-rates-count-big :AUD_USD :H1 10000)))
+ ;; (defparameter *rates* (hsinp.rates:fracdiff (hsinp.rates:get-rates-count-big :AUD_USD :H1 60000)))
  (defparameter *coco*
-   (optimize-human-strategy :EUR_USD :M15 '((:single))
-			    (get-input-dataset *rates* 500)
-			    (first (hsper:get-human-strategies))
-			    :maximize t
-			    :population-size 20
-			    :max-iterations 1
-			    :mutation-rate 0.0
-			    :test-size 1000
-			    :fitness-metric :avg-revenue)
+   (time (optimize-human-strategy :EUR_USD :M15 '((:single))
+				  (get-input-dataset *rates* 6000)
+				  ;; *rates*
+				  1000
+				  (first (hsper:get-human-strategies))
+				  :maximize t
+				  :population-size 2
+				  :max-iterations 1
+				  :mutation-rate 0.1
+				  :test-size 5000
+				  :fitness-metric :avg-revenue))
    )
- )
+  )
+;; pop - 2, iter - 1
+;; rates 1000/1000 - 31.755
+;; rates 2000/2000 - 90.626
+;; rates 3000/3000 - 240.154
+;; rates 1000/3000 - 77.727
+;; rates 3000/1000 - 26.196
+;; rates 5000/1000 - 20.617
+;; rates 1000/5000 - 192.314
 
 (comment
  (-evaluate-model
@@ -1117,7 +1128,8 @@
   (when hscom.hsage:*wipe-agents-p*
     ($log $trace :-> :wipe-agents)
     (conn (query (:delete-from 'agents :where (:= 1 1)))
-	  (query (:delete-from 'agents-patterns :where (:= 1 1))))))
+	  (query (:delete-from 'agents-patterns :where (:= 1 1))))
+    ($log $trace :<- :wipe-agents)))
 ;; (wipe-agents)
 
 (defun get-patterns (instrument timeframe types)
@@ -2414,87 +2426,158 @@ you"))
 		    :inner-join 'patterns
 		    :on (:= 'patterns-trades.pattern-id 'patterns.id)
 		    :where (:and (:like 'trades.label (string-downcase (format nil "%~a%" strategy)))
+				 ;; We'll process human strategies elsewhere, due to its difference in structure.
+				 (:not (:like 'trades.label "human%"))
 				 (:like 'patterns.instrument (string-upcase (format nil "%~a%" instrument)))
 				 (:like 'patterns.timeframe (string-upcase (format nil "%~a%" timeframe)))))
 		  ;; 'trades.id
 		  (:desc 'trades.creation-time))))
 
+(let ((template
+	;; TODO: We'll be using these fields to build human strategies.
+	;; TODO: Not easy to maintain at all. We can do this in a better way.
+	'((:INSTRUMENT) (:TIMEFRAME) (:TYPE)
+	  (:ID) (:LABEL) (:CREATION-TIME)
+	  (:TEST-TRADES-WON) (:TEST-TRADES-LOST)
+	  (:TEST-AVG-REVENUE)
+	  (:TEST-AVG-ACTIVATION)
+	  (:TEST-AVG-RETURN)
+	  (:TEST-TOTAL-RETURN) (:TP)
+	  (:SL) (:ACTIVATION)
+	  (:DECISION) (:RESULT) (:ENTRY-PRICE)
+	  (:ENTRY-TIME))))
+  )
+
+(defun -make-human-trades-alist (human-trades)
+  (apply #'nconc
+         (loop for trade in human-trades
+               collect (loop for revenue across (assoccess trade :test-revenues)
+                             for entry-time across (assoccess trade :test-entry-times)
+                             for exit-time across (assoccess trade :test-exit-times)
+                             for entry-price across (assoccess trade :test-entry-prices)
+                             for exit-price across (assoccess trade :test-exit-prices)
+                             for tp across (assoccess trade :test-tps)
+                             for sl across (assoccess trade :test-sls)
+                             for activation across (assoccess trade :test-activations)
+                             for return across (assoccess trade :test-returns)
+                             collect `((:instrument . ,(assoccess trade :instrument)) (:timeframe . ,(assoccess trade :timeframe))
+                                       (:test-trades-won . ,(assoccess trade :test-trades-won))
+                                       (:test-trades-lost . ,(assoccess trade :test-trades-lost))
+                                       (:type . ,(assoccess trade :type)) (:id . nil)
+                                       (:creation-time . ,entry-time)
+                                       (:label . ,(assoccess trade :label))
+                                       (:revenue . ,revenue) (:return . ,return)
+                                       (:activation . ,activation)
+                                       (:entry-time . ,entry-time) (:exit-time . ,exit-time)
+                                       (:entry-price . ,entry-price) (:exit-price . ,exit-price)
+                                       (:tp . ,tp) (:sl . ,sl))))))
+
+;; (time (length (-make-human-trades-alist "EUR_USD" "M15" (conn (query (:select '* :from 'trades :where (:like 'label "human%")) :alist)))))
+
 (defun get-trades-flat (&optional (limit -1) (offset 0) (strategy "")
 			  (instrument "") (timeframe "M15"))
-  (conn (if (plusp limit)
-	    (query (:limit (:raw (-get-trades strategy instrument timeframe)) '$1 '$2)
-		   limit
-		   offset
-		   :alists)
-	    (query (:raw (-get-trades strategy instrument timeframe)) :alists))))
-;; (get-trades-flat -1 0 :hermes :USD_CHF)
-;; (get-trades-flat -1 0)
+  (let* ((with-human-p (when (or (string= strategy "human")
+                                 (string= strategy ""))
+                         t))
+	 (trades (conn (if (plusp limit)
+			   (query (:limit (:raw (-get-trades strategy instrument timeframe)) '$1 '$2)
+				  limit
+				  offset
+				  :alists)
+			   (query (:raw (-get-trades strategy instrument timeframe)) :alists))))
+	 (humans (when with-human-p
+		   (-make-human-trades-alist (conn (query (:select '*
+                                                            ;; 'patterns.instrument
+                                                            ;; 'patterns.timeframe
+                                                            ;; 'patterns.types
+                                                            :from 'trades
+                                                            :join 'patterns-trades
+                                                            :on (:= 'trades.id 'patterns-trades.trade-id)
+                                                            :join 'patterns
+                                                            :on (:= 'patterns-trades.pattern-id 'patterns.id)
+                                                            :where
+                                                            (:and (:like 'label "human%")
+                                                                  (:like 'patterns.instrument (string-upcase (format nil "%~a%" instrument)))
+                                                                  (:like 'patterns.timeframe (string-upcase (format nil "%~a%" timeframe))))) :alists))))))
+    (if with-human-p
+        (let ((all (sort (append trades humans)
+                         #'<
+                         :key (lambda (trade)
+                                (assoccess trade :creation-time)))))
+          (if (plusp limit)
+              (subseq all offset (+ offset limit))
+              all))
+        trades)))
+
+;; (length (time (get-trades-flat -1 0 "human")))
+;; (time (get-trades-flat 10 0 "" "EUR_GBP"))
+;; (length (time (get-trades-flat)))
 ;; (loop for trade in (get-trades-flat -1 0) do (print (local-time:unix-to-timestamp (assoccess trade :creation-time))))
 
 (defun get-trades-grouped (&optional (limit 10))
   (conn (query
 	 (:select '* :from
-		  (:as (:select '*
-				(:as (:over (:row-number)
-					    (:partition-by 'instrument 'timeframe
-							   :order-by
-							   (:desc 'creation-time)
-							   (:desc 'activation)))
-				 :idx)
-				:from
-				(:as (:raw (-get-trades))
-				     'full-results))
-		       'idx-results)
-	  :where (:<= 'idx '$1))
+           (:as (:select '*
+                  (:as (:over (:row-number)
+                              (:partition-by 'instrument 'timeframe
+                                             :order-by
+                                             (:desc 'creation-time)
+                                             (:desc 'activation)))
+                   :idx)
+                  :from
+                  (:as (:raw (-get-trades))
+                       'full-results))
+                'idx-results)
+           :where (:<= 'idx '$1))
 	 limit
 	 :alists)))
 ;; (get-trades-grouped 10)
 
 (defun -get-trades-nested (limit)
   (conn (query (:select 
-		'*
-		:from
-		(:as (:select '*
-			      (:as (:over (:row-number)
-					  (:partition-by 'instrument 'timeframe 'decision
-					   :order-by (:desc 'creation-time)))
-			       :idx)
-			      :from
-			      (:as (:select 'patterns.instrument
-					    'patterns.timeframe
-					    'patterns.type
-					    'trades.id
-					    'trades.label
-					    'trades.creation-time
-					    'trades.test-trades-won
-					    'trades.test-trades-lost
-					    'trades.test-avg-revenue
-					    'trades.test-avg-activation
-					    'trades.test-avg-return
-					    'trades.test-total-return
-					    'trades.tp
-					    'trades.sl
-					    'trades.activation
-					    'trades.decision
-					    'trades.entry-price
-					    'trades.entry-time
-					    'trades.result
-				    :distinct-on 'trades.id
-				    :from 'trades
-				    :inner-join 'patterns-trades
-				    :on (:= 'trades.id 'patterns-trades.trade-id)
-				    :inner-join 'patterns
-				    :on (:= 'patterns-trades.pattern-id 'patterns.id))
-				   'full-results))
-		     'idx-results)
-		:where (:and (:<= 'idx '$1)
-			     (:in 'creation-time (:select (:max 'trades.creation-time)
-						  :from 'trades
-						  :inner-join 'patterns-trades
-						  :on (:= 'trades.id 'patterns-trades.trade-id)
-						  :inner-join 'patterns
-						  :on (:= 'patterns-trades.pattern-id 'patterns.id)
-						  :group-by 'patterns.instrument))))
+                   '*
+                 :from
+                 (:as (:select '*
+                        (:as (:over (:row-number)
+                                    (:partition-by 'instrument 'timeframe 'decision
+                                     :order-by (:desc 'creation-time)))
+                         :idx)
+                        :from
+                        (:as (:select 'patterns.instrument
+                               'patterns.timeframe
+                               'patterns.type
+                               'trades.id
+                               'trades.label
+                               'trades.creation-time
+                               'trades.test-trades-won
+                               'trades.test-trades-lost
+                               'trades.test-avg-revenue
+                               'trades.test-avg-activation
+                               'trades.test-avg-return
+                               'trades.test-total-return
+                               'trades.tp
+                               'trades.sl
+                               'trades.activation
+                               'trades.decision
+                               'trades.entry-price
+                               'trades.entry-time
+                               'trades.result
+                               :distinct-on 'trades.id
+                               :from 'trades
+                               :inner-join 'patterns-trades
+                               :on (:= 'trades.id 'patterns-trades.trade-id)
+                               :inner-join 'patterns
+                               :on (:= 'patterns-trades.pattern-id 'patterns.id))
+                             'full-results))
+                      'idx-results)
+                 :where (:and (:<= 'idx '$1)
+                              (:in 'creation-time (:select (:max 'trades.creation-time)
+                                                    :from 'trades
+                                                    :inner-join 'patterns-trades
+                                                    :on (:= 'trades.id 'patterns-trades.trade-id)
+                                                    :inner-join 'patterns
+                                                    :on (:= 'patterns-trades.pattern-id 'patterns.id)
+                                                    :group-by 'patterns.instrument))))
 	       limit
 	       :alists)))
 ;; (length (-get-trades-nested 20))
@@ -2937,14 +3020,16 @@ you"))
 		       (push-to-log (format nil "Using minute rates from ~a to ~a to validate trade."
 					    from-timestamp
 					    (local-time:timestamp+ from-timestamp 3 :day)))
-		       (let* ((result (get-trade-result (assoccess trade :entry-price)
-							(assoccess trade :tp)
-							(assoccess trade :sl)
-							sub-rates)))
+		       (multiple-value-bind (result exit-time)
+			   (get-trade-result (assoccess trade :entry-price)
+					     (assoccess trade :tp)
+					     (assoccess trade :sl)
+					     sub-rates)
 			 (push-to-log (format nil "Result obtained for trade: ~a." result))
 			 (conn
 			  (let ((dao (get-dao 'trade (assoccess trade :id))))
 			    (setf (slot-value dao 'result) (if result result :NULL))
+			    (setf (slot-value dao 'exit-time) (if exit-time (/ (read-from-string exit-time) 1000000) :NULL))
 			    (update-dao dao)))
 			 ))))))
       (sleep 1))))
@@ -2961,6 +3046,7 @@ you"))
 										 :on (:= 'patterns.id 'patterns-trades.pattern-id)
 										 :where (:and
 											 (:= 'patterns.instrument (format nil "~a" instrument))
+											 (:not (:like 'trades.label "human%"))
 											 (:> :creation-time (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) last-n-days :day)))))
 									'trades.id)
 							     'results))
@@ -3016,15 +3102,15 @@ you"))
       (progn
 	;; Then it's a buy. Lose.
 	(when (and (> tp 0) (< (- (assoccess rate low-type) entry-price) sl))
-	  (return sl))
+	  (return (values sl (assoccess rate :time))))
 	;; Then it's a sell. Lose.
 	(when (and (< tp 0) (> (- (assoccess rate high-type) entry-price) sl))
-	  (return (- sl)))
+	  (return (values (- sl) (assoccess rate :time))))
 	;; Then it's a buy. Win.
 	(when (and (> tp 0) (> (- (assoccess rate high-type) entry-price) tp))
-	  (return tp))
+	  (return (values tp (assoccess rate :time))))
 	;; Then it's a sell. Win.
 	(when (and (< tp 0) (< (- (assoccess rate low-type) entry-price) tp))
-	  (return (abs tp)))
+	  (return (values (abs tp) (assoccess rate :time))))
 	))))
 ;; (get-trade-result 0.72274 -0.0018100000000000893 0.0013900000000000026 )

@@ -171,7 +171,7 @@
 			    :max-iterations *hybrid-iterations*
 			    :mutation-rate *hybrid-mutation-rate*
 			    :test-size dataset-size
-			    :fitness-metric :avg-revenue)))
+			    :fitness-metric :avg-return)))
 
 (defun -loop-test-human-strategies (&key (testingp nil))
   (-loop-human-strategies

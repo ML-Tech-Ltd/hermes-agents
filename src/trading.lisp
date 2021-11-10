@@ -755,7 +755,7 @@
 				human-strategy
 				&key (maximize nil) (population-size 100)
 				  (max-iterations 100) (mutation-rate 0.1)
-				  (test-size 1000) (fitness-metric :avg-revenue))
+				  (test-size 1000) (fitness-metric :avg-return))
   (let ((train-dataset (subseq input-dataset 0 train-size))
 	(test-dataset (subseq input-dataset train-size))
 	(search-space (gen-search-space

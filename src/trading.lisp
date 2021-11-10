@@ -1054,7 +1054,9 @@
     				      (if (> revenue 0)
     					  (* (/ tp sl) -1) ;; To always get positive number.
     					  -1))))
-    	   (total-return (reduce #'+ returns)))
+    	   (total-return (reduce #'+ returns))
+           (abs-tps (mapcar #'abs tps))
+           (abs-sls (mapcar #'abs sls)))
       `((:begin-time . ,(read-from-string (assoccess (first rates) :time)))
     	(:end-time . ,(read-from-string (assoccess (last-elt rates) :time)))
     	(:dataset-size . ,(length rates))
@@ -1065,18 +1067,18 @@
     	(:stdev-max-pos . ,(if (> (length max-poses) 0) (standard-deviation max-poses) 0))
     	(:avg-max-neg . ,(if (> (length max-negses) 0) (mean max-negses) 0))
     	(:stdev-max-neg . ,(if (> (length max-negses) 0) (standard-deviation max-negses) 0))
-    	(:avg-tp . ,(if (> (length tps) 0) (mean tps) 0))
-    	(:stdev-tp . ,(if (> (length tps) 0) (standard-deviation tps) 0))
-    	(:avg-sl . ,(if (> (length sls) 0) (mean sls) 0))
-    	(:stdev-sl . ,(if (> (length sls) 0) (standard-deviation sls) 0))
+    	(:avg-tp . ,(if (> (length tps) 0) (mean abs-tps) 0))
+    	(:stdev-tp . ,(if (> (length tps) 0) (standard-deviation abs-tps) 0))
+    	(:avg-sl . ,(if (> (length sls) 0) (mean abs-sls) 0))
+    	(:stdev-sl . ,(if (> (length sls) 0) (standard-deviation abs-sls) 0))
     	(:avg-activation . ,(if (> (length activations) 0) (mean activations) 0))
     	(:stdev-activation . ,(if (> (length activations) 0) (standard-deviation activations) 0))
     	(:avg-return . ,(if (> (length tps) 0) (/ total-return (length tps)) 0))
     	(:total-return . ,total-return)
-    	(:max-tp . ,(if (> (length max-negses) 0) (if (> (first tps) 0) (apply #'max tps) (apply #'min tps)) 0))
-    	(:min-tp . ,(if (> (length max-negses) 0) (if (> (first tps) 0) (apply #'min tps) (apply #'max tps)) 0))
-    	(:max-sl . ,(if (> (length max-negses) 0) (if (> (first sls) 0) (apply #'max sls) (apply #'min sls)) 0))
-    	(:min-sl . ,(if (> (length max-negses) 0) (if (> (first sls) 0) (apply #'min sls) (apply #'max sls)) 0))
+    	(:max-tp . ,(if (> (length max-negses) 0) (apply #'max abs-tps) 0))
+    	(:min-tp . ,(if (> (length max-negses) 0) (apply #'min abs-tps) 0))
+    	(:max-sl . ,(if (> (length max-negses) 0) (apply #'max abs-sls) 0))
+    	(:min-sl . ,(if (> (length max-negses) 0) (apply #'min abs-sls) 0))
     	(:trades-won . ,trades-won)
     	(:trades-lost . ,trades-lost)
     	(:revenues . ,(reverse revenues))
@@ -2433,19 +2435,38 @@ you"))
 		  ;; 'trades.id
 		  (:desc 'trades.creation-time))))
 
-(let ((template
-	;; TODO: We'll be using these fields to build human strategies.
-	;; TODO: Not easy to maintain at all. We can do this in a better way.
-	'((:INSTRUMENT) (:TIMEFRAME) (:TYPE)
-	  (:ID) (:LABEL) (:CREATION-TIME)
-	  (:TEST-TRADES-WON) (:TEST-TRADES-LOST)
-	  (:TEST-AVG-REVENUE)
-	  (:TEST-AVG-ACTIVATION)
-	  (:TEST-AVG-RETURN)
-	  (:TEST-TOTAL-RETURN) (:TP)
-	  (:SL) (:ACTIVATION)
-	  (:DECISION) (:RESULT) (:ENTRY-PRICE)
-	  (:ENTRY-TIME))))
+(comment
+  (defun atk-genshin (base-attack &key (bennet 0) (double-fire 1) (fire-dmg-% 1.4) (crit-dmg 2.5) (crit-rate 0.5))
+    (let* ((crit (if (<= (random 1.0) crit-rate) crit-dmg 1))
+           (attack (* double-fire (+ base-attack bennet)))
+           (hu-tao-papilio 5))
+      (* attack fire-dmg-% hu-tao-papilio crit)))
+  
+  (mean (loop repeat 100 collect (atk-genshin 400
+                                              :bennet 0
+                                              :double-fire 1.25
+                                              :fire-dmg-% 1.4
+                                              :crit-dmg 1.5
+                                              :crit-rate 0.3)))
+  ;; con bennet
+  (loop repeat 10 do (format t "~a~%~%" (atk-genshin 400
+                                                     :bennet 400
+                                                     :double-fire 1.25
+                                                     :fire-dmg-% 1.4
+                                                     :crit-dmg 2.5
+                                                     :crit-rate 0.5)))
+  (loop repeat 10 do (format t "~a~%~%" (atk-genshin 800
+                                                     :bennet 400
+                                                     :double-fire 1.25
+                                                     :fire-dmg-% 1.4
+                                                     :crit-dmg 2.5
+                                                     :crit-rate 0.5)))
+  (loop repeat 10 do (format t "~a~%~%" (atk-genshin 200
+                                                     :bennet 0
+                                                     :double-fire 1.25
+                                                     :fire-dmg-% 1.4
+                                                     :crit-dmg 2.5
+                                                     :crit-rate 0.5)))
   )
 
 (defun -make-human-trades-alist (human-trades)

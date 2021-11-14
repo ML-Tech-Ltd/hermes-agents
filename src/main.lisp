@@ -71,7 +71,8 @@
 		#:get-hybrid-name
 		#:best-individual
 		#:test-hybrid-strategy
-		#:get-hybrid-id)
+		#:get-hybrid-id
+		#:cache-agents-from-db)
   (:import-from #:hscom.db
 		#:conn)
   (:import-from #:hsage.db
@@ -411,6 +412,7 @@
     (clear-logs)
     (hsage.utils:refresh-memory)
     (sync-datasets-from-database)
+    (cache-agents-from-db)
     ;; Signal creation. Production. We create a cron job for this to be
     ;; run every `hscom.hsage:*seconds-interval-testing*` seconds.
     (when hscom.all:*is-production*

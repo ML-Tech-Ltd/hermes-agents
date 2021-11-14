@@ -92,7 +92,8 @@
 	   #:get-hybrid-name
 	   #:best-individual
 	   #:test-hybrid-strategy
-	   #:get-hybrid-id)
+	   #:get-hybrid-id
+	   #:cache-agents-from-db)
   (:nicknames #:hsage.trading))
 (in-package :hermes-agents.trading)
 
@@ -105,6 +106,7 @@
 ;; (defparameter *rates* (hsinp.rates:fracdiff (hsinp.rates:get-rates-count-big :AUD_USD :H1 20000)))
 (defparameter *agents-cache* (make-hash-table :test 'equal :synchronized t))
 ;; (maphash (lambda (k v) (print v)) *agents-cache*)
+;; (cache-agents-from-db)
 
 (defclass agent ()
   ((id :col-type string :initform (format nil "~a" (uuid:make-v4-uuid)) :initarg :id)
@@ -1206,9 +1208,16 @@
   (values))
 
 (comment
- (let ((agent (gen-agent 3 :AUD_USD (subseq *rates* 0 1000) (hscom.utils:assoccess (hsper:gen-random-perceptions 2) :perception-fns) 10 100)))
-   (agent-correct-perception-fns agent)
-   (slot-value agent 'perception-fns)))
+  (let ((agent (gen-agent 3 :AUD_USD (subseq *rates* 0 1000) (hscom.utils:assoccess (hsper:gen-random-perceptions 2) :perception-fns) 10 100)))
+    (agent-correct-perception-fns agent)
+    (slot-value agent 'perception-fns)))
+
+(defun cache-agents-from-db ()
+  "Adds all the agents from the database to *AGENTS-CACHE*."
+  (loop for instrument in hscom.hsage:*instruments*
+	do (loop for timeframe in hscom.hsage:*all-timeframes*
+		 do (get-agents-some instrument timeframe '(:single) -1 0))))
+;; (cache-agents-from-db)
 
 (defun get-agents-some (instrument timeframe types &optional (limit -1) (offset 0))
   (let (result)
@@ -1220,13 +1229,14 @@
 		 (let* ((agent-ids (get-agent-ids-from-patterns instrument timeframe type))
 			(agents (conn (query (:select '* :from 'agents :where (:in 'id (:set agent-ids)))
 					     (:dao agent)))))
-		   (map nil #'agent-correct-perception-fns agents)
-		   (setf (gethash (list instrument timeframe type) *agents-cache*) agents)
-		   (loop for agent in (limit-seq agents limit offset)
-			 do (push agent result))))))
+		   (when agents
+		     (map nil #'agent-correct-perception-fns agents)
+		     (setf (gethash (list instrument timeframe type) *agents-cache*) agents)
+		     (loop for agent in (limit-seq agents limit offset)
+			   do (push agent result)))))))
     result))
-;; (time (get-agents-some :AUD_USD hscom.hsage:*train-tf* '(:bullish) 3 2))
-;; (time (get-agents-some :EUR_USD hscom.hsage:*train-tf* '(:bullish :stagnated :bearish) 3 10))
+;; (time (get-agents-some :AUD_USD hscom.hsage:*train-tf* '(:single) -1 0))
+;; (time (get-agents-some :EUR_USD hscom.hsage:*train-tf* '(:single :stagnated :bearish) 3 10))
 ;; (agents-to-alists (get-agents-some :AUD_USD hscom.hsage:*train-tf* '(:SINGLE)))
 
 (defun add-agent (agent instrument timeframe types)

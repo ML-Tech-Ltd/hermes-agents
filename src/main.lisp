@@ -111,13 +111,13 @@
 
 (defun debug-trade ()
   (let* ((trade (nth 5 (conn (query (:select 'trades.* 'patterns.*
-					     :from 'trades
-					     :inner-join 'patterns-trades
-					     :on (:= 'trades.id 'patterns-trades.trade-id)
-					     :inner-join 'patterns
-					     :on (:= 'patterns.id 'patterns-trades.pattern-id)
-					     :where (:= 'patterns.instrument "USD_CNH")
-					     ) :alists))))
+				      :from 'trades
+				      :inner-join 'patterns-trades
+				      :on (:= 'trades.id 'patterns-trades.trade-id)
+				      :inner-join 'patterns
+				      :on (:= 'patterns.id 'patterns-trades.pattern-id)
+				      :where (:= 'patterns.instrument "USD_CNH")
+				      ) :alists))))
 	 (from (print (* (assoccess trade :creation-time) 1000000)))
 	 (from-timestamp (local-time:unix-to-timestamp (/ from 1000000))))
     (let* ((instrument (make-keyword (assoccess trade :instrument)))
@@ -208,6 +208,10 @@
 			:test-size dataset-size
 			:label (get-human-name human-strategy)
 			:testingp testingp)))
+;; (-loop-test-human-strategies)
+;; (-loop-test-human-strategies :testingp t)
+
+;; (conn (query (:select '* :from 'hybrids) :alists))
 
 (defun create-job-human-strategies-metrics (seconds)
   "We run this every `hscom.hsage#:*seconds-interval-testing-human-strategies-metrics*` seconds."

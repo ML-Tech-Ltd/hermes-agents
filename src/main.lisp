@@ -58,7 +58,6 @@
 		#:remove-agent
 		#:get-agents-count
 		#:wipe-agents
-		#:get-agent
 		#:update-agent-fitnesses
 		#:update-agents-fitnesses
 		#:init-patterns
@@ -72,7 +71,8 @@
 		#:best-individual
 		#:test-hybrid-strategy
 		#:get-hybrid-id
-		#:cache-agents-from-db)
+		#:cache-agents-from-db
+                #:uncache-agents-from-db)
   (:import-from #:hscom.db
 		#:conn)
   (:import-from #:hsage.db
@@ -216,21 +216,27 @@
 (defun create-job-human-strategies-metrics (seconds)
   "We run this every `hscom.hsage#:*seconds-interval-testing-human-strategies-metrics*` seconds."
   (when hscom.hsage:*run-human-and-hybrid-p*
+    ($log $trace :-> :create-job-human-strategies-metrics)
     ;; Let's run it once immediately.
     (eval `(clerk:job "Creating human strategies metrics" every ,(read-from-string (format nil "~a.seconds" seconds))
-		      (-loop-test-human-strategies :testingp t)))))
+		      (-loop-test-human-strategies :testingp t)))
+    ($log $trace :<- :create-job-human-strategies-metrics)))
 ;; (create-human-strategies-metrics-job 10)
 
 (defun create-job-optimize-human-strategies (seconds)
   "We run this every `hscom.hsage#:*seconds-interval-testing-human-strategies-metrics*` seconds."
   (when hscom.hsage:*run-human-and-hybrid-p*
+    ($log $trace :-> :create-job-optimize-human-strategies)
     ;; Let's run it once immediately.
     (eval `(clerk:job "Optimizing human strategies to create hybrid strategies" every ,(read-from-string (format nil "~a.seconds" seconds))
-		      (-loop-optimize-human-strategies :testingp t)))))
+		      (-loop-optimize-human-strategies :testingp t)))
+    ($log $trace :<- :create-job-optimize-human-strategies)))
 
 (defun create-job-signals (seconds)
   "We run this every `hscom.hsage#:*seconds-interval-testing*` seconds."
-  (eval `(clerk:job "Creating signals" every ,(read-from-string (format nil "~a.seconds" seconds)) (-loop-test-all))))
+  ($log $trace :-> :create-job-signals)
+  (eval `(clerk:job "Creating signals" every ,(read-from-string (format nil "~a.seconds" seconds)) (-loop-test-all)))
+  ($log $trace :<- :create-job-signals))
 
 ;; (require 'sb-sprof)
 ;; (sb-sprof:start-profiling)
@@ -247,20 +253,20 @@
 
 (defun -loop-validate ()
   (when hscom.all:*is-production*
-    (push-to-log "<b>VALIDATION.</b><hr/>")
-    (push-to-log "Validating trades older than 24 hours.")
+    ($log $info "Validating trades older than 24 hours.")
     (validate-trades)))
 
 (defun -loop-test (instrument timeframe type-groups testing-dataset)
-  (push-to-log "<b>SIGNAL.</b><hr/>")
-  (push-to-log (format nil "Trying to create signal for ~a ~a." instrument timeframe))
+  ($log $trace :-> :-loop-test instrument timeframe)
+  ($log $info "Creating signal for" instrument timeframe)
   (if hscom.hsage:*use-nested-signals-p*
       (test-most-activated-agents instrument timeframe type-groups testing-dataset :test-size hscom.hsage:*test-size*)
       (progn
 	(let ((hscom.hsage:*consensus-threshold* 1))
 	  (test-agents instrument timeframe type-groups testing-dataset :test-size hscom.hsage:*test-size* :label (format nil "hermes.consensus-~a" hscom.hsage:*consensus-threshold*)))
 	(when (> hscom.hsage:*consensus-threshold* 1)
-	  (test-agents instrument timeframe type-groups testing-dataset :test-size hscom.hsage:*test-size* :label (format nil "hermes.consensus-~a" hscom.hsage:*consensus-threshold*))))))
+	  (test-agents instrument timeframe type-groups testing-dataset :test-size hscom.hsage:*test-size* :label (format nil "hermes.consensus-~a" hscom.hsage:*consensus-threshold*)))))
+  ($log $trace :<- :-loop-test instrument timeframe))
 
 ;; TODO: Rename everywhere from TYPE -> STAGE where applicable (type being :creation, :training or :testing).
 ;; Most of the time TYPE is '(:BULLISH), for example.
@@ -297,7 +303,7 @@
   ($log $trace :-> :-loop-optimize)
   (let* ((training-dataset (-loop-get-dataset instrument timeframe types :training full-training-dataset))
 	 (creation-dataset (-loop-get-dataset instrument timeframe types :creation full-creation-dataset)))
-    ($log $info (format nil "~a agents retrieved for pattern ~s." agents-count types))
+    ($log $info (format nil "~a agents retrieved for pattern ~s." agents-count (list instrument timeframe types)))
     (let ((hscom.hsage:*consensus-threshold* 1))
       (optimization instrument timeframe types
 		    (lambda () (let ((beliefs (gen-random-perceptions hscom.hsage:*number-of-agent-inputs*)))
@@ -344,6 +350,7 @@
   (dolist (instrument hscom.hsage:*instruments*)
     (dolist (timeframe hscom.hsage:*timeframes*)
       (unless (is-market-close)
+        (cache-agents-from-db instrument timeframe)
 	(let ((agents-count (get-agents-count instrument timeframe hscom.hsage:*type-groups*)))
 	  (when (> agents-count 0)
 	    (let* ((testing-dataset (get-rates-count-big instrument timeframe
@@ -351,6 +358,7 @@
 	      (-loop-test instrument timeframe hscom.hsage:*type-groups* testing-dataset))))
 	;; We don't want our data feed provider to ban us.
 	;; We also want to go easy on those database reads (`agents-count`).
+        (uncache-agents-from-db instrument timeframe)
 	(sleep 1)))))
 
 (defun -loop-optimize-test-validate ()
@@ -366,6 +374,9 @@
   (pmap nil (lambda (instrument)
 	      (dolist (timeframe hscom.hsage:*timeframes*)
 		(unless (is-market-close)
+                  ($log $info "Caching agents for pattern" (list instrument timeframe '(:single)))
+                  (cache-agents-from-db instrument timeframe t)
+                  ($log $info "Retrieving datasets for agents.")
 		  (let* ((rates (-loop-get-rates instrument timeframe))
 			 ;; (human-rates (-get-rates instrument
 			 ;; 			  timeframe
@@ -398,8 +409,8 @@
 			(-loop-test instrument timeframe hscom.hsage:*type-groups* testing-dataset))
 		      ($log $info "Done agent optimization process.")
 		      ))
-		  (-loop-validate))
-		(hsage.utils:refresh-memory)
+		  (-loop-validate)
+                  (uncache-agents-from-db instrument timeframe t))
 		(sync-datasets-to-database)
 		(when *print-hypothesis-test*
 		  (hsage.trading::hypothesis-test))))
@@ -416,7 +427,6 @@
     (clear-logs)
     (hsage.utils:refresh-memory)
     (sync-datasets-from-database)
-    (cache-agents-from-db)
     ;; Signal creation. Production. We create a cron job for this to be
     ;; run every `hscom.hsage:*seconds-interval-testing*` seconds.
     (when hscom.all:*is-production*

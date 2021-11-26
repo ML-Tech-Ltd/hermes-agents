@@ -95,7 +95,8 @@
 	   #:best-individual
 	   #:test-hybrid-strategy
 	   #:get-hybrid-id
-	   #:cache-agents-from-db)
+	   #:cache-agents-from-db
+           #:uncache-agents-from-db)
   (:nicknames #:hsage.trading))
 (in-package :hermes-agents.trading)
 
@@ -107,7 +108,7 @@
 
 ;; (defparameter *rates* (hsinp.rates:fracdiff (hsinp.rates:get-rates-count-big :AUD_USD :H1 20000)))
 (defparameter *agents-cache* (make-hash-table :test 'equal :synchronized t))
-;; (maphash (lambda (k v) (print v)) *agents-cache*)
+;; (maphash (lambda (k v) (dbg k v)) *agents-cache*)
 ;; (cache-agents-from-db)
 
 (defclass agent ()
@@ -971,7 +972,7 @@
 (def (function d) -evaluate-model (&key instrument timeframe types rates model idx test-size)
   "Used for EVALUATE-AGENT and EVALUATE-AGENTS."
   (push-to-log "Trying to evaluate model.")
-  (let* ((max-lookbehind (get-max-lookbehind instrument timeframe types))
+  (let* ((max-lookbehind (if idx idx (get-max-lookbehind instrument timeframe types)))
 	 (idx (if idx idx max-lookbehind))
 	 (rates (last rates (+ (if test-size test-size (length rates)) max-lookbehind 1)))
 	 (revenues)
@@ -1216,12 +1217,34 @@
     (agent-correct-perception-fns agent)
     (slot-value agent 'perception-fns)))
 
-(defun cache-agents-from-db ()
-  "Adds all the agents from the database to *AGENTS-CACHE*."
-  (loop for instrument in hscom.hsage:*instruments*
-	do (loop for timeframe in hscom.hsage:*all-timeframes*
-		 do (get-agents-some instrument timeframe '(:single) -1 0))))
-;; (cache-agents-from-db)
+(let((sync-table (make-hash-table :test 'equal :synchronized t)))
+  (defun cache-agents-from-db (instrument timeframe &optional (safe-cache-p nil))
+    "Caches agents from `instrument` and `timeframe` from the database to *AGENTS-CACHE*."
+    ($log $trace :-> :cache-agents-from-db)
+    (when safe-cache-p
+      ($log $info "Adding cache safety for" instrument timeframe)
+      (setf (gethash (list instrument timeframe '(:single)) sync-table) t)
+      ($log $info "Caching agents for" instrument timeframe)
+      (get-agents-some instrument timeframe '(:single) -1 0))
+    (unless (gethash (list instrument timeframe '(:single)) sync-table)
+      ($log $info "Caching agents for" instrument timeframe)
+      (get-agents-some instrument timeframe '(:single) -1 0))
+    ($log $trace :<- :cache-agents-from-db))
+  ;; (cache-agents-from-db)
+
+  (defun uncache-agents-from-db (instrument timeframe &optional (safe-cache-p nil))
+    "Restarts the agents cache for `instrument` and `timeframe`."
+    ($log $trace :-> :uncache-agents-from-db)
+    (when safe-cache-p
+      ($log $info "Removing cache safety for" instrument timeframe)
+      (setf (gethash (list instrument timeframe '(:single)) sync-table) nil))
+
+    (unless (gethash (list instrument timeframe '(:single)) sync-table)
+      ($log $info "Releasing cache for" instrument timeframe)
+      (setf (gethash (list instrument timeframe '(:single)) *agents-cache*) nil))
+    
+    (hsage.utils:refresh-memory)
+    ($log $trace :<- :uncache-agents-from-db)))
 
 (defun get-agents-some (instrument timeframe types &optional (limit -1) (offset 0))
   (let (result)
@@ -3046,7 +3069,7 @@ you"))
 (defun -validate-trades (instrument trades older-than)
   "We use `older-than` to determine what trades to ignore due to possible lack of prices for validation."
   (when (> (length trades) 0)
-    (push-to-log (format nil "Trying to validate ~a trades." (length trades)))
+    ($log $info (format nil "Trying to validate ~a trades." (length trades)))
     (let* ((oldest (first (sort (copy-sequence 'list trades) #'< :key #'-get-trade-time)))
 	   ;; (newest (first (sort (copy-sequence 'list trades) #'> :key #'-get-trade-time)))
 	   (rates (get-rates-range-big instrument hscom.hsage:*validation-timeframe*
@@ -3062,15 +3085,12 @@ you"))
 		     (when (or (not hscom.all:*is-production*)
 			       (local-time:timestamp< from-timestamp
 						      (local-time:timestamp- (local-time:now) older-than :day)))
-		       (push-to-log (format nil "Using minute rates from ~a to ~a to validate trade."
-					    from-timestamp
-					    (local-time:timestamp+ from-timestamp 3 :day)))
 		       (multiple-value-bind (result exit-time)
 			   (get-trade-result (assoccess trade :entry-price)
 					     (assoccess trade :tp)
 					     (assoccess trade :sl)
 					     sub-rates)
-			 (push-to-log (format nil "Result obtained for trade: ~a." result))
+			 ($log $info (format nil "Result obtained for trade: ~a." (assoccess trade :id)))
 			 (conn
 			  (let ((dao (get-dao 'trade (assoccess trade :id))))
 			    (setf (slot-value dao 'result) (if result result :NULL))

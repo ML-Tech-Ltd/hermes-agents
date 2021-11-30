@@ -1,3 +1,10 @@
+## Table of Contents
+
+- [Hermes-Agents](#hermes-agents)
+  - [Usage](#usage)
+  - [Installation](#installation)
+- [Extras](#extras)
+
 # Hermes-Agents
 
 ## Usage
@@ -51,13 +58,12 @@ $ ros run
 - Install these dependencies in `~/.roswell/local-projects/`:
 
 ```
-git clone https://github.com/dochang/magicffi.git
-git clone https://github.com/ciel-lang/CIEL
 git clone https://github.com/2old2randr/cl-dates.git
 git clone https://github.com/lepisma/plotly-cl.git
 git clone https://github.com/cgore/sigma.git
 git clone https://github.com/tsikov/clerk.git
-git clone https://github.com/ml-tech-ltd/cl-rest-server.git
+git clone git@github.com:ml-tech-ltd/cl-rest-server.git
+git clone git@github.com:ml-tech-ltd/genetic-algorithm.git
 ```
 
 - Install all of Hermes Technologies. `Hermes Common` is private, but
@@ -94,12 +100,14 @@ cd hermes-input; cp src/config.lisp.template src/config.lisp
 
 ```
 sudo apt install postgresql postgresql-contrib
-sudo su - postgres -c "createuser mlfx"
-sudo su - postgres -c "createdb mlfx"
+sudo su - postgres -c "createuser hermes"
+sudo su - postgres -c "createdb hermes"
 sudo -u postgres psql
-GRANT ALL PRIVILEGES ON DATABASE mlfx TO mlfx;
-\password mlfx
+GRANT ALL PRIVILEGES ON DATABASE hermes TO hermes;
+\password hermes
 ```
+
+# Extras
 
 - Emacs configuration
 

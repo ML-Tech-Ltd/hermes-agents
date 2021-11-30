@@ -1,43 +1,34 @@
-(ql-dist:disable (ql-dist:find-dist "ultralisp"))
+;; (ql-dist:install-dist "http://dist.ultralisp.org/" :prompt nil)
+(ql-dist:enable (ql-dist:find-dist "ultralisp"))
+;; (ql:quickload :alexandria)
+;; (ql:quickload :access)
+;; (ql:dist-version "ultralisp")
+;; (ql:quickload :ciel)
+;; (asdf:asdf-version)
+;; (ql:update-client)
+;; (ql-dist:disable (ql-dist:find-dist "ultralisp"))
 (defsystem "hermes-agents"
   :version "0.1.0"
   :author ""
   :license ""
-  :depends-on (:lparallel
-               ;; :datafly
-	       ;; :dbi
-               :cl-mathstats
-	       :cl-ppcre
-	       :clerk
+  :depends-on (:ciel
+               :clerk
 	       :hu.dwim.def
-               ;; :magicl
-	       :cl-csv
-               :computable-reals
-	       :cl-mathstats
 	       :eazy-gnuplot
-               ;; :sxql
 	       :uuid
-	       :salza2
-	       :zlib
-	       :flexi-streams
 	       :envy
-	       :cl-json
-	       :dexador
-	       :alexandria
-	       :sigma
 	       :plotly-cl
 	       :postmodern
 	       :cl-cpus
-	       :bordeaux-threads
 	       :defenum
 	       :fare-mop
-	       :fare-memoization
 	       :defenum
 	       :genetic-algorithm
 
 	       ;; logging
 	       :dissect
 
+               ;; hermes tech
 	       :hermes-common
 	       :hermes-intuition
 	       :hermes-input

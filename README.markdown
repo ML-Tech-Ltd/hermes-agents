@@ -10,6 +10,12 @@
 sudo apt update
 ```
 
+- Install these dependencies on Ubuntu based distros:
+
+```
+sudo apt-get install libmagic-dev
+```
+
 - Install Roswell
 
 ```
@@ -21,11 +27,32 @@ sh bootstrap
 make
 sudo make install
 ros setup
+ros install sbcl
+```
+
+- Update ASDF
+
+```
+git clone https://gitlab.common-lisp.net/asdf/asdf.git
+cd asdf
+make
+ros run
+* (load "./tools/install-asdf.lisp")
+```
+
+- Install Ultralisp:
+
+```
+$ ros run
+* (ql-dist:install-dist "http://dist.ultralisp.org/" :prompt nil)
+* (quit)
 ```
 
 - Install these dependencies in `~/.roswell/local-projects/`:
 
 ```
+git clone https://github.com/dochang/magicffi.git
+git clone https://github.com/ciel-lang/CIEL
 git clone https://github.com/2old2randr/cl-dates.git
 git clone https://github.com/lepisma/plotly-cl.git
 git clone https://github.com/cgore/sigma.git
@@ -49,14 +76,8 @@ git clone git@github.com:ml-tech-ltd/hermes-research.git
 
 - Install qlot:
 
-``` ros install qlot ```
-
-- Install ultralisp:
-
 ```
-$ ros run
-* (ql-dist:install-dist "http://dist.ultralisp.org/" :prompt nil)
-* (quit)
+ros install qlot
 ```
 
 - Create configuration files and set the parameters to appropriate values:
@@ -83,6 +104,7 @@ GRANT ALL PRIVILEGES ON DATABASE mlfx TO mlfx;
 - Emacs configuration
 
 ```
-git clone git@github.com:amherag/dotemacs.git .dotemacs
-ln -s .dotemacs/.emacs .emacs
+git clone git@github.com:amherag/home.git
+cd home
+./init.sh
 ```

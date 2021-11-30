@@ -14,7 +14,6 @@
 	#:lparallel
 	#:postmodern
 	#:alexandria
-	#:computable-reals
 	#:hu.dwim.def
 	#:defenum
 	#:fare-mop

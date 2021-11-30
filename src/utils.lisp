@@ -1,5 +1,5 @@
 (defpackage hermes-agents.utils
-  (:use :cl :json :alexandria)
+  (:use :cl :ciel)
   (:import-from #:hsinp.rates
 		#:unix-from-nano)
   (:import-from #:fare-mop

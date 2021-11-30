@@ -148,15 +148,15 @@
 
 (defun plot-poly (poly)
   (apply #'plotly-make-plot
-	 (plotly-layout)
-	 (loop for line in poly
-	       collect (let* ((x1 (min (-> line :x1) (-> line :x2)))
-			      (x2 (max (-> line :x1) (-> line :x2)))
-			      (y1 (if (= x1 (-> line :x1)) (-> line :y1) (-> line :y2)))
-			      (y1 (if (= x2 (-> line :x1)) (-> line :y1) (-> line :y2))))
-			 (plotly-line (list x1 x2)
-				      (list (-> line :y1)
-					    (-> line :y2)))))))
+         (plotly-layout)
+         (loop for line in poly
+               collect (let* ((x1 (min (-> line :x1) (-> line :x2)))
+                              (x2 (max (-> line :x1) (-> line :x2)))
+                              (y1 (if (= x1 (-> line :x1)) (-> line :y1) (-> line :y2)))
+                              (y1 (if (= x2 (-> line :x1)) (-> line :y1) (-> line :y2))))
+                         (plotly-line (list x1 x2)
+                                      (list (-> line :y1)
+                                            (-> line :y2)))))))
 
 (defun plotly-layout ()
   `((:dragmode . "zoom")
@@ -167,10 +167,10 @@
 
 (defun plotly-candlestick (rates)
   (let ((x (loop for rate in rates collect (/ (read-from-string (assoccess rate :time)) 1000000)))
-	(open (loop for rate in rates collect (assoccess rate :open-bid)))
-	(high (loop for rate in rates collect (assoccess rate :high-bid)))
-	(low (loop for rate in rates collect (assoccess rate :low-bid)))
-	(close (loop for rate in rates collect (assoccess rate :close-bid))))
+        (open (loop for rate in rates collect (assoccess rate :open-bid)))
+        (high (loop for rate in rates collect (assoccess rate :high-bid)))
+        (low (loop for rate in rates collect (assoccess rate :low-bid)))
+        (close (loop for rate in rates collect (assoccess rate :close-bid))))
     `((:type . "candlestick")
       (:xaxis . "x")
       (:yaxis . "y")
@@ -185,7 +185,7 @@
     (:y . ,ys)
     (:type . "scatter")
     (:line . ((:color . ,color)
-	      (:dash . ,dash)))))
+              (:dash . ,dash)))))
 
 (defun plotly-make-plot (layout &rest traces)
   (plotly-cl:pl-plot traces :layout layout :width 1700 :height 1000)

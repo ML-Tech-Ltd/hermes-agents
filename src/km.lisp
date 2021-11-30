@@ -25,9 +25,9 @@
   "Parameter observations, list of vectors (or lists).
    Calculate the centroid of the set of observations."
   (if (null observations)
-    nil
-    (mapcar #'(lambda (coord) (/ coord (length observations)))
-            (reduce #'vsum observations))))
+      nil
+      (mapcar #'(lambda (coord) (/ coord (length observations)))
+              (reduce #'vsum observations))))
 
 (defun innerprod (vector1 vector2)
   "Parameter vector1, vector (list of coordinates).
@@ -46,9 +46,9 @@
    Create k starting centroids using Forgy's method.
    Forgy's method: randomly select k of the starting observations."
   (if (= k 0)
-    nil
-    (let ((rand (nth (random (length observations)) observations)))
-      (cons rand (initialize (remove rand observations) (- k 1))))))
+      nil
+      (let ((rand (nth (random (length observations)) observations)))
+        (cons rand (initialize (remove rand observations) (- k 1))))))
 
 (defun map-cluster (clusters-map observations cl index)
   "Parameter clusters-map, list of indices.
@@ -69,9 +69,9 @@
    Parameter k, number of clusters to generate.
    Returns the list of clusters starting from a list of clusters's indices."
   (if (= cl k)
-    nil
-    (cons (map-cluster clusters-map observations cl 0)
-          (map-clusters clusters-map observations (+ cl 1) k))))
+      nil
+      (cons (map-cluster clusters-map observations cl 0)
+            (map-clusters clusters-map observations (+ cl 1) k))))
 
 (defun re-centroids (clusters-map observations k)
   "Parameter clusters, list of indices.
@@ -101,12 +101,12 @@
    Returns the Clusters-Map, or a list of clusters's indices,
    given cs as centroids."
   (if (null observations)
-    nil
-    (cons (position (pick-centroid (car observations)
-                                   cs
-                                   most-positive-fixnum
-                                   cs) cs)
-          (partition (cdr observations) cs))))
+      nil
+      (cons (position (pick-centroid (car observations)
+                                     cs
+                                     most-positive-fixnum
+                                     cs) cs)
+            (partition (cdr observations) cs))))
 
 (defun lloyd-km (observations clusters cs k)
   "Parameter observations, list of vectors (or lists).
@@ -117,14 +117,14 @@
    Returns the Clusters-Map, or a list of cluster's indices."
   (let ((new-clusters (partition observations cs)))
     (if (equal clusters new-clusters)
-     clusters
-      (lloyd-km observations
-                new-clusters
-                (re-centroids new-clusters observations k)
-                k))))
+        clusters
+        (lloyd-km observations
+                  new-clusters
+                  (re-centroids new-clusters observations k)
+                  k))))
 
 (defun km (observations k)
-"Parameter observations, list of vectors (or lists).
+  "Parameter observations, list of vectors (or lists).
 Parameter k, number of clusters to generate.
 Returns k clusters from the set of observations."
   (cond ((< (length observations) k) (error "Could not compute clusters."))

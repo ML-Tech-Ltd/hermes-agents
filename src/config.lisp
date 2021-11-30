@@ -12,7 +12,7 @@
            #:appenv
            #:developmentp
            #:productionp
-	   #:*db-path*)
+           #:*db-path*)
   (:nicknames #:hsage.config))
 (in-package :hermes-agents.config)
 
@@ -29,8 +29,8 @@
 (defparameter *data-directory*   (merge-pathnames #P"data/" *application-root*))
 
 (defconfig :common
-    `(:error-log #P"~/predictus-error.log"
-      :databases ((:maindb :sqlite3 :database-name ":memory:"))))
+  `(:error-log #P"~/predictus-error.log"
+    :databases ((:maindb :sqlite3 :database-name ":memory:"))))
 
 (defconfig |development|
   '())

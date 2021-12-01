@@ -38,7 +38,8 @@
                 #:*iterations*
                 #:*print-hypothesis-test*
                 #:*test-size-human-strategies-signals*
-                #:*test-size-human-strategies-metrics*)
+                #:*test-size-human-strategies-metrics*
+                #:*hybrid-fitness-metric*)
   (:import-from #:hsper
                 #:get-human-strategies)
   (:import-from #:hsage.log
@@ -171,7 +172,7 @@
                             :max-iterations *hybrid-iterations*
                             :mutation-rate *hybrid-mutation-rate*
                             :test-size dataset-size
-                            :fitness-metric :avg-return)))
+                            :fitness-metric *hybrid-fitness-metric*)))
 
 (defun -loop-test-human-strategies (&key (testingp nil))
   (-loop-human-strategies

@@ -559,7 +559,7 @@
                      (high (if (plusp tp)
                                (hsinp.rates:->high-bid rate)
                                (hsinp.rates:->high-ask rate)))
-                     (time (assoccess rate :time)))
+                     (assoccess rate :time))
                  (if (> tp 0)
                      ;; Then it's bullish.
                      (if (< (- low starting-rate) sl)
@@ -802,17 +802,17 @@
                                              (population-genomes (flatten (mapcar (lambda (ind)
                                                                                     (get-gens ind))
                                                                                   -population-)))
-                                             (test-metrics (time (-evaluate-model
-                                                                  :instrument ,instrument
-                                                                  :timeframe ,timeframe
-                                                                  :types ',types
-                                                                  :rates ',test-dataset
-                                                                  :model (lambda (input-dataset)
-                                                                           (apply #'funcall ,(assoccess human-strategy :fn)
-                                                                                  input-dataset
-                                                                                  best-genome))
-                                                                  :idx ,(assoccess human-strategy :lookbehind-count)
-                                                                  :test-size ,test-size))))
+                                             (test-metrics (-evaluate-model
+                                                            :instrument ,instrument
+                                                            :timeframe ,timeframe
+                                                            :types ',types
+                                                            :rates ',test-dataset
+                                                            :model (lambda (input-dataset)
+                                                                     (apply #'funcall ,(assoccess human-strategy :fn)
+                                                                            input-dataset
+                                                                            best-genome))
+                                                            :idx ,(assoccess human-strategy :lookbehind-count)
+                                                            :test-size ,test-size)))
                                         (insert-hybrid ,(stringify instrument)
                                                        ,(stringify timeframe)
                                                        ,(get-hybrid-name human-strategy)

@@ -1350,7 +1350,7 @@
 (defun -base-reject (agent)
   "Used by AGENT-DOMINATED?-XXX."
   (or (= (length (slot-value agent 'tps)) 0)
-      (<= (length (slot-value agent 'avg-return))
+      (<= (slot-value agent 'avg-return)
           hscom.hsage:*min-agent-avg-return*)
       (< (length (slot-value agent 'tps))
          hscom.hsage:*min-num-trades-training*)))

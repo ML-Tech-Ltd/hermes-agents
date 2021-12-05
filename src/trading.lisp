@@ -559,7 +559,7 @@
                      (high (if (plusp tp)
                                (hsinp.rates:->high-bid rate)
                                (hsinp.rates:->high-ask rate)))
-                     (assoccess rate :time))
+                     (time (assoccess rate :time)))
                  (if (> tp 0)
                      ;; Then it's bullish.
                      (if (< (- low starting-rate) sl)

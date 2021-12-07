@@ -3069,36 +3069,42 @@ you"))
 
 (defun -validate-trades (instrument trades older-than)
   "We use `older-than` to determine what trades to ignore due to possible lack of prices for validation."
-  (when (> (length trades) 0)
-    ($log $info (format nil "Trying to validate ~a trades." (length trades)))
-    (let* ((oldest (first (sort (copy-sequence 'list trades) #'< :key #'-get-trade-time)))
-           ;; (newest (first (sort (copy-sequence 'list trades) #'> :key #'-get-trade-time)))
-           (rates (get-rates-range-big instrument hscom.hsage:*validation-timeframe*
-                                       (-get-trade-time oldest)
-                                       ;; (-get-trade-time newest)
-                                       (* (local-time:timestamp-to-unix (local-time:now)) 1000000)
-                                       )))
-      (loop for trade in trades
-            do (let* ((idx (position (-get-trade-time trade) rates :test #'<= :key (lambda (rate) (read-from-string (assoccess rate :time))))))
-                 (when idx
-                   (let ((sub-rates (subseq rates idx))
-                         (from-timestamp (local-time:unix-to-timestamp (ceiling (/ (-get-trade-time trade) 1000000)))))
-                     (when (or (not hscom.all:*is-production*)
-                               (local-time:timestamp< from-timestamp
-                                                      (local-time:timestamp- (local-time:now) older-than :day)))
-                       (multiple-value-bind (result exit-time)
-                           (get-trade-result (assoccess trade :entry-price)
-                                             (assoccess trade :tp)
-                                             (assoccess trade :sl)
-                                             sub-rates)
-                         ($log $info (format nil "Result obtained for trade: ~a." (assoccess trade :id)))
-                         (conn
-                          (let ((dao (get-dao 'trade (assoccess trade :id))))
-                            (setf (slot-value dao 'result) (if result result :NULL))
-                            (setf (slot-value dao 'exit-time) (if exit-time (/ (read-from-string exit-time) 1000000) :NULL))
-                            (update-dao dao)))
-                         ))))))
-      (sleep 1))))
+  (let* ((day (local-time:timestamp-day-of-week (local-time:now)))
+         (older-than (cond ((= day 0) (+ older-than 2)) ;; it's Sunday, add 2 days
+                           ((= day 1) (+ older-than 1)) ;; it's Monday, add 1 day
+                           (t older-than) ;; default, leave unchanged.
+                           )))
+    (when (> (length trades) 0)
+      ($log $info (format nil "Trying to validate ~a trades." (length trades)))
+      (let* ((oldest (first (sort (copy-sequence 'list trades) #'< :key #'-get-trade-time)))
+             ;; (newest (first (sort (copy-sequence 'list trades) #'> :key #'-get-trade-time)))
+             (rates (get-rates-range-big instrument hscom.hsage:*validation-timeframe*
+                                         (-get-trade-time oldest)
+                                         ;; (-get-trade-time newest)
+                                         (* (local-time:timestamp-to-unix (local-time:now)) 1000000)
+                                         )))
+        (loop for trade in trades
+              do (let* ((idx (position (-get-trade-time trade) rates :test #'<= :key (lambda (rate) (read-from-string (assoccess rate :time))))))
+                   (when idx
+                     (let ((sub-rates (subseq rates idx))
+                           (from-timestamp (local-time:unix-to-timestamp (ceiling (/ (-get-trade-time trade) 1000000)))))
+                       (when (or (not hscom.all:*is-production*)
+                                 (local-time:timestamp< from-timestamp
+                                                        (local-time:timestamp- (local-time:now) older-than :day)))
+                         (multiple-value-bind (result exit-time)
+                             (get-trade-result (assoccess trade :entry-price)
+                                               (assoccess trade :tp)
+                                               (assoccess trade :sl)
+                                               sub-rates)
+                           (when result
+                             ($log $info (format nil "Result obtained for trade: ~a." (assoccess trade :id)))
+                             (conn
+                              (let ((dao (get-dao 'trade (assoccess trade :id))))
+                                (setf (slot-value dao 'result) (if result result :NULL))
+                                (setf (slot-value dao 'exit-time) (if exit-time (/ (read-from-string exit-time) 1000000) :NULL))
+                                (update-dao dao))))
+                           ))))))
+        (sleep 1)))))
 
 (defun re-validate-trades (&optional (older-than 0) (last-n-days 30))
   (loop for instrument in hscom.hsage:*instruments*

@@ -1412,7 +1412,7 @@
                                 (/ trades-won-0
                                    (+ trades-won-0 trades-lost-0)))
                             ;; (vector-1-similarity entry-times entry-times-0)
-                            )
+                             ))
                        ;; Candidate agent was dominated.
                        (when logp
                          (let ((metric-labels '("AVG-REVENUE" "TRADES-WON" "TRADES-LOST" "AVG-RETURN" "TOTAL-RETURN")))

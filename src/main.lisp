@@ -39,7 +39,8 @@
                 #:*print-hypothesis-test*
                 #:*test-size-human-strategies-signals*
                 #:*test-size-human-strategies-metrics*
-                #:*hybrid-fitness-metric*)
+                #:*hybrid-fitness-metric*
+                #:*run-hermes-p*)
   (:import-from #:hsper
                 #:get-human-strategies)
   (:import-from #:hsage.log
@@ -175,6 +176,8 @@
                             :fitness-metric *hybrid-fitness-metric*)))
 
 (defun -loop-test-human-strategies (&key (testingp nil))
+  (when hscom.hsage:*run-human-and-hybrid-p*
+    ($log $trace :-> :loop-test-human-strategies)
   (-loop-human-strategies
    testingp
    ;; Testing hybrid strategy.
@@ -207,7 +210,8 @@
                         (assoccess human-strategy :lookbehind-count)
                         :test-size dataset-size
                         :label (get-human-name human-strategy)
-                        :testingp testingp)))
+                          :testingp testingp))
+    ($log $trace :<- :loop-test-human-strategies)))
 ;; (-loop-test-human-strategies)
 ;; (-loop-test-human-strategies :testingp t)
 
@@ -371,6 +375,7 @@
   ;; Human strategies signals. Let's evaluate human strategies first regardless of development or production mode.
   (when hscom.hsage:*run-human-and-hybrid-p*
     (-loop-test-human-strategies :testingp nil))
+  (when *run-hermes-p*
   (pmap nil (lambda (instrument)
               (dolist (timeframe hscom.hsage:*timeframes*)
                 (unless (is-market-close)
@@ -416,7 +421,7 @@
                   (hsage.trading::hypothesis-test))))
         hscom.hsage:*instruments*)
   (unless hscom.all:*is-production*
-    (wipe-agents))
+      (wipe-agents)))
   ($log $trace :<- :-loop-optimize-test-validate))
 
 (def (function d) loop-optimize-test ()
@@ -430,12 +435,15 @@
     ;; Signal creation. Production. We create a cron job for this to be
     ;; run every `hscom.hsage:*seconds-interval-testing*` seconds.
     (when hscom.all:*is-production*
-      (create-job-signals hscom.hsage:*seconds-interval-testing*)
+      (when *run-hermes-p*
+        (create-job-signals hscom.hsage:*seconds-interval-testing*))
       (create-job-human-strategies-metrics hscom.hsage:*seconds-interval-testing-human-strategies-metrics*)
       (create-job-optimize-human-strategies hscom.hsage:*seconds-interval-optimizing-human-strategies*)
       (clerk:start))
+    (if *run-hermes-p*
     (if (< *iterations* 0)
         (loop (unless (is-market-close))
               (-loop-optimize-test-validate))
         (loop repeat *iterations*
-              do (-loop-optimize-test-validate)))))
+                  do (-loop-optimize-test-validate)))
+        (loop))))

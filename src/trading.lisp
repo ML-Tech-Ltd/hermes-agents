@@ -973,7 +973,8 @@
 (def (function d) -evaluate-model (&key instrument timeframe types rates model idx test-size)
   "Used for EVALUATE-AGENT and EVALUATE-AGENTS."
   (push-to-log "Trying to evaluate model.")
-  (let* ((max-lookbehind (if idx idx (get-max-lookbehind instrument timeframe types)))
+  (let* ((idx-p (when idx t))
+         (max-lookbehind (if idx idx (get-max-lookbehind instrument timeframe types)))
          (idx (if idx idx max-lookbehind))
          (rates (last rates (+ (if test-size test-size (length rates)) max-lookbehind 1)))
          (revenues)
@@ -1014,7 +1015,8 @@
                                     hscom.hsage:*agents-min-rr-trading*)
                                  (= tp 0)
                                  (= sl 0)
-                                 (< (abs (to-pips instrument sl)) hscom.hsage:*min-pips-sl*)
+                                 (unless idx-p
+                                   (< (abs (to-pips instrument sl)) hscom.hsage:*min-pips-sl*))
                                  (> (abs (to-pips instrument sl)) hscom.hsage:*max-pips-sl*)
                                  )
                              ;; (push-to-log "." :add-newline? nil)

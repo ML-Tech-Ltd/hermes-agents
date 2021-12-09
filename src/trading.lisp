@@ -616,11 +616,13 @@
        (< (* tp sl) 0)
        (if hybridp
            t
+           (and
            (> (abs (/ tp sl))
-              hscom.hsage:*agents-min-rr-signal*))
+               hscom.hsage:*agents-min-rr-signal*)
        (> (abs (to-pips instrument sl)) *min-pips-sl*)
+            (/= (assoccess test-fitnesses :trades-won) 0)))
        ;; (< (to-pips instrument (abs sl)) 20)
-       (/= (assoccess test-fitnesses :trades-won) 0))))
+       )))
 
 ;;
 ;; (get-hybrid :EUR_USD :M15 "")

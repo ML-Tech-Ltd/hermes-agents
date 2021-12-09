@@ -1396,7 +1396,9 @@
                           ;; (entry-times (slot-value agent 'entry-times))
                           )
                      ;; Fitnesses currently being used.
-                     (when (and
+                     (when (or
+                            (<= total-return-0 0)
+                            (and
                             ;; (> (* agent-direction-0 agent-direction) 0)
                             ;; (>= avg-revenue avg-revenue-0)
                             ;; (< stdev-revenue stdev-revenue-0)

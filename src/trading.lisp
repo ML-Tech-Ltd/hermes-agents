@@ -1397,7 +1397,7 @@
                           )
                      ;; Fitnesses currently being used.
                      (when (or
-                            (<= total-return-0 0)
+                            ;; (<= total-return-0 0)
                             (and
                             ;; (> (* agent-direction-0 agent-direction) 0)
                             ;; (>= avg-revenue avg-revenue-0)

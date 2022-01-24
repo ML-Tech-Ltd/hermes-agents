@@ -1,7 +1,12 @@
 (defpackage hermes-agents.trading
-  (:use #:cl #:alexandria #:postmodern #:hsage.log #:hscom.log #:hu.dwim.def)
+  (:use #:cl #:ciel #:postmodern #:hsage.log #:hscom.log #:hu.dwim.def)
   (:import-from #:defenum
                 #:defenum)
+  (:import-from #:alexandria
+                #:copy-sequence
+                #:make-keyword
+                #:standard-deviation
+                #:if-let)
   (:import-from #:hscom.db
                 #:conn)
   (:import-from #:hscom.utils
@@ -18,7 +23,11 @@
                 #:*min-pips-sl*
                 #:*exhaust-rules-in-creation-dataset-p*
                 #:*type-groups*
-                #:*ignore-test-conditions-p*)
+                #:*ignore-test-conditions-p*
+                #:*lookahead*
+                #:*lookbehind*
+                #:*unique-point-p*
+                #:*unique-count*)
   (:import-from #:hsper
                 #:get-perceptions
                 #:nth-perception
@@ -32,7 +41,8 @@
                 #:get-rates-range-big
                 #:get-input-dataset
                 #:get-output-dataset
-                #:get-tp-sl)
+                #:get-tp-sl
+                #:get-unique-dataset)
   (:import-from #:hsage.log
                 #:push-to-log)
   (:import-from #:hsage.utils
@@ -99,6 +109,8 @@
            #:uncache-agents-from-db)
   (:nicknames #:hsage.trading))
 (in-package :hermes-agents.trading)
+
+(ciel:enable-punch-syntax)
 
 (defenum perceptions
   (decompress
@@ -325,10 +337,10 @@
   (:table-name hybrids)
   (:keys id))
 
-(defun get-hybrid-id (hybrid)
+(def (function d) get-hybrid-id (hybrid)
   (id hybrid))
 
-(defun insert-trade-human (owner-id instrument timeframe types train-fitnesses test-fitnesses tp sl activation rates creation-time label &key (metric-or-signal :signal))
+(def (function d) insert-trade-human (owner-id instrument timeframe types train-fitnesses test-fitnesses tp sl activation rates creation-time label &key (metric-or-signal :signal))
   (conn (let* ((trade-id (assoccess (query (:select 'patterns.*
                                             (:as 'trades.id 'tid)
                                             :distinct-on 'trades.id
@@ -439,7 +451,7 @@
                     (update-dao trade)))
               (insert-trade owner-id instrument timeframe types train-fitnesses test-fitnesses tp sl activation rates creation-time label)))))
 
-(defun insert-trade (owner-id instrument timeframe types train-fitnesses test-fitnesses tp sl activation rates creation-time label)
+(def (function d) insert-trade (owner-id instrument timeframe types train-fitnesses test-fitnesses tp sl activation rates creation-time label)
   (conn (let ((patterns (get-patterns instrument timeframe types))
               (trade (make-dao 'trade
                                :owner-id owner-id
@@ -529,11 +541,11 @@
                              :pattern-id (assoccess pattern :id)
                              :trade-id (slot-value trade 'id))))))
 
-(defun buy-and-hold (rates)
+(def (function d) buy-and-hold (rates)
   (- (hsinp.rates:->close (last-elt rates))
      (hsinp.rates:->close (first rates))))
 
-(defun evaluate-trade (tp sl rates)
+(def (function d) evaluate-trade (tp sl rates)
   "Refactorize this."
   (let ((starting-rate (if (plusp tp)
                            ;; We need to use `open` because it's when we start.
@@ -605,8 +617,39 @@
       (:finish-idx . ,finish-idx))))
 ;; (evaluate-trade 0.0015 -0.0020 (get-output-dataset *rates* 3))
 ;; (get-tp-sl (get-output-dataset *rates* 188))
+;; (defparameter *rates* (hsinp.rates:get-rates-count :EUR_USD :M1 5000))
+;; (defparameter *rates2* (hsinp.rates:get-rates-count-big :EUR_USD :M1 5000))
+;; (evaluate-trade 0.00211 -0.00141 (get-output-dataset *rates* 3))
 
-(defun -test-conditions (instrument tp sl test-fitnesses &key (hybridp nil))
+(comment
+  (read-from-string (assoccess (last-elt *rates*) :time))
+  (read-from-string (assoccess (first *rates*) :time))
+  (local-time:unix-to-timestamp 1639532220)
+  (local-time:unix-to-timestamp 1630488600)
+  (local-time:unix-to-timestamp 1639396130)
+
+  (let ((creation-time 1639396130000000))
+    (loop for rate in *rates2*
+          for idx from 0 
+          when (>= (read-from-string (assoccess rate :time)) creation-time)
+            do (return idx)))
+
+  (loop for rate in (get-output-dataset *rates* 387)
+        do (format t "~$2~%" (* 10000 (- (assoccess rate :close-bid)
+                                          (assoccess (first (get-output-dataset *rates* 387)) :close-bid)))))
+
+  (evaluate-trade 0.00208 -0.00088 (get-output-dataset *rates* 2795))
+  (evaluate-trade 0.00208 -0.00088 (get-output-dataset *rates2* 4868))
+
+  (- (assoccess (first (get-output-dataset *rates* 387)) :close-bid)
+      (assoccess (last-elt (get-output-dataset *rates* 387)) :close-bid))
+
+  (position "1639396130000000" *rates* :test #'string= :key (lambda (rate) (assoccess rate :time)))
+  1636109460000000
+  1639396130000000
+  1639396130000)
+
+(def (function d) -test-conditions (instrument tp sl test-fitnesses &key (hybridp nil))
   (or *ignore-test-conditions-p*
       (and
        (/= tp 0)
@@ -617,9 +660,9 @@
        (if hybridp
            t
            (and
-           (> (abs (/ tp sl))
+            (> (abs (/ tp sl))
                hscom.hsage:*agents-min-rr-signal*)
-       (> (abs (to-pips instrument sl)) *min-pips-sl*)
+            (> (abs (to-pips instrument sl)) *min-pips-sl*)
             (/= (assoccess test-fitnesses :trades-won) 0)))
        ;; (< (to-pips instrument (abs sl)) 20)
        )))
@@ -627,7 +670,7 @@
 ;;
 ;; (get-hybrid :EUR_USD :M15 "")
 
-(defun insert-metrics (metrics)
+(def (function d) insert-metrics (metrics)
   (conn (make-dao 'metrics
                   :begin-time (assoccess-default metrics :begin-time -1)
                   :end-time (assoccess-default metrics :end-time -1)
@@ -663,14 +706,14 @@
                   :activations (apply #'vector (assoccess metrics :activations))
                   :returns (apply #'vector (assoccess metrics :returns)))))
 
-(defun insert-evaluation (metrics-id owner-id label iterations)
+(def (function d) insert-evaluation (metrics-id owner-id label iterations)
   (conn (make-dao 'evaluation
                   :metrics-id metrics-id
                   :owner-id owner-id
                   :label label
                   :iterations iterations)))
 
-(defun get-metricses (owner-id label)
+(def (function d) get-metricses (owner-id label)
   (conn (query (:select '* :from 'metricses
                 :where (:= 'id
                         (:select 'metrics-id :from 'evaluations
@@ -679,7 +722,7 @@
                (:dao metrics))))
 ;; (avg-revenue (get-metricses "66D36D97-EE28-4C3B-8239-9D096542DE2B" "train"))
 
-(defun get-hybrid (instrument timeframe name &optional (ret-type :dao))
+(def (function d) get-hybrid (instrument timeframe name &optional (ret-type :dao))
   (let ((q `(:select '* :from 'hybrids :where (:and (:= 'instrument ,(stringify instrument))
                                                (:= 'timeframe ,(stringify timeframe))
                                                (:= 'name ,name)))))
@@ -688,11 +731,11 @@
                        (t (query (sql-compile q) (:dao hybrid))))))))
 ;; (best-individual (get-hybrid :AUD_USD :M15 "hybrid.rsi-stoch-macd"))
 
-(defun get-hybrid-by-id (id)
+(def (function d) get-hybrid-by-id (id)
   (conn (get-dao 'hybrid id)))
 ;; (name (get-hybrid-by-id "66D36D97-EE28-4C3B-8239-9D096542DE2B"))
 
-(defun get-hybrid-iterations (instrument timeframe name)
+(def (function d) get-hybrid-iterations (instrument timeframe name)
   (let ((hybrid (get-hybrid instrument timeframe name)))
     (assoccess (conn (query (:order-by (:select 'iterations :from 'evaluations
                                         :where (:and (:= 'owner-id (id hybrid))))
@@ -701,7 +744,7 @@
                :iterations)))
 ;; (get-hybrid-iterations :EUR_USD :M15 "human.rsi-stoch-macd")
 
-(defun insert-hybrid (instrument timeframe name label iterations population best-individual metrics)
+(def (function d) insert-hybrid (instrument timeframe name label iterations population best-individual metrics)
   (conn (let* ((existing-hybrid (get-hybrid instrument timeframe name))
                (hybrid (if existing-hybrid
                            (progn
@@ -727,12 +770,12 @@
                                  iterations))
           hybrid)))
 
-(defun get-human-name (human-strategy)
+(def (function d) get-human-name (human-strategy)
   (format nil "human.~a" (assoccess human-strategy :name)))
-(defun get-hybrid-name (human-strategy)
+(def (function d) get-hybrid-name (human-strategy)
   (format nil "hybrid.~a" (assoccess human-strategy :name)))
 
-(defun gen-search-space (parameters ranges)
+(def (function d) gen-search-space (parameters ranges)
   (mapcar (lambda (parameter range)
             (cons parameter range))
           parameters
@@ -742,7 +785,7 @@
 ;; (gen-search-space (assoccess (first (hsper:get-human-strategies)) :parameters)
 ;; 		  (whole-reals-to-integers (best-individual (get-hybrid :EUR_USD :M15 "human.rsi-stoch-macd"))))
 
-(defun gen-population-from-genomes (search-space genomes genome-size parameters)
+(def (function d) gen-population-from-genomes (search-space genomes genome-size parameters)
   (loop for i from 0 below (length genomes) by genome-size
         collect (let* ((values (whole-reals-to-integers (subseq genomes i (+ i genome-size))))
                        (gen-values (flatten (mapcar (lambda (gen value)
@@ -752,96 +795,146 @@
                   (apply #'make-being search-space gen-values))))
 ;; (gen-population-from-genomes )
 
-;; (apply #'list '(1 2 3 4) '(10 20 30 40))
-
-;; (make-being '((offset 10 20) (n-rsi 10 20)) :offset 30 :n-rsi 20 :fit 10)
-
-;; (apply #'funcall human-strategy
-;;        *input-dataset*
-;;        *best-genome*)
-
-(defun optimize-human-strategy (instrument timeframe types
-                                input-dataset train-size
-                                human-strategy
-                                &key (maximize nil) (population-size 100)
-                                     (max-iterations 100) (mutation-rate 0.1)
-                                     (test-size 1000) (fitness-metric :total-return))
-  (let ((train-dataset (subseq input-dataset 0 train-size))
-        (test-dataset (subseq input-dataset train-size))
-        (search-space (gen-search-space
-                       (assoccess human-strategy :parameters)
-                       (assoccess human-strategy :args-ranges)))
-        (get-fit-fn (lambda (fit)
-                      (assoccess (get-fit fit) fitness-metric)))
-        (existing-hybrid (get-hybrid instrument
-                                     timeframe
-                                     (get-hybrid-name human-strategy))))
+(def (function d) optimize-human-strategy (instrument timeframe types
+                                                      input-dataset train-size
+                                                      human-strategy
+                                                      &key (maximize nil) (population-size 100)
+                                                      (max-iterations 100) (mutation-rate 0.1)
+                                                      (test-size 1000) (fitness-metric :total-return))
+  (bind ((train-dataset (subseq input-dataset 0 train-size))
+         (test-dataset (subseq input-dataset train-size))
+         (train-idxs (when *unique-point-p* (get-unique-dataset train-dataset *unique-count* *lookahead* *lookbehind*)))
+         (test-idxs (when *unique-point-p* (get-unique-dataset test-dataset *unique-count* *lookahead* *lookbehind*)))
+         (search-space (gen-search-space
+                        (assoccess human-strategy :parameters)
+                        (assoccess human-strategy :args-ranges)))
+         (get-fit-fn (lambda (fit)
+                       (assoccess (get-fit fit) fitness-metric)))
+         (existing-hybrid (get-hybrid instrument
+                                      timeframe
+                                      (get-hybrid-name human-strategy))))
     (eval `(genetic-algorithm:run-ga (,search-space
-                                      :maximize ,maximize
-                                      :population-size ,population-size
-                                      :max-iterations ,max-iterations
-                                      :mutation-rate ,mutation-rate
-                                      :first-generation (when ,(when existing-hybrid t)
-                                                          (let* ((hybrid (get-hybrid ,instrument
-                                                                                     ,timeframe
-                                                                                     ,(get-hybrid-name human-strategy)))
-                                                                 (genomes (population hybrid))
-                                                                 (best (best-individual hybrid)))
-                                                            (gen-population-from-genomes
-                                                             ',search-space
-                                                             genomes
-                                                             (length best)
-                                                             ',(assoccess human-strategy :parameters))
-                                                            ))
-                                      :get-fit-fn (lambda (fit)
-                                                    (assoccess (genetic-algorithm:get-fit fit) ,fitness-metric))
-                                      ;; :after-each-iteration (describe (first genetic-algorithm:-population-))
-                                      :finally
-                                      (let* ((best-individual (select-the-best -population-
-                                                                               :get-fit-fn ,get-fit-fn))
-                                             (best-genome (get-gens best-individual))
-                                             (best-fitness (get-fit best-individual))
-                                             (population-genomes (flatten (mapcar (lambda (ind)
-                                                                                    (get-gens ind))
-                                                                                  -population-)))
-                                             (test-metrics (-evaluate-model
-                                                            :instrument ,instrument
-                                                            :timeframe ,timeframe
-                                                            :types ',types
-                                                            :rates ',test-dataset
-                                                            :model (lambda (input-dataset)
-                                                                     (apply #'funcall ,(assoccess human-strategy :fn)
-                                                                            input-dataset
-                                                                            best-genome))
-                                                            :idx ,(assoccess human-strategy :lookbehind-count)
-                                                            :test-size ,test-size)))
-                                        (insert-hybrid ,(stringify instrument)
-                                                       ,(stringify timeframe)
-                                                       ,(get-hybrid-name human-strategy)
-                                                       "train"
-                                                       ,max-iterations
-                                                       population-genomes
-                                                       best-genome
-                                                       best-fitness)
-                                        (insert-hybrid ,(stringify instrument)
-                                                       ,(stringify timeframe)
-                                                       ,(get-hybrid-name human-strategy)
-                                                       "test"
-                                                       ,max-iterations
-                                                       population-genomes
-                                                       best-genome
-                                                       test-metrics)))
-                                     (-evaluate-model
-                                      :instrument ,instrument
-                                      :timeframe ,timeframe
-                                      :types ',types
-                                      :rates ',train-dataset
-                                      :model (lambda (input-dataset)
-                                               (funcall ,(assoccess human-strategy :fn)
-                                                        input-dataset
-                                                        ,@(assoccess human-strategy :parameters)))
-                                      :idx ,(assoccess human-strategy :lookbehind-count)
-                                      :test-size ,train-size)))))
+                                 :maximize ,maximize
+                                 :population-size ,population-size
+                                 :max-iterations ,max-iterations
+                                 :mutation-rate ,mutation-rate
+                                 :first-generation (when ,(when existing-hybrid t)
+                                                     (let* ((hybrid (get-hybrid ,instrument
+                                                                                ,timeframe
+                                                                                ,(get-hybrid-name human-strategy)))
+                                                            (genomes (population hybrid))
+                                                            (best (best-individual hybrid)))
+                                                       (gen-population-from-genomes
+                                                        ',search-space
+                                                        genomes
+                                                        (length best)
+                                                        ',(assoccess human-strategy :parameters))
+                                                       ))
+                                 :get-fit-fn (lambda (fit)
+                                               (assoccess (genetic-algorithm:get-fit fit) ,fitness-metric))
+                                 ;; :after-each-iteration (describe (first genetic-algorithm:-population-))
+                                 :finally
+                                 (let* ((best-individual (select-the-best -population-
+                                                                          :get-fit-fn ,get-fit-fn))
+                                        (best-genome (get-gens best-individual))
+                                        (best-fitness (get-fit best-individual))
+                                        (population-genomes (flatten (mapcar (lambda (ind)
+                                                                               (get-gens ind))
+                                                                             -population-)))
+                                        (test-metrics (-evaluate-model
+                                                       :instrument ,instrument
+                                                       :timeframe ,timeframe
+                                                       :types ',types
+                                                       :rates ',test-dataset
+                                                       :model (lambda (input-dataset)
+                                                                (apply #'funcall ,(assoccess human-strategy :fn)
+                                                                       input-dataset
+                                                                       best-genome))
+                                                       :idx ,(assoccess human-strategy :lookbehind-count)
+                                                       :idxs ,test-idxs
+                                                       :test-size ,test-size)))
+                                   (insert-hybrid ,(stringify instrument)
+                                                  ,(stringify timeframe)
+                                                  ,(get-hybrid-name human-strategy)
+                                                  "train"
+                                                  ,max-iterations
+                                                  population-genomes
+                                                  best-genome
+                                                  best-fitness)
+                                   (insert-hybrid ,(stringify instrument)
+                                                  ,(stringify timeframe)
+                                                  ,(get-hybrid-name human-strategy)
+                                                  "test"
+                                                  ,max-iterations
+                                                  population-genomes
+                                                  best-genome
+                                                  test-metrics)))
+             (-evaluate-model
+              :instrument ,instrument
+              :timeframe ,timeframe
+              :types ',types
+              :rates ',train-dataset
+              :model (lambda (input-dataset)
+                       (funcall ,(assoccess human-strategy :fn)
+                                input-dataset
+                                ,@(assoccess human-strategy :parameters)))
+              :idx ,(assoccess human-strategy :lookbehind-count)
+              :idxs ,train-idxs
+              :test-size ,train-size)))))
+
+(comment
+  (let ((hybrids (conn (query (:select 'hybrids.instrument 'hybrids.timeframe 'metricses.trades-won 'metricses.trades-lost
+                                :from 'hybrids
+                                :join 'evaluations
+                                :on (:= 'evaluations.owner_id 'hybrids.id)
+                                :join 'metricses
+                                :on (:= 'evaluations.metrics_id 'metricses.id)
+                                ;; :where (:= 'evaluations.label "test")
+                                ))))
+        (results (make-hash-table :test 'equal)))
+    (print hybrids)
+    (loop for hybrid in hybrids do (if (gethash (car hybrid) results)
+                                       (incf (gethash (car hybrid) results))
+                                       (setf (gethash (car hybrid) results) 1)))
+    results)
+  ;; trades
+  (let ((hybrids (conn (query (:select 'trades.*
+                                'patterns.instrument
+                                'patterns.timeframe
+                                :from 'trades
+                                :join 'patterns-trades
+                                :on (:= 'trades.id 'patterns-trades.trade-id)
+                                :join 'patterns
+                                :on (:= 'patterns-trades.pattern-id 'patterns.id)
+                                :where (:and (:like 'trades.label "hybrid%")
+                                             ;; (:not (:= 'trades.decision "HOLD"))
+                                             ))
+                              :alists))
+                 )
+        (results (make-hash-table :test 'equal)))
+    (loop for hybrid in hybrids do (if (gethash (assoccess hybrid :instrument) results)
+                                       (incf (gethash (assoccess hybrid :instrument) results))
+                                       (setf (gethash (assoccess hybrid :instrument) results) 1)))
+    results)
+  )
+
+(def (function d) sigmoid (x a b k)
+  (/ k (+ 1 (exp (+ a (* b x))))))
+;; (sigmoid -3 2 -30 1)
+
+
+(comment
+  ;; (sb-int:with-float-traps-masked)
+  (sb-int:set-floating-point-modes :traps nil)
+  (sb-int:set-floating-point-modes :fast-mode t)
+  (let ((x 2)
+        (a 0)
+        (b 1000)
+        (k 1))
+    (* x
+       (sigmoid x a (* -1 b) k)
+       (sigmoid x (* -1 b) b k)))
+  )
 
 ;; (genetic-algorithm:get-gens *coco*)
 ;; (genetic-algorithm:get-name (first (genetic-algorithm:get-genome *coco*)))
@@ -886,19 +979,19 @@
   :idx (assoccess (first (hsper:get-human-strategies)) :lookbehind-count)
   :test-size 1000))
 
-;;
-
-(defun test-hybrid-strategy (instrument timeframe types hybrid-id testing-dataset model lookbehind-count &key (test-size 50) (label "") (testingp t))
+(def (function d) test-hybrid-strategy (instrument timeframe types hybrid-id testing-dataset model lookbehind-count &key (test-size 50) (label "") (testingp t))
   (multiple-value-bind (tp sl activation)
       (funcall model testing-dataset)
-    (let ((test-fitnesses (-evaluate-model
-                           :instrument instrument
-                           :timeframe timeframe
-                           :types types
-                           :rates testing-dataset
-                           :model model
-                           :idx lookbehind-count
-                           :test-size test-size)))
+    (bind ((idxs (when *unique-point-p* (get-unique-dataset testing-dataset *unique-count* *lookahead* *lookbehind*)))
+           (test-fitnesses (-evaluate-model
+                            :instrument instrument
+                            :timeframe timeframe
+                            :types types
+                            :rates testing-dataset
+                            :model model
+                            :idx lookbehind-count
+                            :idxs idxs
+                            :test-size test-size)))
       (when test-fitnesses
         (push-to-log "Tested hybrid strategy successfully."))
       (push-to-log (format nil "Prediction. TP: ~a, SL: ~a." tp sl))
@@ -907,17 +1000,19 @@
         (insert-trade hybrid-id instrument timeframe types test-fitnesses test-fitnesses tp sl activation testing-dataset (local-time:timestamp-to-unix (local-time:now)) label))
       (push-to-log "Trade created successfully."))))
 
-(defun test-human-strategy (instrument timeframe types testing-dataset model lookbehind-count &key (test-size 50) (label "") (testingp t))
+(def (function d) test-human-strategy (instrument timeframe types testing-dataset model lookbehind-count &key (test-size 50) (label "") (testingp t))
   (multiple-value-bind (tp sl activation)
       (funcall model testing-dataset)
-    (let ((test-fitnesses (-evaluate-model
-                           :instrument instrument
-                           :timeframe timeframe
-                           :types types
-                           :rates testing-dataset
-                           :model model
-                           :idx lookbehind-count
-                           :test-size test-size)))
+    (bind ((idxs (when *unique-point-p* (get-unique-dataset testing-dataset *unique-count* *lookahead* *lookbehind*)))
+           (test-fitnesses (-evaluate-model
+                            :instrument instrument
+                            :timeframe timeframe
+                            :types types
+                            :rates testing-dataset
+                            :model model
+                            :idx lookbehind-count
+                            :idxs idxs
+                            :test-size test-size)))
       (when test-fitnesses
         (push-to-log "Tested human strategy successfully."))
       (push-to-log (format nil "Prediction. TP: ~a, SL: ~a." tp sl))
@@ -927,37 +1022,37 @@
 ;; (test-human-strategy :EUR_USD :M15 '((:bullish)) *rates* (assoccess (first (hsper:get-human-strategies)) :model) (assoccess (first (hsper:get-human-strategies)) :lookbehind-count) :test-size 500 :label "human")
 
 (comment
- (defparameter *rates* (hsinp.rates:get-rates-random-count-big :EUR_USD :M15 2000))
- (test-human-strategy :EUR_USD :M15 '((:rsi :macd :stoch)) (subseq *rates* 0 ) (assoccess (first (hsper:get-human-strategies)) :model) (assoccess (first (hsper:get-human-strategies)) :lookbehind-count) :test-size 200 :label "human" :testingp t)
- (slot-value (first (conn (query (:select '* :from 'trades :where (:= 'label "human")) (:dao trade)))) 'tp)
- ;; (slot-value (first (conn (query (:select '* :from 'trades :where (:= 'label "human")) (:dao trade)))) 'test-begin-time)
- )
-
+  (defparameter *rates* (hsinp.rates:get-rates-random-count-big :EUR_USD :M15 10000))
+  (test-human-strategy :EUR_USD :M15 '((:rsi :macd :stoch)) (subseq *rates* 0 ) (assoccess (first (hsper:get-human-strategies)) :model) (assoccess (first (hsper:get-human-strategies)) :lookbehind-count) :test-size 200 :label "human" :testingp t)
+  (slot-value (first (conn (query (:select '* :from 'trades :where (:= 'label "human")) (:dao trade)))) 'tp)
+  ;; (slot-value (first (conn (query (:select '* :from 'trades :where (:= 'label "human")) (:dao trade)))) 'test-begin-time)
+  )
 
 ;; (funcall (assoccess (first (hsper:get-human-strategies)) :model) *rates*)
 
 (comment
- (length *rates*)
- (loop for i from 1500 below 3000
-       do (progn
-            (format t ".~%")
-            (print (test-human-strategy :EUR_USD :M15 '((:single))
-                                        (get-input-dataset *rates* i)
-                                        (lambda (input-dataset)
-                                          (funcall (assoccess (first (hsper:get-human-strategies)) :model)
-                                                   input-dataset
-                                                   (assoccess (first (hsper:get-human-strategies)) :args-default)))
-                                        (assoccess (first (hsper:get-human-strategies)) :lookbehind-count)
-                                        :test-size 500
-                                        :label (assoccess (first (hsper:get-human-strategies)) :label)))))
- )
+  (length *rates*)
+  (loop for i from 1500 below 3000
+        do (progn
+             (format t ".~%")
+             (print (test-human-strategy :EUR_USD :M15 '((:single))
+                                         (get-input-dataset *rates* i)
+                                         (lambda (input-dataset)
+                                           (funcall (assoccess (first (hsper:get-human-strategies)) :model)
+                                                    input-dataset
+                                                    (assoccess (first (hsper:get-human-strategies)) :args-default)))
+                                         (assoccess (first (hsper:get-human-strategies)) :lookbehind-count)
+                                         :test-size 500
+                                         :label (assoccess (first (hsper:get-human-strategies)) :label)))))
+  )
 
-(defun test-agents (instrument timeframe types testing-dataset &key (test-size 50) (label ""))
+(def (function d) test-agents (instrument timeframe types testing-dataset idxs &key (test-size 50) (label ""))
   (multiple-value-bind (tp sl activation agent-ids)
       ;; This one gets the final TP and SL.
       (eval-agents instrument timeframe types testing-dataset)
     (let* (;; (train-fitnesses (evaluate-agents instrument timeframe types training-dataset))
-           (test-fitnesses (evaluate-agents instrument timeframe types testing-dataset :test-size test-size)))
+           (test-fitnesses (evaluate-agents instrument timeframe types testing-dataset idxs :test-size test-size)))
+      ($log $info (format nil "Tested ~a from ~a data points for ~a." test-size (length testing-dataset) instrument))
       ;; (when train-fitnesses
       ;; 	(push-to-log "Training process successful."))
       (when test-fitnesses
@@ -968,14 +1063,22 @@
         (insert-trade (first agent-ids) instrument timeframe (first (get-agent-ids-patterns agent-ids)) test-fitnesses test-fitnesses tp sl activation testing-dataset (local-time:timestamp-to-unix (local-time:now)) label)
         (push-to-log "Trade created successfully.")))))
 
-(defun get-max-lookbehind (instrument timeframe types)
-  (let* ((types (flatten types)))
+(def (function d) get-max-lookbehind (instrument timeframe types)
+  (bind ((types (flatten types)))
     (loop for agent in (get-agents-some instrument timeframe types) maximize (slot-value agent 'lookbehind-count))))
 
-(def (function d) -evaluate-model (&key instrument timeframe types rates model idx test-size)
-  "Used for EVALUATE-AGENT and EVALUATE-AGENTS."
-  (push-to-log "Trying to evaluate model.")
-  (let* ((idx-p (when idx t))
+(def (macro d) -evaluate-model-loop (body)
+    "Used by -EVALUATE-MODEL."
+  (if *unique-point-p*
+      `(loop for idx in idxs
+             do (progn
+                  ,body))
+      `(loop while (< idx (length rates))
+          do ,body)))
+
+(def (function d) -evaluate-model (&key instrument timeframe types rates model idx idxs test-size)
+  "Used by EVALUATE-AGENT and EVALUATE-AGENTS."
+  (bind ((idx-p (when idx t))
          (max-lookbehind (if idx idx (get-max-lookbehind instrument timeframe types)))
          (idx (if idx idx max-lookbehind))
          (rates (last rates (+ (if test-size test-size (length rates)) max-lookbehind 1)))
@@ -993,70 +1096,68 @@
          (exit-times)
          (num-datapoints 0)
          (num-datapoints-traded 0))
-    (push-to-log "Evaluating model:")
     (when (>= (length rates) max-lookbehind)
-      (loop while (< idx (length rates))
-            do (let* ((input-dataset (hsinp.rates:get-input-dataset rates idx))
-                      (output-dataset (hsinp.rates:get-output-dataset rates idx)))
-                 (multiple-value-bind (tp sl activation)
-                     (funcall model input-dataset)
-                   (if (< activation hscom.hsage:*evaluate-agents-activation-threshold*)
-                       (progn
-                         (incf num-datapoints)
-                         (incf idx))
-                       (let* ((trade (evaluate-trade tp sl output-dataset))
-                              (revenue (assoccess trade :revenue))
-                              (max-pos (assoccess trade :max-pos))
-                              (max-neg (assoccess trade :max-neg))
-                              (exit-time (assoccess trade :exit-time))
-                              (finish-idx (assoccess trade :finish-idx)))
-                         (if (or (= revenue 0)
-                                 (> (abs sl) (abs tp))
-                                 (> (* tp sl) 0)
-                                 (< (abs (/ tp sl))
-                                    hscom.hsage:*agents-min-rr-trading*)
-                                 (= tp 0)
-                                 (= sl 0)
-                                 (unless idx-p
-                                   (< (abs (to-pips instrument sl)) hscom.hsage:*min-pips-sl*))
-                                 (> (abs (to-pips instrument sl)) hscom.hsage:*max-pips-sl*)
-                                 )
-                             ;; (push-to-log "." :add-newline? nil)
-                             (incf num-datapoints)
-                             (progn
-                               (incf num-datapoints-traded)
-                               (incf num-datapoints)
-                               (if (> revenue 0)
-                                   (incf trades-won)
-                                   (incf trades-lost))
-                               (push tp tps)
-                               (push sl sls)
-                               (push activation activations)
-                               (push (read-from-string (assoccess (nth idx rates) :time)) entry-times)
-                               (push (read-from-string exit-time) exit-times)
-                               (push (if (plusp tp)
-                                         (hsinp.rates:->close-ask (nth idx rates))
-                                         (hsinp.rates:->close-bid (nth idx rates)))
-                                     entry-prices)
-                               (push (if (plusp tp)
-                                         (hsinp.rates:->close-bid (nth finish-idx output-dataset))
-                                         (hsinp.rates:->close-ask (nth finish-idx output-dataset)))
-                                     exit-prices)
-                               (push max-pos max-poses)
-                               (push max-neg max-negses)
-                               (push revenue revenues)))
-                         (if hscom.hsage:*trade-every-dp-p*
-                             (incf idx)
-                             (incf idx finish-idx))
-                         ))
-                   ))))
+      (-evaluate-model-loop
+       (let* ((input-dataset (hsinp.rates:get-input-dataset rates idx))
+              (output-dataset (hsinp.rates:get-output-dataset rates idx)))
+         (multiple-value-bind (tp sl activation)
+             (funcall model input-dataset)
+           (if (< activation hscom.hsage:*evaluate-agents-activation-threshold*)
+               (progn
+                 (incf num-datapoints)
+                 (incf idx))
+               (let* ((trade (evaluate-trade tp sl output-dataset))
+                      (revenue (assoccess trade :revenue))
+                      (max-pos (assoccess trade :max-pos))
+                      (max-neg (assoccess trade :max-neg))
+                      (exit-time (assoccess trade :exit-time))
+                      (finish-idx (assoccess trade :finish-idx)))
+                 (if (or (= revenue 0)
+                         (> (abs sl) (abs tp))
+                         (> (* tp sl) 0)
+                         (< (abs (/ tp sl))
+                            hscom.hsage:*agents-min-rr-trading*)
+                         (= tp 0)
+                         (= sl 0)
+                         (unless idx-p
+                           (< (abs (to-pips instrument sl)) hscom.hsage:*min-pips-sl*))
+                         (> (abs (to-pips instrument sl)) hscom.hsage:*max-pips-sl*)
+                         )
+                     (incf num-datapoints)
+                     (progn
+                       (incf num-datapoints-traded)
+                       (incf num-datapoints)
+                       (if (> revenue 0)
+                           (incf trades-won)
+                           (incf trades-lost))
+                       (push tp tps)
+                       (push sl sls)
+                       (push activation activations)
+                       (push (read-from-string (assoccess (nth idx rates) :time)) entry-times)
+                       (push (read-from-string exit-time) exit-times)
+                       (push (if (plusp tp)
+                                 (hsinp.rates:->close-ask (nth idx rates))
+                                 (hsinp.rates:->close-bid (nth idx rates)))
+                             entry-prices)
+                       (push (if (plusp tp)
+                                 (hsinp.rates:->close-bid (nth finish-idx output-dataset))
+                                 (hsinp.rates:->close-ask (nth finish-idx output-dataset)))
+                             exit-prices)
+                       (push max-pos max-poses)
+                       (push max-neg max-negses)
+                       (push revenue revenues)))
+                 (if (and hscom.hsage:*trade-every-dp-p*
+                          *unique-point-p*)
+                     (incf idx)
+                     (incf idx finish-idx))
+                 ))
+           ))))
     ;; ACTPROOF
     ;; (unless agent
     ;;   (setf *activations* activations)
     ;;   (setf *revenues* revenues)
     ;;   (coco))
-    (push-to-log (format nil "Traded ~a out of ~a datapoints." num-datapoints-traded num-datapoints))
-    (push-to-log "<br/>Agents evaluated successfully.")
+    ($log $info (format nil "Traded ~a out of ~a datapoints." num-datapoints-traded num-datapoints))
     (let* ((returns (loop for revenue in revenues
                           for tp in tps
                           for sl in sls
@@ -1104,7 +1205,7 @@
         (:returns . ,(reverse returns))))))
 ;; (evaluate-agents :EUR_USD hscom.hsage:*train-tf* '(:BULLISH) *rates*)
 
-(defun evaluate-agent (instrument timeframe agent rates &key test-size (return-fitnesses-p nil))
+(def (function d) evaluate-agent (instrument timeframe agent rates idxs &key test-size (return-fitnesses-p nil))
   (let ((fitnesses (-evaluate-model :instrument instrument
                                     :timeframe timeframe
                                     ;; :agent agent
@@ -1112,6 +1213,7 @@
                                              (eval-agent agent input-dataset))
                                     :rates rates
                                     :idx (slot-value agent 'lookbehind-count)
+                                    :idxs idxs
                                     :test-size test-size)))
     (loop for fitness in fitnesses
           ;; TODO: We should be returning symbols (not kws) from -evaluate-model.
@@ -1123,22 +1225,23 @@
         agent)))
 ;; (evaluate-agent (gen-agent 3 *rates* (access *beliefs* :perception-fns) 10 55) (subseq *rates* 0 200))
 
-(defun evaluate-agents (instrument timeframe types rates &key (test-size 50))
+(def (function d) evaluate-agents (instrument timeframe types rates idxs &key (test-size 50))
   (-evaluate-model :instrument instrument
                    :timeframe timeframe
                    :types types
                    :rates rates
                    :model (lambda (input-dataset)
                             (eval-agents instrument timeframe types input-dataset))
+                   :idxs idxs
                    :test-size test-size))
 ;; (time (evaluate-agents :EUR_USD hscom.hsage:*train-tf* '(:BULLISH) (subseq *rates* 0 200)))
 
-(defun insert-pattern (instrument timeframe type)
+(def (function d) insert-pattern (instrument timeframe type)
   (conn (make-dao 'pattern :type (format nil "~a" type)
                   :instrument (format nil "~a" instrument)
                   :timeframe (format nil "~a" timeframe))))
 
-(defun wipe-agents ()
+(def (function d) wipe-agents ()
   (when hscom.hsage:*wipe-agents-p*
     ($log $trace :-> :wipe-agents)
     (conn (query (:delete-from 'agents :where (:= 1 1)))
@@ -1146,7 +1249,7 @@
     ($log $trace :<- :wipe-agents)))
 ;; (wipe-agents)
 
-(defun get-patterns (instrument timeframe types)
+(def (function d) get-patterns (instrument timeframe types)
   (let* ((types (flatten types)))
     (conn (query (:select '* :from 'patterns :where (:and (:= 'instrument (format nil "~a" instrument))
                                                      (:= 'timeframe (format nil "~a" timeframe))
@@ -1154,7 +1257,7 @@
                  :alists))))
 ;; (get-patterns :EUR_JPY hscom.hsage:*train-tf* '(:BULLISH (:BEARISH) :STAGNATED))
 
-(defun get-agent-ids-from-patterns (instrument timeframe types)
+(def (function d) get-agent-ids-from-patterns (instrument timeframe types)
   (let* ((types (flatten types))
          (patterns (get-patterns instrument timeframe types))
          )
@@ -1164,13 +1267,13 @@
 ;; (get-agent-ids-from-patterns :AUD_USD hscom.hsage:*train-tf* '(:bullish))
 ;; (get-agent-ids-from-patterns :AUD_USD hscom.hsage:*train-tf* '((:bullish) (:stagnated)))
 
-(defun get-agents-from-cache (instrument timeframe types)
+(def (function d) get-agents-from-cache (instrument timeframe types)
   (gethash (list instrument timeframe types) *agents-cache*))
 
 ;; (get-agents-some :EUR_JPY hscom.hsage:*train-tf* '(:BULLISH))
 ;; (get-agents-from-cache :EUR_JPY hscom.hsage:*train-tf* '(:BULLISH))
 
-(defun sync-agents (instrument timeframe types)
+(def (function d) sync-agents (instrument timeframe types)
   ;; Get agents from database (A1)
   ;; Get agents from cache (A2)
   ;; Update or add agents from A1 using A2
@@ -1197,7 +1300,7 @@
   ($log $trace :<- :sync-agents))
 ;; (time (sync-agents :AUD_USD hscom.hsage:*train-tf* '(:BULLISH)))
 
-(defun limit-seq (seq limit offset)
+(def (function d) limit-seq (seq limit offset)
   (let ((lseq (length seq)))
     (if (plusp limit)
         (if (>= offset lseq)
@@ -1207,7 +1310,7 @@
                 (subseq seq offset (+ offset limit))))
         seq)))
 
-(defun agent-correct-perception-fns (agent)
+(def (function d) agent-correct-perception-fns (agent)
   "TODO: Add some error handling, as we're not returning anything."
   (let ((perception-fns (slot-value agent 'perception-fns)))
     (loop for idx from 0 below (length perception-fns)
@@ -1223,7 +1326,7 @@
    (slot-value agent 'perception-fns)))
 
 (let((sync-table (make-hash-table :test 'equal :synchronized t)))
-  (defun cache-agents-from-db (instrument timeframe &optional (safe-cache-p nil))
+  (def (function d) cache-agents-from-db (instrument timeframe &optional (safe-cache-p nil))
     "Caches agents from `instrument` and `timeframe` from the database to *AGENTS-CACHE*."
     ($log $trace :-> :cache-agents-from-db)
     (when safe-cache-p
@@ -1237,7 +1340,7 @@
     ($log $trace :<- :cache-agents-from-db))
   ;; (cache-agents-from-db)
 
-  (defun uncache-agents-from-db (instrument timeframe &optional (safe-cache-p nil))
+  (def (function d) uncache-agents-from-db (instrument timeframe &optional (safe-cache-p nil))
     "Restarts the agents cache for `instrument` and `timeframe`."
     ($log $trace :-> :uncache-agents-from-db)
     (when safe-cache-p
@@ -1251,7 +1354,7 @@
     (hsage.utils:refresh-memory)
     ($log $trace :<- :uncache-agents-from-db)))
 
-(defun get-agents-some (instrument timeframe types &optional (limit -1) (offset 0))
+(def (function d) get-agents-some (instrument timeframe types &optional (limit -1) (offset 0))
   (let (result)
     (loop for type in (flatten types)
           do (let ((type (list type)))
@@ -1271,13 +1374,13 @@
 ;; (time (get-agents-some :EUR_USD hscom.hsage:*train-tf* '(:single :stagnated :bearish) 3 10))
 ;; (agents-to-alists (get-agents-some :AUD_USD hscom.hsage:*train-tf* '(:SINGLE)))
 
-(defun add-agent (agent instrument timeframe types)
+(def (function d) add-agent (agent instrument timeframe types)
   "Works with *agents-cache*"
   (setf (gethash (list instrument timeframe types) *agents-cache*)
         (append (gethash (list instrument timeframe types) *agents-cache*)
                 (list agent))))
 
-(defun remove-agent (agent instrument timeframe types)
+(def (function d) remove-agent (agent instrument timeframe types)
   "Works with *agents-cache*"
   (setf (gethash (list instrument timeframe types) *agents-cache*)
         (remove agent
@@ -1286,7 +1389,7 @@
                         (string= (slot-value elt1 'id)
                                  (slot-value elt2 'id))))))
 
-(defun insert-agent (agent instrument timeframe types)
+(def (function d) insert-agent (agent instrument timeframe types)
   "Works with database."
   (let ((agent-id (slot-value agent 'id))
         (patterns (get-patterns instrument timeframe types)))
@@ -1297,7 +1400,7 @@
              do (make-dao 'agent-pattern :agent-id agent-id :pattern-id (assoccess pattern :id)))))
     agent))
 
-(defun delete-agent (agent instrument timeframe types)
+(def (function d) delete-agent (agent instrument timeframe types)
   "Works with database."
   (let ((agent-id (slot-value agent 'id))
         (patterns (get-patterns instrument timeframe types)))
@@ -1309,7 +1412,7 @@
      (unless (query (:select 'agent-id :from 'agents-patterns :where (:= 'agent-id agent-id)))
        (delete-dao agent)))))
 
-(defun get-agent-ids-patterns (agent-ids)
+(def (function d) get-agent-ids-patterns (agent-ids)
   "AGENT-IDS are the IDs of agents that participated in the creation of a signal. We retrieve a list of patterns associated to these AGENT-IDS."
   (loop for key being each hash-key of *agents-cache*
         for value being each hash-value of *agents-cache*
@@ -1319,11 +1422,11 @@
         collect (car (third key))))
 ;; (get-agent-ids-patterns (list (slot-value (first (get-agents-some :AUD_USD hscom.hsage:*train-tf* '(:bearish))) 'id) (slot-value (first (get-agents-some :AUD_USD hscom.hsage:*train-tf* '(:stagnated))) 'id)))
 
-(defun get-agents-count (instrument timeframe types)
+(def (function d) get-agents-count (instrument timeframe types)
   (length (get-agents-some instrument timeframe types)))
 ;; (get-agents-count :AUD_USD :M15 '((:SINGLE)))
 
-(defun eval-agent (agent rates)
+(def (function d) eval-agent (agent rates)
   (let ((perception-fn (gen-perception-fn (perception-fns agent))))
     (cond ((eq *fis-method* :index)
            (eval-ifis-idx (funcall perception-fn rates)
@@ -1337,21 +1440,21 @@
                           (slot-value agent 'rules-count)))
           )))
 
-(defun gen-perception-fn (perception-params)
+(def (function d) gen-perception-fn (perception-params)
   (hsper:gen-perception-fn perception-params))
 
-(defun update-agent-fitnesses (instrument timeframe types agent rates)
+(def (function d) update-agent-fitnesses (instrument timeframe types agent rates idxs)
   (let* ((agents (gethash (list instrument timeframe types) *agents-cache*))
          (agent-idx (position agent agents :test (lambda (agent1 agent2) (string= (slot-value agent1 'id)
                                                                                   (slot-value agent2 'id))))))
-    (setf (nth agent-idx agents) (evaluate-agent instrument timeframe agent rates))))
+    (setf (nth agent-idx agents) (evaluate-agent instrument timeframe agent rates idxs))))
 
-(defun update-agents-fitnesses (instrument timeframe types agents rates)
+(def (function d) update-agents-fitnesses (instrument timeframe types agents rates idxs)
   (loop for agent in agents
-        do (update-agent-fitnesses instrument timeframe types agent rates))
+        do (update-agent-fitnesses instrument timeframe types agent rates idxs))
   agents)
 
-(defun -base-reject (agent)
+(def (function d) -base-reject (agent)
   "Used by AGENT-DOMINATED?-XXX."
   (or (= (length (slot-value agent 'tps)) 0)
       (<= (slot-value agent 'avg-return)
@@ -1359,7 +1462,7 @@
       (< (length (slot-value agent 'tps))
          hscom.hsage:*min-num-trades-training*)))
 
-(defun agent-dominated?-pareto (agent agents &optional (logp nil))
+(def (function d) agent-dominated?-pareto (agent agents &optional (logp nil))
   (if (-base-reject agent)
       ;; AGENT is dominated.
       (progn
@@ -1399,19 +1502,19 @@
                      (when (or
                             ;; (<= total-return-0 0)
                             (and
-                            ;; (> (* agent-direction-0 agent-direction) 0)
-                            ;; (>= avg-revenue avg-revenue-0)
-                            ;; (< stdev-revenue stdev-revenue-0)
+                             ;; (> (* agent-direction-0 agent-direction) 0)
+                             ;; (>= avg-revenue avg-revenue-0)
+                             ;; (< stdev-revenue stdev-revenue-0)
 
-                            (>= trades-won trades-won-0)
-                            (<= trades-lost trades-lost-0)
-                            (>= avg-return avg-return-0)
-                            (>= total-return total-return-0)
-                            (>= (/ trades-won
-                                   (+ trades-won trades-lost))
-                                (/ trades-won-0
-                                   (+ trades-won-0 trades-lost-0)))
-                            ;; (vector-1-similarity entry-times entry-times-0)
+                             (>= trades-won trades-won-0)
+                             (<= trades-lost trades-lost-0)
+                             (>= avg-return avg-return-0)
+                             (>= total-return total-return-0)
+                             (>= (/ trades-won
+                                    (+ trades-won trades-lost))
+                                 (/ trades-won-0
+                                    (+ trades-won-0 trades-lost-0)))
+                             ;; (vector-1-similarity entry-times entry-times-0)
                              ))
                        ;; Candidate agent was dominated.
                        (when logp
@@ -1422,13 +1525,12 @@
                              (format s "</pre>")
                              (format s "<pre><b>(ALPHA) </b>Agent ID ~a~%" agent-id)
                              (format-table s `((,(format nil "~6$" avg-revenue) ,trades-won ,trades-lost ,(format nil "~2$" avg-return) ,(format nil "~2$" total-return))) :column-label metric-labels)
-                             (format s "</pre><hr/>")
-                             (push-to-agents-log (get-output-stream-string s)))))
+                             (format s "</pre><hr/>"))))
                        (setf is-dominated? t)
                        (return)))))
         is-dominated?)))
 
-(defun agent-dominated?-mactavator (agent agents &optional (logp nil))
+(def (function d) agent-dominated?-mactavator (agent agents &optional (logp nil))
   (if (-base-reject agent)
       ;; AGENT is dominated.
       (progn
@@ -1515,7 +1617,7 @@
             ;; Returning result.
             dominatedp)))))
 
-(defun get-agent-by-id (agent-id &key (ret-type :dao))
+(def (function d) get-agent-by-id (agent-id &key (ret-type :dao))
   (let (result)
     (loop for key being each hash-key of *agents-cache*
           for agents being each hash-value of *agents-cache*
@@ -1542,14 +1644,14 @@
 ;; (get-agent-by-id "5530FA06-85AD-4D95-AFF1-0F8220702E6D" :ret-type :alist)
 ;; (slot-value (get-agent-by-id "F9E434C2-1C4B-4C85-9E29-973A26399B3F") 'perception-fns)
 
-(defun get-agent (instrument timeframe types agent-id)
+(def (function d) get-agent (instrument timeframe types agent-id)
   (find agent-id (gethash (list instrument timeframe types) *agents-cache*)
         :key (lambda (agent) (slot-value agent 'id))
         :test #'string=))
 ;; (get-agent :EUR_USD hscom.hsage:*train-tf* '(:BULLISH) "48F3970F-36C1-4A49-9E54-95746CFEA9FE")
 ;; (slot-value (first (get-agents-some :EUR_USD hscom.hsage:*train-tf* '(:BULLISH))) 'id)
 
-(defun eval-agents (instrument timeframe types rates)
+(def (function d) eval-agents (instrument timeframe types rates)
   (let (tps sls activations ids)
     (let ((agents (get-agents-some instrument timeframe types)))
       (loop for agent in agents
@@ -1676,7 +1778,7 @@
       ;;  )
       )))
 
-(defun get-most-activated-agents (instrument timeframe types &optional (n 10))
+(def (function d) get-most-activated-agents (instrument timeframe types &optional (n 10))
   ;; We're ordering the agents in ascending order to avoid
   ;; reversing them after `push`ing them to `bullish-agents` and `bearish-agents`.
   (let ((agents (sort (get-agents-some instrument timeframe types) #'< :key (lambda (agent) (slot-value agent 'avg-activation))))
@@ -1697,7 +1799,7 @@
            collect agent))))
 ;; (get-most-activated-agents :AUD_USD :H1 '(:BULLISH :BEARISH) 10)
 
-(defun trade-most-activated-agents (instrument timeframe types agents testing-dataset creation-time &key (test-size 50))
+(def (function d) trade-most-activated-agents (instrument timeframe types agents testing-dataset creation-time &key (test-size 50))
   "Used in `test-most-activated-agents`."
   (loop for agent in agents
         do (let ((test-fitnesses (evaluate-agent instrument timeframe agent testing-dataset :test-size test-size :return-fitnesses-p t))
@@ -1724,14 +1826,14 @@
                  (insert-trade agent-id instrument timeframe types test-fitnesses test-fitnesses tp sl activation testing-dataset creation-time)
                  (push-to-log "Trade created successfully."))))))
 
-(defun test-most-activated-agents (instrument timeframe types testing-dataset &key (test-size 50))
+(def (function d) test-most-activated-agents (instrument timeframe types testing-dataset &key (test-size 50))
   (let ((creation-time (local-time:timestamp-to-unix (local-time:now))))
     (multiple-value-bind (bullish-agents bearish-agents)
         (get-most-activated-agents instrument timeframe types)
       (trade-most-activated-agents instrument timeframe '(:BULLISH) bullish-agents testing-dataset creation-time :test-size test-size)
       (trade-most-activated-agents instrument timeframe '(:BEARISH) bearish-agents testing-dataset creation-time :test-size test-size))))
 
-(defun -init-patterns (instrument timeframe)
+(def (function d) -init-patterns (instrument timeframe)
   (unless (get-patterns instrument timeframe '(:BULLISH))
     (insert-pattern instrument timeframe :BULLISH))
   (unless (get-patterns instrument timeframe '(:BEARISH))
@@ -1741,13 +1843,13 @@
   (unless (get-patterns instrument timeframe '(:SINGLE))
     (insert-pattern instrument timeframe :SINGLE)))
 
-(defun init-patterns ()
+(def (function d) init-patterns ()
   (loop for instrument in hscom.hsage:*instruments*
         do (loop for timeframe in hscom.hsage:*all-timeframes*
                  do (-init-patterns instrument timeframe))))
 ;; (init-patterns)
 
-(defun make-agent (inputs outputs perception-fns lookahead-count lookbehind-count)
+(def (function d) make-agent (inputs outputs perception-fns lookahead-count lookbehind-count)
   "Used for manual agent creation."
   (let ((agent (make-instance 'agent)))
     (setf (slot-value agent 'perception-fns) (format nil "~s" perception-fns))
@@ -1776,7 +1878,7 @@
 ;; (defparameter *agent* (gen-agent 3 :AUD_USD *rates* (hscom.utils:assoccess (hsper:gen-random-perceptions 2) :perception-fns) 10 100))
 ;; (antecedents *agent*)
 
-(defun interactive-make-agent (&key (lookahead-count 10) (rules-count 3))
+(def (function d) interactive-make-agent (&key (lookahead-count 10) (rules-count 3))
   "Asks the user what perception function to generate for an agent."
   (block all
     (let ((options (get-perceptions))
@@ -1897,7 +1999,7 @@
       )))
 ;; (interactive-make-agent)
 
-(defun -fill-string-with-spaces (string width)
+(def (function d) -fill-string-with-spaces (string width)
   "Used by PRINT-IN-COLUMNS."
   (if (> (- width (length string)) 0)
       (format nil "~a~a"
@@ -1906,7 +2008,7 @@
   )
 ;; (-fill-string-with-spaces "meow meow" 40)
 
-(defun -fill-split-string-with-newlines (split-string height)
+(def (function d) -fill-split-string-with-newlines (split-string height)
   "Used by PRINT-IN-COLUMNS."
   (let ((row-width (length (first split-string))))
     (if (> height (length split-string))
@@ -1915,7 +2017,7 @@
                            :initial-element (format nil "~v@{~A~:*~}" row-width " ")))
         split-string)))
 
-(defun -split-string (string)
+(def (function d) -split-string (string)
   "Used by PRINT-IN-COLUMNS."
   (let ((split (cl-ppcre:split "\\n" string)))
     (values
@@ -1928,7 +2030,7 @@
      ;; height
      (length split))))
 
-(defun print-in-columns (strings)
+(def (function d) print-in-columns (strings)
   (let* ((max-height 0)
          (splits (mapcar (lambda (string)
                            (multiple-value-bind (split width height)
@@ -1981,7 +2083,7 @@ you"))
 ;; Choose perception functions
 ;; Choose input-outputs
 
-(defun plot-xy (xs ys)
+(def (function d) plot-xy (xs ys)
   (let ((output #P"/tmp/hermes-plot-xy.txt"))
     (eazy-gnuplot:with-plots (*standard-output* :debug nil)
       (eazy-gnuplot:gp-setup :xlabel "X"
@@ -2000,7 +2102,7 @@ you"))
     (string-trim '(#\Page #\Newline) (hscom.utils:file-get-contents output))))
 ;; (plot-xy (list (iota 10) (iota 10 :start 1)) (list (iota 10) (iota 10 :start 5)))
 
-(defun plot-rates (rates &optional (type :close-frac))
+(def (function d) plot-rates (rates &optional (type :close-frac))
   (let ((output #P"/tmp/hermes-plot-rates.txt"))
     (eazy-gnuplot:with-plots (*standard-output* :debug nil)
       (eazy-gnuplot:gp-setup :xlabel "X"
@@ -2028,7 +2130,7 @@ you"))
       )))
 ;; (plot-rates (subseq *rates* 0 10) :close-bid)
 
-(defun plot-agent-rules (agent)
+(def (function d) plot-agent-rules (agent)
   (let ((output #P"/tmp/hermes-plot-fuzzy.txt"))
     (let (antecedents consequents)
       (loop for antecedent across (antecedents agent)
@@ -2123,7 +2225,7 @@ you"))
 ;; (length (assoccess (conn (query (:select 'antecedents :from 'agents) :alist)) :antecedents))
 ;; (get-perceptions-count (assoccess (conn (query (:select 'antecedents :from 'agents) :alist)) :antecedents))
 
-(defun gen-agent (num-rules instrument rates perception-fns lookahead-count lookbehind-count)
+(def (function d) gen-agent (num-rules instrument rates idxs perception-fns lookahead-count lookbehind-count)
   (let ((agent (make-instance 'agent)))
     (setf (slot-value agent 'creation-begin-time) (read-from-string (assoccess (first rates) :time)))
     (setf (slot-value agent 'creation-end-time) (read-from-string (assoccess (last-elt rates) :time)))
@@ -2134,16 +2236,16 @@ you"))
     (setf (slot-value agent 'perceptions-count)
           (get-perceptions-count perception-fns))
     (multiple-value-bind (antecedents consequents)
-        (make-ifis agent num-rules instrument rates)
+        (make-ifis agent num-rules instrument rates idxs)
       (setf (slot-value agent 'antecedents) antecedents)
       (setf (slot-value agent 'consequents) consequents))
     agent))
 
-(defun gen-agents (num-agents num-rules instrument rates perception-fns lookahead-count lookbehind-count)
+(def (function d) gen-agents (num-agents num-rules instrument rates perception-fns lookahead-count lookbehind-count)
   (loop repeat num-agents collect (gen-agent instrument num-rules rates perception-fns lookahead-count lookbehind-count)))
 ;; (gen-agents 2 3 *rates* (assoccess *beliefs* :perception-fns) 10 55)
 
-(defun get-same-direction-outputs-idxs (instrument rates count &key (lookahead-count 10) (lookbehind-count 10) direction-fn)
+(def (function d) get-same-direction-outputs-idxs (instrument rates count &key (lookahead-count 10) (lookbehind-count 10) direction-fn)
   (let* ((r (random-float 0 1))
          (pred (if direction-fn direction-fn (if (> r 0.5) #'plusp #'minusp)))
          (opposite-pred (if (> r 0.5) #'minusp #'plusp))
@@ -2169,7 +2271,7 @@ you"))
                                          :direction-fn opposite-pred))))
 ;; (get-same-direction-outputs-idxs *rates* :lookahead-count 5)
 
-(defun get-same-direction-outputs-idxs-all (instrument rates &key (lookahead-count 10) (lookbehind-count 10) direction-fn)
+(def (function d) get-same-direction-outputs-idxs-all (instrument rates &key (lookahead-count 10) (lookbehind-count 10) direction-fn)
   (let* ((r (random-float 0 1))
          (pred (if direction-fn direction-fn (if (> r 0.5) #'plusp #'minusp)))
          (opposite-pred (if (> r 0.5) #'minusp #'plusp))
@@ -2194,33 +2296,38 @@ you"))
                                              :direction-fn opposite-pred))))
 ;; (length (get-same-direction-outputs-idxs-all :AUD_USD *rates* :lookahead-count 10))
 
-(defun get-inputs-outputs (num-rules instrument rates perception-fn lookahead-count lookbehind-count &key direction-fn)
-  (let* ((idxs (sort (remove-duplicates
-                      (if *exhaust-rules-in-creation-dataset-p*
-                          (get-same-direction-outputs-idxs-all
-                           instrument rates
-                           :lookahead-count lookahead-count
-                           :lookbehind-count lookbehind-count
-                           :direction-fn direction-fn)
-                          (get-same-direction-outputs-idxs
-                           instrument rates num-rules
-                           :lookahead-count lookahead-count
-                           :lookbehind-count lookbehind-count
-                           :direction-fn direction-fn)))
-                     #'<))
+(def (function d) get-inputs-outputs (num-rules instrument rates idxs perception-fn lookahead-count lookbehind-count &key direction-fn)
+  (let* ((idxs (if idxs (^(sort (subseq (shuffle (alexandria:copy-sequence 'list idxs)) 0 num-rules) #'<))
+                   (^(sort _ #'<)
+                     (cond (*exhaust-rules-in-creation-dataset-p*
+                            (^(remove-duplicates _)
+                              (get-same-direction-outputs-idxs-all
+                               instrument rates
+                               :lookahead-count lookahead-count
+                               :lookbehind-count lookbehind-count
+                               :direction-fn direction-fn)))
+                           (t
+                            (^(remove-duplicates _)
+                              (get-same-direction-outputs-idxs
+                               instrument rates num-rules
+                               :lookahead-count lookahead-count
+                               :lookbehind-count lookbehind-count
+                               :direction-fn direction-fn)))))))
          (chosen-inputs (loop for idx in idxs collect (funcall perception-fn (get-input-dataset rates idx))))
          (chosen-outputs (loop for idx in idxs collect (get-tp-sl (get-output-dataset rates idx) lookahead-count))))
     (values chosen-inputs chosen-outputs idxs)))
 
 (comment
- (let ((perc (hsper:gen-random-perceptions 2)))
-   (get-inputs-outputs 10 :AUD_USD *rates*
-                       (hsper:gen-perception-fn (hscom.utils:assoccess perc :perception-fns))
-                       (hscom.utils:assoccess perc :lookahead-count)
-                       (hscom.utils:assoccess perc :lookbehind-count)))
- )
+  (time (bind ((perc (hsper:gen-random-perceptions 5))
+               ((:values inputs outputs)
+                (get-inputs-outputs 10 :EUR_USD *rates*
+                                    (hsper:gen-perception-fn (hscom.utils:assoccess perc :perception-fns))
+                                    (hscom.utils:assoccess perc :lookahead-count)
+                                    (hscom.utils:assoccess perc :lookbehind-count))))
+          (list (length inputs)
+                (length outputs)))))
 
-(defun make-ant-con (inputs outputs)
+(def (function d) make-ant-con (inputs outputs)
   (values
    (let* ((v (flatten
               (loop
@@ -2247,19 +2354,19 @@ you"))
      (make-array (length v) :initial-contents v))))
 ;; (make-ifis *agent* 3 :AUD_USD *rates*)
 
-(defun make-ifis (agent num-rules instrument rates)
+(def (function d) make-ifis (agent num-rules instrument rates idxs)
   "Analytical version."
   (let* ((perception-fn (gen-perception-fn (perception-fns agent)))
          (lookahead-count (slot-value agent 'lookahead-count))
          (lookbehind-count (slot-value agent 'lookbehind-count)))
     (multiple-value-bind (chosen-inputs chosen-outputs)
-        (get-inputs-outputs num-rules instrument rates perception-fn lookahead-count lookbehind-count)
+        (get-inputs-outputs num-rules instrument rates idxs perception-fn lookahead-count lookbehind-count)
       (make-ant-con chosen-inputs chosen-outputs))))
 ;; (plot-agent-rules *agent*)
 
 ;; (length (read-from-string (assoccess (conn (query (:select 'antecedents :from 'agents) :alist)) :antecedents)))
 
-(defun log-agent (type agent)
+(def (function d) log-agent (type agent)
   (let ((agent-id (slot-value agent 'id))
         (avg-revenue (slot-value agent 'avg-revenue))
         (trades-won (slot-value agent 'trades-won))
@@ -2272,24 +2379,24 @@ you"))
     (with-open-stream (s (make-string-output-stream))
       (format s "<pre><b>(~a) </b>Agent ID ~a~%" type agent-id)
       (format-table s `((,(format nil "~6$" avg-revenue)
-                         ,trades-won
-                         ,trades-lost
-                         ,(format nil "~2$" avg-return)
-                         ,(format nil "~2$" total-return)
-                         ,(format-rr avg-sl avg-tp)
-                         ,(if (plusp avg-tp) "BULL" "BEAR")))
+                          ,trades-won
+                          ,trades-lost
+                          ,(format nil "~2$" avg-return)
+                          ,(format nil "~2$" total-return)
+                          ,(format-rr avg-sl avg-tp)
+                          ,(if (plusp avg-tp) "BULL" "BEAR")))
                     :column-label metric-labels)
       (format s "</pre><hr/>")
       (push-to-agents-log (get-output-stream-string s))))
   ;; Don't return anything.
   (values))
 
-(defun optimization (instrument timeframe types gen-agent-fn rates stop-count &optional (stop-criterion))
+(def (function d) optimization (instrument timeframe types gen-agent-fn rates idxs stop-count &optional (stop-criterion))
   ;; Checking if we need to initialize the agents collection.
   (let ((agents (if-let ((agents (get-agents-some instrument timeframe types)))
-                  (update-agents-fitnesses instrument timeframe types agents rates)
+                  (update-agents-fitnesses instrument timeframe types agents rates idxs)
                   (loop repeat hscom.hsage:*initial-agent-count*
-                        collect (evaluate-agent instrument timeframe (funcall gen-agent-fn) rates))))
+                        collect (evaluate-agent instrument timeframe (funcall gen-agent-fn) rates idxs))))
         (purged-agents))
     (push-to-log (format nil "~a agents retrieved to start optimization." (length agents)))
     (push-to-agents-log (format nil "<h4>~a (~a, ~a)</h4>~%" instrument (car types) (length agents)))
@@ -2312,7 +2419,7 @@ you"))
                    (push-to-log "Pareto frontier updated successfully.")
                    (return))
                  (block opt
-                   (let* ((challenger (list (evaluate-agent instrument timeframe (funcall gen-agent-fn) rates)))
+                   (let* ((challenger (list (evaluate-agent instrument timeframe (funcall gen-agent-fn) rates idxs)))
                           (is-dominated? (when hscom.hsage:*optimize-p*
                                            (agent-dominated?-pareto (car challenger) agents t))))
                      ;; No longer the first iteration after this.
@@ -2347,7 +2454,7 @@ you"))
                                   (eq stop-criterion :evaluations))
                          (return-from opt)))))))))
 
-(defun agents-to-alists (agents)
+(def (function d) agents-to-alists (agents)
   (let* ((agents-props (prepare-agents-properties agents))
          (vals (loop for agent-props in agents-props
                      collect (let ((avg-tp (read-from-string (assoccess agent-props :avg-tp)))
@@ -2358,7 +2465,7 @@ you"))
       vals)))
 ;; (agents-to-alists (get-agents-some :AUD_USD hscom.hsage:*train-tf* '(:BULLISH)))
 
-(defun get-agents-all (&optional (limit -1) (offset 0))
+(def (function d) get-agents-all (&optional (limit -1) (offset 0))
   (let ((markets (make-hash-table)))
     (loop for instrument in hscom.hsage:*forex*
           do (let ((agents (make-hash-table)))
@@ -2372,7 +2479,7 @@ you"))
     markets))
 ;; (time (get-agents-all))
 
-(defun get-trades (&optional limit offset segment)
+(def (function d) get-trades (&optional limit offset segment)
   (if limit
       (conn (query (:select
                     '*
@@ -2466,7 +2573,7 @@ you"))
     'trades.entry-price
     (:as (:* 'trades.entry-time 1000000) 'entry-time)))
 
-(defun -get-trades (strategy instrument timeframe)
+(def (function d) -get-trades (strategy instrument timeframe)
   `(:order-by (:select ,@*trades-columns*
                ;; :distinct-on 'trades.id
                :from 'trades
@@ -2485,7 +2592,7 @@ you"))
 ;; (get-trades-flat -1 0 "human")
 ;; (get-trades-flat -1 0 "hermes")
 
-(defun get-trades-by-ids (ids)
+(def (function d) get-trades-by-ids (ids)
   (let ((ids (if (vectorp ids)
                  (loop for id across ids collect id)
                  ids)))
@@ -2503,7 +2610,7 @@ you"))
                  :alists))))
 ;; (get-trades-by-ids #("184F9098-472B-4896-950B-8356AD3C0CC9" "8BA3540D-3FD9-4012-A368-DBA94DFE60CF"))
 
-(defun -make-human-trades-alist (human-trades)
+(def (function d) -make-human-trades-alist (human-trades)
   (apply #'nconc
          (loop for trade in human-trades
                collect (let ((run-return 0)
@@ -2540,7 +2647,7 @@ you"))
                                                                                           (:tp . ,tp) (:sl . ,sl))))))))
 ;; (time (length (-make-human-trades-alist "EUR_USD" "M15" (conn (query (:select '* :from 'trades :where (:like 'label "human%")) :alist)))))
 
-(defun get-trades-flat (&optional (limit -1) (offset 0) (strategy "")
+(def (function d) get-trades-flat (&optional (limit -1) (offset 0) (strategy "")
                                   (instrument "") (timeframe "M15"))
   (let* ((with-human-p (when (or (string= strategy "human")
                                  (string= strategy ""))
@@ -2588,7 +2695,7 @@ you"))
 ;; (length (time (get-trades-flat)))
 ;; (loop for trade in (get-trades-flat -1 0) do (print (local-time:unix-to-timestamp (assoccess trade :creation-time))))
 
-(defun get-trades-grouped (&optional (limit 10))
+(def (function d) get-trades-grouped (&optional (limit 10))
   (conn (query
          (sql-compile
           `(:select '* :from
@@ -2608,7 +2715,7 @@ you"))
          :alists)))
 ;; (get-trades-grouped 10)
 
-(defun -get-trades-nested (limit)
+(def (function d) -get-trades-nested (limit)
   (conn (query (:select
                 '*
                 :from
@@ -2657,7 +2764,7 @@ you"))
                :alists)))
 ;; (length (-get-trades-nested 20))
 
-(defun get-trades-nested (limit)
+(def (function d) get-trades-nested (limit)
   (let ((trades (-get-trades-nested limit))
         (result))
     (loop for instrument in hscom.hsage:*instruments*
@@ -2695,7 +2802,7 @@ you"))
     (nreverse result)))
 ;; (length (get-trades-nested 20))
 
-(defun describe-trades (&optional limit filter-fn)
+(def (function d) describe-trades (&optional limit filter-fn)
   (let* ((trades (remove-if-not filter-fn (get-trades limit)))
          ;; (trades-won (loop for trade in trades
          ;; 		   summing (assoccess trade :test-trades-won)))
@@ -2743,15 +2850,15 @@ you"))
 ;; (describe-trades 1000 (lambda (trade) (> (assoccess trade :activation) 0.0)))
 ;; (describe-trades nil (lambda (trade) t))
 
-(defun alist-keys (alist)
+(def (function d) alist-keys (alist)
   (loop for item in alist collect (car item)))
 ;; (alist-keys (car (prepare-agents-properties (get-agents-some :AUD_USD hsage.config:*train-tf* '(:bullish)))))
 
-(defun alist-values (alist)
+(def (function d) alist-values (alist)
   (loop for item in alist collect (cdr item)))
 ;; (alist-values (car (prepare-agents-properties (get-agents-some :EUR_USD hsage.config:*train-tf* '(:bullish)))))
 
-(defun describe-agents ()
+(def (function d) describe-agents ()
   (with-open-stream (s (make-string-output-stream))
     (format s "<h3>AGENTS POOL.</h3><hr/>")
     (loop for instrument in hscom.hsage:*forex*
@@ -2799,7 +2906,7 @@ you"))
               )))
  )
 
-(defun analysis (&key (granularity 10) (return-results-p nil) (label ""))
+(def (function d) analysis (&key (granularity 10) (return-results-p nil) (label ""))
   (let* ((trades (conn (query (:select 'trades.creation-time
                                'trades.test-trades-won
                                'trades.test-trades-lost
@@ -2900,7 +3007,7 @@ you"))
 ;; All together per market, all together
 ;; Table with means and standard deviations. Hypothesis testing.
 
-(defun hypothesis-test (&key (numerator 0) (denominator 100) (granularity 100))
+(def (function d) hypothesis-test (&key (numerator 0) (denominator 100) (granularity 100))
   (let* ((label hscom.hsage:*consensus-threshold*)
          (no-results (analysis :granularity granularity :label "hermes.consensus-1" :return-results-p t))
          (yes-results (analysis :granularity granularity :label (format nil "hermes.consensus-~a" label) :return-results-p t)))
@@ -2989,7 +3096,7 @@ you"))
                                                          (> (assoccess trade :activation) 0.8)))))
  )
 
-(defun get-global-revenue (&key from to)
+(def (function d) get-global-revenue (&key from to)
   (let ((trades (conn (if (and from to)
                           (query (:order-by (:select '*
                                              :from (:as (:order-by (:select
@@ -3059,7 +3166,7 @@ you"))
 ;; Per day.
 ;; (loop for i from 0 below 10 do (format t "~a: ~a~%" i (get-global-revenue :to (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) i :day)) :from (local-time:timestamp-to-unix (local-time:timestamp- (local-time:now) (1+ i) :day)))))
 
-(defun -get-trade-time (trade)
+(def (function d) -get-trade-time (trade)
   "Used in `-validate-trades`."
   (let ((entry-time (assoccess trade :entry-time))
         (creation-time (assoccess trade :creation-time)))
@@ -3073,7 +3180,7 @@ you"))
                         creation-time))
                 1000000))))
 
-(defun -validate-trades (instrument trades older-than)
+(def (function d) -validate-trades (instrument trades older-than)
   "We use `older-than` to determine what trades to ignore due to possible lack of prices for validation."
   (let* ((day (local-time:timestamp-day-of-week (local-time:now)))
          (older-than (cond ((= day 0) (+ older-than 2)) ;; it's Sunday, add 2 days
@@ -3112,7 +3219,7 @@ you"))
                            ))))))
         (sleep 1)))))
 
-(defun re-validate-trades (&optional (older-than 0) (last-n-days 30))
+(def (function d) re-validate-trades (&optional (older-than 0) (last-n-days 30))
   (loop for instrument in hscom.hsage:*instruments*
         do (let ((trades (conn (query (:order-by (:select '*
                                                   :from (:as (:order-by (:select 'trades.* 'patterns.*
@@ -3133,7 +3240,7 @@ you"))
              (-validate-trades instrument trades older-than))))
 ;; (time (re-validate-trades 0 5))
 
-(defun validate-trades (&optional (older-than 1))
+(def (function d) validate-trades (&optional (older-than 1))
   (loop for instrument in hscom.hsage:*instruments*
         do (let ((trades (conn (query (:order-by (:select '*
                                                   :from (:as (:order-by (:select 'trades.* 'patterns.*
@@ -3155,7 +3262,7 @@ you"))
                (-validate-trades instrument trades older-than)))))
 ;; (validate-trades)
 
-(defun delete-trades (from to)
+(def (function d) delete-trades (from to)
   (conn
    (with-transaction ()
      ;; Deleting patterns-trades.
@@ -3173,7 +3280,7 @@ you"))
 
 ;; (conn (query (:select (:count 'id) :from 'trades)))
 
-(defun get-trade-result (entry-price tp sl rates)
+(def (function d) get-trade-result (entry-price tp sl rates)
   (let ((low-type (if (plusp tp) :low-bid :low-ask))
         (high-type (if (plusp tp) :high-bid :high-ask)))
     (loop for rate in rates do

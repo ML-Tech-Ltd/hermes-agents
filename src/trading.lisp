@@ -851,7 +851,7 @@
                                                                        input-dataset
                                                                        best-genome))
                                                        :idx ,(assoccess human-strategy :lookbehind-count)
-                                                       :idxs ,test-idxs
+                                                       :idxs ',test-idxs
                                                        :test-size ,test-size)))
                                    (insert-hybrid ,(stringify instrument)
                                                   ,(stringify timeframe)
@@ -879,7 +879,7 @@
                                 input-dataset
                                 ,@(assoccess human-strategy :parameters)))
               :idx ,(assoccess human-strategy :lookbehind-count)
-              :idxs ,train-idxs
+              :idxs ',train-idxs
               :test-size ,train-size)))))
 
 (comment

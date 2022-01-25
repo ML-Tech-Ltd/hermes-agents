@@ -1,5 +1,5 @@
 (defpackage hermes-agents.utils
-  (:use :cl :ciel)
+  (:use :cl :ciel #:hscom.log)
   (:import-from #:hsinp.rates
                 #:unix-from-nano)
   (:import-from #:fare-mop

@@ -181,58 +181,61 @@
                (sleep 1))))))))
 
 (def (function d) -loop-optimize-human-strategies (&key (testingp nil))
-  (-loop-human-strategies
-   testingp
-   (optimize-human-strategy instrument timeframe '((:single))
-                            input-dataset
-                            (if testingp
-                                hscom.hsage:*train-size-hybrid-strategies-metrics*
-                                hscom.hsage:*train-size-hybrid-strategies-signals*)
-                            human-strategy
-                            :maximize *hybrid-maximize-p*
-                            :population-size *hybrid-population-size*
-                            :max-iterations *hybrid-iterations*
-                            :mutation-rate *hybrid-mutation-rate*
-                            :test-size dataset-size
-                            :fitness-metric *hybrid-fitness-metric*)))
-
-(def (function d) -loop-test-human-strategies (&key (testingp nil))
-  (when hscom.hsage:*run-human-and-hybrid-p*
-    ($log $trace :-> :loop-test-human-strategies)
+  (when (and (not (is-market-close))
+             hscom.hsage:*run-human-and-hybrid-p*)
     (-loop-human-strategies
      testingp
-     ;; Testing hybrid strategy.
-     (let ((hybrid (get-hybrid instrument timeframe (get-hybrid-name human-strategy))))
-       (when hybrid
-         (test-hybrid-strategy instrument timeframe
-                               '((:single))
-                               (get-hybrid-id hybrid)
-                               (subseq input-dataset
-                                       (if testingp
-                                           hscom.hsage:*train-size-hybrid-strategies-metrics*
-                                           hscom.hsage:*train-size-hybrid-strategies-signals*))
-                               (lambda (input-dataset)
-                                 (funcall (assoccess human-strategy :model)
-                                          input-dataset
-                                          (whole-reals-to-integers (best-individual hybrid))))
-                               (assoccess human-strategy :lookbehind-count)
-                               :test-size dataset-size
-                               :label (get-hybrid-name human-strategy)
-                               :testingp testingp)))
-     ;; Testing human strategy.
-     (test-human-strategy instrument timeframe
-                          ;; (assoccess human-strategy :types)
-                          '((:single))
-                          input-dataset
-                          (lambda (input-dataset)
-                            (funcall (assoccess human-strategy :model)
-                                     input-dataset
-                                     (assoccess human-strategy :args-default)))
-                          (assoccess human-strategy :lookbehind-count)
-                          :test-size dataset-size
-                          :label (get-human-name human-strategy)
-                          :testingp testingp))
-    ($log $trace :<- :loop-test-human-strategies)))
+     (optimize-human-strategy instrument timeframe '((:single))
+                              input-dataset
+                              (if testingp
+                                  hscom.hsage:*train-size-hybrid-strategies-metrics*
+                                  hscom.hsage:*train-size-hybrid-strategies-signals*)
+                              human-strategy
+                              :maximize *hybrid-maximize-p*
+                              :population-size *hybrid-population-size*
+                              :max-iterations *hybrid-iterations*
+                              :mutation-rate *hybrid-mutation-rate*
+                              :test-size dataset-size
+                              :fitness-metric *hybrid-fitness-metric*))))
+
+  (def (function d) -loop-test-human-strategies (&key (testingp nil))
+    (when (and (not (is-market-close))
+               hscom.hsage:*run-human-and-hybrid-p*)
+      ($log $trace :-> :loop-test-human-strategies)
+      (-loop-human-strategies
+       testingp
+       ;; Testing hybrid strategy.
+       (let ((hybrid (get-hybrid instrument timeframe (get-hybrid-name human-strategy))))
+         (when hybrid
+           (test-hybrid-strategy instrument timeframe
+                                 '((:single))
+                                 (get-hybrid-id hybrid)
+                                 (subseq input-dataset
+                                         (if testingp
+                                             hscom.hsage:*train-size-hybrid-strategies-metrics*
+                                             hscom.hsage:*train-size-hybrid-strategies-signals*))
+                                 (lambda (input-dataset)
+                                   (funcall (assoccess human-strategy :model)
+                                            input-dataset
+                                            (whole-reals-to-integers (best-individual hybrid))))
+                                 (assoccess human-strategy :lookbehind-count)
+                                 :test-size dataset-size
+                                 :label (get-hybrid-name human-strategy)
+                                 :testingp testingp)))
+       ;; Testing human strategy.
+       (test-human-strategy instrument timeframe
+                            ;; (assoccess human-strategy :types)
+                            '((:single))
+                            input-dataset
+                            (lambda (input-dataset)
+                              (funcall (assoccess human-strategy :model)
+                                       input-dataset
+                                       (assoccess human-strategy :args-default)))
+                            (assoccess human-strategy :lookbehind-count)
+                            :test-size dataset-size
+                            :label (get-human-name human-strategy)
+                            :testingp testingp))
+      ($log $trace :<- :loop-test-human-strategies)))
 ;; (-loop-test-human-strategies)
 ;; (-loop-test-human-strategies :testingp t)
 
@@ -465,8 +468,8 @@
       (clerk:start))
     (if *run-hermes-p*
         (if (< *iterations* 0)
-            (loop (unless (is-market-close))
-                  (-loop-optimize-test-validate))
+            (loop unless (is-market-close)
+                    do (-loop-optimize-test-validate))
             (loop repeat *iterations*
                   do (-loop-optimize-test-validate)))
         (loop))))

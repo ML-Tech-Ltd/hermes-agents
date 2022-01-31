@@ -1,5 +1,7 @@
 (defpackage hermes-agents.utils
   (:use :cl :ciel #:hscom.log)
+  (:import-from #:hscom.hsage
+                #:*instruments*)
   (:import-from #:hsinp.rates
                 #:unix-from-nano)
   (:import-from #:fare-mop
@@ -64,7 +66,7 @@
 (defun refresh-memory ()
   ($log $trace :-> :refresh-memory)
   ;; (fare-memoization:unmemoize 'read-str)
-  (sb-ext:gc :full t)
+  (sb-ext:gc)
   ;; (fare-memoization:memoize 'read-str)
   ($log $trace :<- :refresh-memory))
 

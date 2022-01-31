@@ -64,11 +64,12 @@
   (read-from-string str))
 
 (defun refresh-memory ()
-  ($log $trace :-> :refresh-memory)
+  ;; ($log $trace :-> :refresh-memory)
   ;; (fare-memoization:unmemoize 'read-str)
-  (sb-ext:gc)
+  ;; (sb-ext:gc :full t)
   ;; (fare-memoization:memoize 'read-str)
-  ($log $trace :<- :refresh-memory))
+  ;; ($log $trace :<- :refresh-memory)
+  )
 
 (defun sorted-indexes (list &optional (sort-fn #'<))
   (loop

@@ -60,7 +60,10 @@
                 #:*unique-point-p*
                 #:*unique-count*
                 #:*lookahead*
-                #:*lookbehind*)
+                #:*lookbehind*
+                #:*instruments*
+                #:*timeframes*
+                #:*timeframes-being-used*)
   (:import-from #:hsper
                 #:get-human-strategies)
   (:import-from #:hsage.log
@@ -106,10 +109,13 @@
                 #:sync-datasets-from-database
                 #:get-rates-count-big
                 #:get-rates-random-count-big
-                #:get-unique-dataset)
+                #:get-unique-dataset
+                #:sync-rates)
   (:export #:loop-optimize-test)
   (:nicknames #:hsage))
 (in-package :hermes-agents)
+
+(ciel:enable-punch-syntax)
 
 ;; FARE-MEMOIZATION configuration.
 (setf fare-memoization::*memoized* (make-hash-table :test #'equal :synchronized t))
@@ -118,8 +124,9 @@
 ;; (hsage.utils:refresh-memory)
 
 (setf lparallel:*kernel* (lparallel:make-kernel
-                          (if (or (<= *cores-count* 0)
-                                  (>= *cores-count* (1- (cl-cpus:get-number-of-processors))))
+                          (if (<= *cores-count* 0)
+                              ;; (or (<= *cores-count* 0)
+                              ;;     (>= *cores-count* (1- (cl-cpus:get-number-of-processors))))
                               (let ((ideal-cores-count (1- (cl-cpus:get-number-of-processors))))
                                 (if (/= ideal-cores-count 0)
                                     ideal-cores-count 1))
@@ -240,6 +247,28 @@
 ;; (-loop-test-human-strategies :testingp t)
 
 ;; (conn (query (:select '* :from 'hybrids) :alists))
+
+;; (hsinp.rates:get-rates-count :EUR_USD :M15 2)
+
+(defun -loop-update-rates ()
+  (dex:clear-connection-pool)
+  ;; (pmap nil (lambda (instrument)
+  ;;           (pmap nil (lambda (timeframe)
+  ;;                       (sync-rates instrument timeframe))
+  ;;                 *timeframes-being-used*))
+  ;;           *instruments*)
+  (loop while t
+        do (loop for instrument in *instruments*
+                 do (loop for timeframe in *timeframes*
+                          do (sync-rates instrument timeframe)))))
+;; (time (-loop-update-rates))
+
+(def (function d) create-job-update-rates (seconds)
+  "CREATE-JOB-UPDATE-RATES creates a thread that is constantly updating our rates."
+  (when hscom.hsage:*run-human-and-hybrid-p*
+    ($log $trace :-> :create-job-update-rates)
+    (bt:make-thread #'-loop-update-rates)
+    ($log $trace :<- :create-job-update-rates)))
 
 (def (function d) create-job-human-strategies-metrics (seconds)
   "We run this every `hscom.hsage#:*seconds-interval-testing-human-strategies-metrics*` seconds."
@@ -463,6 +492,7 @@
     (when hscom.all:*is-production*
       (when *run-hermes-p*
         (create-job-signals hscom.hsage:*seconds-interval-testing*))
+      (create-job-update-rates)
       (create-job-human-strategies-metrics hscom.hsage:*seconds-interval-testing-human-strategies-metrics*)
       (create-job-optimize-human-strategies hscom.hsage:*seconds-interval-optimizing-human-strategies*)
       (clerk:start))

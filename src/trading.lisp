@@ -1325,7 +1325,7 @@
    (agent-correct-perception-fns agent)
    (slot-value agent 'perception-fns)))
 
-(let((sync-table (make-hash-table :test 'equal :synchronized t)))
+(let ((sync-table (make-hash-table :test 'equal :synchronized t)))
   (def (function d) cache-agents-from-db (instrument timeframe &optional (safe-cache-p nil))
     "Caches agents from `instrument` and `timeframe` from the database to *AGENTS-CACHE*."
     ($log $trace :-> :cache-agents-from-db)
@@ -3241,6 +3241,11 @@ you"))
 ;; (time (re-validate-trades 0 5))
 
 (def (function d) validate-trades (&optional (older-than 1))
+  ;; TODO: Refactor this. We should be calling something like (SYNC-RATES '(:M1))
+  ;; Syncing M1 rates.
+  (loop for instrument in *instruments*
+        do (loop for timeframe in `(,hscom.hsage:*validation-timeframe*)
+                 do (sync-rates instrument timeframe)))
   (loop for instrument in hscom.hsage:*instruments*
         do (let ((trades (conn (query (:order-by (:select '*
                                                   :from (:as (:order-by (:select 'trades.* 'patterns.*

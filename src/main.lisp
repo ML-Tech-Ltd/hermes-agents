@@ -263,7 +263,7 @@
                           do (sync-rates instrument timeframe)))))
 ;; (time (-loop-update-rates))
 
-(def (function d) create-job-update-rates (seconds)
+(def (function d) create-job-update-rates ()
   "CREATE-JOB-UPDATE-RATES creates a thread that is constantly updating our rates."
   (when hscom.hsage:*run-human-and-hybrid-p*
     ($log $trace :-> :create-job-update-rates)

@@ -1350,7 +1350,7 @@
                                            :on (:= 'agents-patterns.pattern-id 'patterns.id)
                                            :where (:and (:= 'instrument instrument)
                                                         (:= 'timeframe timeframe)
-                                                        (:= 'agent.retired nil)))
+                                                        (:= 'agents.retired nil)))
                                          (:asc 'avg-return))
                               to-retire-count
                               )))))))

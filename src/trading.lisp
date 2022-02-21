@@ -3280,7 +3280,7 @@ you"))
 (def (function d) validate-trades (&optional (older-than 1))
   ;; TODO: Refactor this. We should be calling something like (SYNC-RATES '(:M1))
   ;; Syncing M1 rates.
-  (loop for instrument in *instruments*
+  (loop for instrument in hscom.hsage:*instruments*
         do (loop for timeframe in `(,hscom.hsage:*validation-timeframe*)
                  do (sync-rates instrument timeframe)))
   (loop for instrument in hscom.hsage:*instruments*

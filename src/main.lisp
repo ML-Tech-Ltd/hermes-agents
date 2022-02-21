@@ -260,7 +260,7 @@
   ;;           *instruments*)
   (loop while t
         do (loop for instrument in *instruments*
-                 do (loop for timeframe in *timeframes*
+                 do (loop for timeframe in *timeframes-being-used*
                           do (sync-rates instrument timeframe)))))
 ;; (time (-loop-update-rates))
 

@@ -318,6 +318,7 @@
   ($log $trace :-> :-loop-test instrument timeframe)
   ($log $info "Creating signal for" instrument timeframe)
   (bind ((idxs (when *unique-point-p* (get-unique-dataset testing-dataset *unique-count* *lookahead* *lookbehind*))))
+    ($log $info "Beginning testing process")
     (if hscom.hsage:*use-nested-signals-p*
         (test-most-activated-agents instrument timeframe type-groups testing-dataset :test-size hscom.hsage:*test-size*)
         (progn

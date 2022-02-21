@@ -1329,10 +1329,11 @@
   (conn
    (bind ((instrument (format nil "~a" instrument))
           (timeframe (format nil "~a" timeframe))
-          (agents-count (get-agents-count instrument timeframe '((:SINGLE)))))
+          (agents-count (get-agents-count instrument timeframe '((:SINGLE))))
+          (to-retire-count (- agents-count (- *max-agents-count* *kill-agents-count*))))
      (when (> agents-count *max-agents-count*)
        ($log $info (format nil "Retiring ~a agents out of ~a in ~a ~a"
-                           (- agents-count *max-agents-count* *kill-agents-count*)
+                           to-retire-count
                            agents-count
                            instrument
                            timeframe
@@ -1351,9 +1352,11 @@
                                                         (:= 'timeframe timeframe)
                                                         (:= 'agent.retired nil)))
                                          (:asc 'avg-return))
-                              *kill-agents-count*
+                              to-retire-count
                               )))))))
   ($log $trace :<- :retire-agents-from-db))
+;; (retire-agents-from-db :EUR_GBP :M15)
+;; (get-agents-count :EUR_GBP :M15 '())
 ;; (retire-agents-from-db :EUR_GBP :M15)
 
 (let ((sync-table (make-hash-table :test 'equal :synchronized t)))

@@ -1324,12 +1324,6 @@
                  (setf (aref perception-fns idx) i)))))
   (values))
 
-(comment
- (let ((agent (gen-agent 3 :AUD_USD (subseq *rates* 0 1000) (hscom.utils:assoccess (hsper:gen-random-perceptions 2) :perception-fns) 10 100)))
-   (agent-correct-perception-fns agent)
-   (slot-value agent 'perception-fns)))
-
-;; Add a new column
 (def (function d) retire-agents-from-db (instrument timeframe)
   ($log $trace :-> :retire-agents-from-db)
   (conn
@@ -1338,7 +1332,7 @@
           (agents-count (get-agents-count instrument timeframe '((:SINGLE)))))
      (when (> agents-count *max-agents-count*)
        ($log $info (format nil "Retiring ~a agents out of ~a in ~a ~a"
-                           *kill-agents-count*
+                           (- agents-count *max-agents-count* *kill-agents-count*)
                            agents-count
                            instrument
                            timeframe
@@ -1354,7 +1348,8 @@
                                            :join 'patterns
                                            :on (:= 'agents-patterns.pattern-id 'patterns.id)
                                            :where (:and (:= 'instrument instrument)
-                                                        (:= 'timeframe timeframe)))
+                                                        (:= 'timeframe timeframe)
+                                                        (:= 'agent.retired nil)))
                                          (:asc 'avg-return))
                               *kill-agents-count*
                               )))))))
@@ -1460,7 +1455,19 @@
 ;; (get-agent-ids-patterns (list (slot-value (first (get-agents-some :AUD_USD hscom.hsage:*train-tf* '(:bearish))) 'id) (slot-value (first (get-agents-some :AUD_USD hscom.hsage:*train-tf* '(:stagnated))) 'id)))
 
 (def (function d) get-agents-count (instrument timeframe types)
-  (length (get-agents-some instrument timeframe types)))
+  (declare (ignore types))
+  (bind ((instrument (format nil "~a" instrument))
+         (timeframe (format nil "~a" timeframe)))
+    (conn (query (:select (:count 'agents.id)
+                 :from 'agents
+                 :join 'agents-patterns
+                 :on (:= 'agents.id 'agents-patterns.agent-id)
+                 :join 'patterns
+                 :on (:= 'agents-patterns.pattern-id 'patterns.id)
+                 :where (:and (:= 'instrument instrument)
+                              (:= 'timeframe timeframe)
+                              (:= 'retired nil)))
+               :single))))
 ;; (get-agents-count :AUD_USD :M15 '((:SINGLE)))
 
 (def (function d) eval-agent (agent rates)

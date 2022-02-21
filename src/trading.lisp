@@ -27,7 +27,9 @@
                 #:*lookahead*
                 #:*lookbehind*
                 #:*unique-point-p*
-                #:*unique-count*)
+                #:*unique-count*
+                #:*max-agents-count*
+                #:*kill-agents-count*)
   (:import-from #:hsper
                 #:get-perceptions
                 #:nth-perception
@@ -106,7 +108,8 @@
            #:test-hybrid-strategy
            #:get-hybrid-id
            #:cache-agents-from-db
-           #:uncache-agents-from-db)
+           #:uncache-agents-from-db
+           #:retire-agents-from-db)
   (:nicknames #:hsage.trading))
 (in-package :hermes-agents.trading)
 
@@ -126,6 +129,7 @@
 
 (defclass agent ()
   ((id :col-type string :initform (format nil "~a" (uuid:make-v4-uuid)) :initarg :id)
+   (retired :col-type (or db-null boolean) :initarg :retired :initform :false)
    (lookahead-count :col-type integer :initarg :lookahead-count :accessor lookahead-count)
    (lookbehind-count :col-type integer :initarg :lookbehind-count :accessor lookbehind-count)
    (perceptions-count :col-type integer :initarg :perceptions-count :accessor perceptions-count)
@@ -1325,6 +1329,38 @@
    (agent-correct-perception-fns agent)
    (slot-value agent 'perception-fns)))
 
+;; Add a new column
+(def (function d) retire-agents-from-db (instrument timeframe)
+  ($log $trace :-> :retire-agents-from-db)
+  (conn
+   (bind ((instrument (format nil "~a" instrument))
+          (timeframe (format nil "~a" timeframe))
+          (agents-count (get-agents-count instrument timeframe '((:SINGLE)))))
+     (when (> agents-count *max-agents-count*)
+       ($log $info (format nil "Retiring ~a agents out of ~a in ~a ~a"
+                           *kill-agents-count*
+                           agents-count
+                           instrument
+                           timeframe
+                           ))
+       (query
+        (:update 'agents
+          :set 'retired t
+          :where (:in 'id
+                      (:limit (:order-by (:select 'agents.id
+                                           :from 'agents
+                                           :join 'agents-patterns
+                                           :on (:= 'agent-id 'agents.id)
+                                           :join 'patterns
+                                           :on (:= 'agents-patterns.pattern-id 'patterns.id)
+                                           :where (:and (:= 'instrument instrument)
+                                                        (:= 'timeframe timeframe)))
+                                         (:asc 'avg-return))
+                              *kill-agents-count*
+                              )))))))
+  ($log $trace :<- :retire-agents-from-db))
+;; (retire-agents-from-db :EUR_GBP :M15)
+
 (let ((sync-table (make-hash-table :test 'equal :synchronized t)))
   (def (function d) cache-agents-from-db (instrument timeframe &optional (safe-cache-p nil))
     "Caches agents from `instrument` and `timeframe` from the database to *AGENTS-CACHE*."
@@ -1362,7 +1398,8 @@
                  (loop for agent in (limit-seq agents limit offset)
                        do (push agent result))
                  (let* ((agent-ids (get-agent-ids-from-patterns instrument timeframe type))
-                        (agents (conn (query (:select '* :from 'agents :where (:in 'id (:set agent-ids)))
+                        (agents (conn (query (:select '* :from 'agents :where (:and (:in 'id (:set agent-ids))
+                                                                                    (:= 'retired nil)))
                                              (:dao agent)))))
                    (when agents
                      (map nil #'agent-correct-perception-fns agents)

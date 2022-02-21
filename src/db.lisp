@@ -110,6 +110,7 @@
    (unless (table-exists-p 'agents)
      (query (:create-table 'agents
                 ((id :type string)
+                 (retired :type boolean :default nil)
                  (lookahead-count :type integer)
                  (lookbehind-count :type integer)
                  (perceptions-count :type integer)

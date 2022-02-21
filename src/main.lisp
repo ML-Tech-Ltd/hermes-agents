@@ -96,7 +96,8 @@
                 #:test-hybrid-strategy
                 #:get-hybrid-id
                 #:cache-agents-from-db
-                #:uncache-agents-from-db)
+                #:uncache-agents-from-db
+                #:retire-agents-from-db)
   (:import-from #:hscom.db
                 #:conn)
   (:import-from #:hsage.db
@@ -437,6 +438,7 @@
     (pmap nil (lambda (instrument)
                 (dolist (timeframe hscom.hsage:*timeframes*)
                   (unless (is-market-close)
+                    (retire-agents-from-db instrument timeframe)
                     ($log $info "Caching agents for pattern" (list instrument timeframe '(:single)))
                     (cache-agents-from-db instrument timeframe t)
                     ($log $info "Retrieving datasets for agents.")
@@ -483,7 +485,7 @@
   (handler-bind ((error (lambda (c)
                           (log-stack c))))
     (when (is-market-close)
-      (format t "~%===============================================~%MARKET IS CLOSED~%SWITCH TO DEVELOPMENT MODE IF YOU WANT TO RUN EXPERIMENTS.~%==============================================="))
+      (format t "~%===============================================~%MARKET IS CLOSED~%SWITCH TO DEVELOPMENT MODE IF YOU WANT TO RUN EXPERIMENTS.~%===============================================~%"))
     (clear-logs)
     (hsage.utils:refresh-memory)
     (sync-datasets-from-database)

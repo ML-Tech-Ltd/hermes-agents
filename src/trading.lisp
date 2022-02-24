@@ -129,7 +129,7 @@
 
 (defclass agent ()
   ((id :col-type string :initform (format nil "~a" (uuid:make-v4-uuid)) :initarg :id)
-   (retired :col-type (or db-null boolean) :initarg :retired :initform :false)
+   (retired :col-type (or db-null boolean) :initarg :retired :initform nil)
    (lookahead-count :col-type integer :initarg :lookahead-count :accessor lookahead-count)
    (lookbehind-count :col-type integer :initarg :lookbehind-count :accessor lookbehind-count)
    (perceptions-count :col-type integer :initarg :perceptions-count :accessor perceptions-count)
@@ -2439,67 +2439,67 @@ you"))
   (values))
 
 (def (function d) optimization (instrument timeframe types gen-agent-fn rates idxs stop-count &optional (stop-criterion))
+  ($log $trace :-> :optimization)
   ;; Checking if we need to initialize the agents collection.
   (let ((agents (if-let ((agents (get-agents-some instrument timeframe types)))
                   (update-agents-fitnesses instrument timeframe types agents rates idxs)
                   (loop repeat hscom.hsage:*initial-agent-count*
                         collect (evaluate-agent instrument timeframe (funcall gen-agent-fn) rates idxs))))
         (purged-agents))
-    (push-to-log (format nil "~a agents retrieved to start optimization." (length agents)))
-    (push-to-agents-log (format nil "<h4>~a (~a, ~a)</h4>~%" instrument (car types) (length agents)))
+    ($log $info (format nil "~a agents retrieved to start optimization for ~a ~a" (length agents) instrument timeframe))
     (loop with first-iteration-p = t
           with until-timestamp = (local-time:timestamp+ (local-time:now) stop-count :sec)
           with evaluations = 0
-          do (if (and (not first-iteration-p)
-                      ;; (local-time:timestamp> (local-time:now) until-timestamp)
-                      (if (eq stop-criterion :time)
-                          (local-time:timestamp> (local-time:now) until-timestamp)
-                          (> evaluations stop-count)))
-                 (progn
-                   ;; Inserting new agents in Pareto Frontier.
-                   (push-to-log (format nil "Updating Pareto frontier with ~a agents." (length agents)))
-                   (conn (loop for agent in agents
-                               do (unless (get-agent instrument timeframe types (slot-value agent 'id))
-                                    (push-to-log (format nil "Inserting new agent with ID ~a" (slot-value agent 'id)))
-                                    (log-agent :omega agent)
-                                    (add-agent agent instrument timeframe types))))
-                   (push-to-log "Pareto frontier updated successfully.")
-                   (return))
-                 (block opt
-                   (let* ((challenger (list (evaluate-agent instrument timeframe (funcall gen-agent-fn) rates idxs)))
-                          (is-dominated? (when hscom.hsage:*optimize-p*
-                                           (agent-dominated?-pareto (car challenger) agents t))))
-                     ;; No longer the first iteration after this.
-                     (setf first-iteration-p nil)
-                     ;; Logging agent direction.
-                     (push-to-agent-directions-log instrument timeframe types (slot-value (first challenger) 'avg-tp))
-                     (incf evaluations)
-                     (when (and (> evaluations stop-count)
-                                (eq stop-criterion :evaluations))
-                       (return-from opt))
-                     (unless is-dominated?
-                       ;; Purging agents.
-                       (loop named trials
-                             for in-trial in agents
-                             do (progn
-                                  ;; (incf evaluations)
-                                  (if (and hscom.hsage:*optimize-p*
-                                           (agent-dominated?-pareto in-trial challenger))
-                                      (progn
-                                        (push-to-log (format nil "Removing agent with ID ~a" (slot-value in-trial 'id)))
-                                        (push-to-agents-log (format nil "Removing agent with ID ~a" (slot-value in-trial 'id)))
-                                        (remove-agent in-trial instrument timeframe types))
-                                      (push in-trial purged-agents))
-                                  (when (and (> evaluations stop-count)
-                                             (eq stop-criterion :evaluations))
-                                    (return-from trials))
-                                  ))
-                       (push (first challenger) purged-agents)
-                       (setf agents purged-agents)
-                       (setf purged-agents nil)
+          do (progn
+               (if (and (not first-iteration-p)
+                        ;; (local-time:timestamp> (local-time:now) until-timestamp)
+                        (if (eq stop-criterion :time)
+                            (local-time:timestamp> (local-time:now) until-timestamp)
+                            (> evaluations stop-count)))
+                   (progn
+                     ;; Inserting new agents in Pareto Frontier.
+                     ($log $info (format nil "Updating Pareto frontier with ~a agents for ~a ~a" (length agents) instrument timeframe))
+                     (conn (loop for agent in agents
+                                 do (unless (get-agent instrument timeframe types (slot-value agent 'id))
+                                      ;; (push-to-log (format nil "Inserting new agent with ID ~a" (slot-value agent 'id)))
+                                      ;; (log-agent :omega agent)
+                                      (add-agent agent instrument timeframe types))))
+                     ($log $info "Pareto frontier updated successfully")
+                     (return))
+                   (block opt
+                     (let* ((challenger (list (evaluate-agent instrument timeframe (funcall gen-agent-fn) rates idxs)))
+                            (is-dominated? (when hscom.hsage:*optimize-p*
+                                             (agent-dominated?-pareto (car challenger) agents t))))
+                       ;; No longer the first iteration after this.
+                       (setf first-iteration-p nil)
+                       ;; Logging agent direction.
+                       (incf evaluations)
                        (when (and (> evaluations stop-count)
                                   (eq stop-criterion :evaluations))
-                         (return-from opt)))))))))
+                         (return-from opt))
+                       (unless is-dominated?
+                         ;; Purging agents.
+                         (loop named trials
+                               for in-trial in agents
+                               do (progn
+                                    ;; (incf evaluations)
+                                    (if (and hscom.hsage:*optimize-p*
+                                             (agent-dominated?-pareto in-trial challenger))
+                                        (remove-agent in-trial instrument timeframe types)
+                                        (push in-trial purged-agents))
+                                    (when (and (> evaluations stop-count)
+                                               (eq stop-criterion :evaluations))
+                                      (return-from trials))
+                                    ))
+                         (push (first challenger) purged-agents)
+                         (setf agents purged-agents)
+                         (setf purged-agents nil)
+                         (when (and (> evaluations stop-count)
+                                    (eq stop-criterion :evaluations))
+                           (return-from opt))))))
+               (when (= (mod evaluations 10) 0)
+                 ($log $debug (format nil "Optimized for ~a for ~a ~a" evaluations instrument timeframe))))))
+  ($log $trace :<- :optimization))
 
 (def (function d) agents-to-alists (agents)
   (let* ((agents-props (prepare-agents-properties agents))

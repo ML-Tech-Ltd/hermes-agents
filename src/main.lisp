@@ -302,15 +302,6 @@ UPDATE-UNIQUE-DATASETS in an infinite loop.
         (get-rates-count-big instrument timeframe size))
       (get-rates-random-count-big instrument timeframe size)))
 
-(def (function d) -loop-get-rates (instrument timeframe)
-  (let ((size (max (+ hscom.hsage:*max-creation-dataset-size*
-                      hscom.hsage:*max-training-dataset-size*
-                      hscom.hsage:*max-testing-dataset-size*)
-                   ;; For fracdiff.
-                   5000)))
-    (fracdiff
-     (-get-rates instrument timeframe size))))
-
 (def (function d) -loop-test-all ()
   "We run this every `hscom.hsage:*seconds-interval-testing*` seconds."
   (dolist (instrument hscom.hsage:*instruments*)
@@ -319,9 +310,7 @@ UPDATE-UNIQUE-DATASETS in an infinite loop.
         (cache-agents-from-db instrument timeframe)
         (let ((agents-count (get-agents-count instrument timeframe)))
           (when (> agents-count 0)
-            (bind ((testing-dataset (get-rates-count-big instrument timeframe
-                                                         hscom.hsage:*max-testing-dataset-size*)))
-              (-loop-test instrument timeframe testing-dataset))))
+            (-loop-test instrument timeframe)))
         ;; We don't want our data feed provider to ban us.
         ;; We also want to go easy on those database reads (`agents-count`).
         (uncache-agents-from-db instrument timeframe)

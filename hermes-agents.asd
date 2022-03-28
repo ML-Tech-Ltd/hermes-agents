@@ -13,41 +13,41 @@
   :license ""
   :depends-on (:ciel
                :clerk
-	       :hu.dwim.def
-	       :eazy-gnuplot
-	       :uuid
-	       :envy
-	       :plotly-cl
-	       :postmodern
-	       :cl-cpus
-	       :defenum
-	       :fare-mop
-	       :defenum
-	       :genetic-algorithm
+               :hu.dwim.def
+               :eazy-gnuplot
+               :uuid
+               :envy
+               :plotly-cl
+               :postmodern
+               :cl-cpus
+               :defenum
+               :fare-mop
+               :defenum
+               :genetic-algorithm
 
-	       ;; logging
-	       :dissect
+               ;; logging
+               :dissect
 
                ;; hermes tech
-	       :hermes-common
-	       :hermes-intuition
-	       :hermes-input
-	       :hermes-perception
-	       )
+               :hermes-common
+               :hermes-intuition
+               :hermes-input
+               :hermes-perception
+               )
   :components ((:module "vendor/fare-memoization-20180430-git"
-			:components
-			((:file "memoization")))
-	       (:module "src"
-			:components
-			((:file "main" :depends-on ("config" "db" "km" "utils" "log" "trading"))
-			 (:file "trading" :depends-on ("log" "stat"))
-			 (:file "stat")
-			 (:file "km")
-			 (:file "log")
-			 (:file "plotly-utils")
-			 (:file "utils")
-			 (:file "config" :depends-on ("utils"))
-			 (:file "db" :depends-on ("trading")))))
+                :components
+                ((:file "memoization")))
+               (:module "src"
+                :components
+                ((:file "main" :depends-on ("config" "db" "km" "utils" "log" "trading"))
+                 (:file "trading" :depends-on ("log" "stat"))
+                 (:file "stat")
+                 (:file "km")
+                 (:file "log")
+                 (:file "plotly-utils")
+                 (:file "utils")
+                 (:file "config" :depends-on ("utils"))
+                 (:file "db" :depends-on ("trading")))))
   :description ""
   :long-description
   #.(read-file-string
@@ -59,8 +59,8 @@
   :license ""
   :depends-on ("hermes-agents"
                "rove"
-	       "lparallel"
-	       "random-state")
+               "lparallel"
+               "random-state")
   :components ((:module "tests"
                 :components
                 ((:file "main" :depends-on ("config")))))

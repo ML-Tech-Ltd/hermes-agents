@@ -2093,49 +2093,39 @@ more recent unique datasets.
             entry-time
             creation-time))))
 
-(def (function d) -validate-trades (instrument trades older-than)
-  "We use `older-than` to determine what trades to ignore due to possible lack of prices for validation."
-  (bind ((day (local-time:timestamp-day-of-week (local-time:now)))
-         (older-than (cond ((= day 0) (+ older-than 2)) ;; it's Sunday, add 2 days
-                           ((= day 1) (+ older-than 1)) ;; it's Monday, add 1 day
-                           (t older-than) ;; default, leave unchanged.
-                           )))
-    (when (> (length trades) 0)
-      ($log $info (format nil "Trying to validate ~a trades." (length trades)))
-      (bind ((oldest (first (sort (copy-sequence 'list trades) #'< :key ^(entry-time _))))
-             ;; (newest (first (sort (copy-sequence 'list trades) #'> :key #'-get-trade-time)))
-             (rates (get-rates-range-big instrument
-                                         hscom.hsage:*validation-timeframe*
-                                         (entry-time oldest)
-                                         ;; (-get-trade-time newest)
-                                         (now)
-                                         )))
-        (loop for trade in trades
-              do (bind ((idx (position (entry-time trade) rates :test #'<= :key (lambda (rate) (assoccess rate :time)))))
-                   (when idx
-                     (let ((sub-rates (subseq rates idx))
-                           (from-timestamp (local-time:unix-to-timestamp (entry-time trade))))
-                       (when (or (not hscom.all:*is-production*)
-                                 (local-time:timestamp< from-timestamp
-                                                        (local-time:timestamp- (local-time:now) older-than :day)))
-                         (multiple-value-bind (revenue return exit-time exit-price)
-                             (get-trade-result (entry-price trade)
-                                               (tp trade)
-                                               (sl trade)
-                                               sub-rates)
-                           (when revenue
-                             ($log $info (format nil "Trade validated. Revenue: ~2$, Return: ~2$, EntryT: ~a, EntryP: ~5$, ExitT: ~a, ExitP: ~5$."
-                                                 (to-pips instrument revenue)
-                                                 return
-                                                 (entry-time trade)
-                                                 (entry-price trade)
-                                                 exit-time
-                                                 exit-price))
-                             (setf (.return trade) return)
-                             (setf (revenue trade) revenue)
-                             (setf (exit-time trade) exit-time)
-                             (setf (exit-price trade) exit-price)
-                             (conn (update-dao trade)))))))))))))
+(def (function d) -validate-trades (instrument trades)
+  (when (> (length trades) 0)
+    ($log $info (format nil "Trying to validate ~a trades." (length trades)))
+    (bind ((oldest (first (sort (copy-sequence 'list trades) #'< :key ^(entry-time _))))
+           ;; (newest (first (sort (copy-sequence 'list trades) #'> :key #'-get-trade-time)))
+           (rates (get-rates-range-big instrument
+                                       hscom.hsage:*validation-timeframe*
+                                       (entry-time oldest)
+                                       ;; (-get-trade-time newest)
+                                       (now)
+                                       )))
+      (loop for trade in trades
+            do (bind ((idx (position (entry-time trade) rates :test #'<= :key (lambda (rate) (assoccess rate :time)))))
+                 (when idx
+                   (let ((sub-rates (subseq rates idx)))
+                     (multiple-value-bind (revenue return exit-time exit-price)
+                         (get-trade-result (entry-price trade)
+                                           (tp trade)
+                                           (sl trade)
+                                           sub-rates)
+                       (when revenue
+                         ($log $info (format nil "Trade validated. Revenue: ~2$, Return: ~2$, EntryT: ~a, EntryP: ~5$, ExitT: ~a, ExitP: ~5$."
+                                             (to-pips instrument revenue)
+                                             return
+                                             (entry-time trade)
+                                             (entry-price trade)
+                                             exit-time
+                                             exit-price))
+                         (setf (.return trade) return)
+                         (setf (revenue trade) revenue)
+                         (setf (exit-time trade) exit-time)
+                         (setf (exit-price trade) exit-price)
+                         (conn (update-dao trade)))))))))))
 
 (def (function d) get-trades-no-result (instrument timeframe)
   (conn (query (:select 'trades.*

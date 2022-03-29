@@ -227,10 +227,9 @@ UPDATE-UNIQUE-DATASETS in an infinite loop.
   ($log $info "Updating rates before loop that keeps updating them")
   (-update-rates)
   ($log $info "Done updating rates")
-  (when hscom.hsage:*run-human-and-hybrid-p*
-    ($log $trace :-> :create-job-update-rates)
-    (bt:make-thread #'-loop-update-rates)
-    ($log $trace :<- :create-job-update-rates)))
+  ($log $trace :-> :create-job-update-rates)
+  (bt:make-thread #'-loop-update-rates)
+  ($log $trace :<- :create-job-update-rates))
 
 (def (function d) create-job-human-strategies-metrics (seconds)
   "We run this every `hscom.hsage#:*seconds-interval-testing-human-strategies-metrics*` seconds."

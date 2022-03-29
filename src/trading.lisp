@@ -695,10 +695,13 @@ more recent unique datasets.
                                 ,@(assoccess human-strategy :parameters)))))))
   ($log $trace :<- :optimize-human-strategy))
 
+(def (function d) get-signal-rates (instrument timeframe)
+  (get-rates-count-big instrument timeframe *lookbehind*))
+;; (get-signal-rates :AUD_USD :M15)
+
 (def (function d) signal-strategy (instrument timeframe strategy-id model)
-  (bind ((dataset (get-dataset instrument timeframe :testing)))
-    (multiple-value-bind (tp sl activation)
-      (funcall model dataset)
+  (multiple-value-bind (tp sl activation)
+      (funcall model (get-signal-rates instrument timeframe))
     (bind ((test-fitnesses (-evaluate-model
                             :instrument instrument
                             :timeframe timeframe
@@ -707,12 +710,12 @@ more recent unique datasets.
       ;; We're going to allow any trade to pass (not using -TEST-CONDITIONS).
       (when (-test-conditions instrument tp sl test-fitnesses :hybridp t)
         (insert-signal strategy-id instrument timeframe test-fitnesses
-                       test-fitnesses tp sl activation))))))
+                       test-fitnesses tp sl activation)))))
 
 (def (function d) test-agents (instrument timeframe)
   (multiple-value-bind (tp sl activation agent-ids)
       ;; This one gets the final TP and SL.
-      (eval-agents instrument timeframe (get-dataset instrument timeframe :testing))
+      (eval-agents instrument timeframe (get-signal-rates instrument timeframe))
     (bind ((strategy (get-strategy instrument timeframe :hermes))
            ;; (train-fitnesses (evaluate-agents instrument timeframe :training))
            (test-fitnesses (evaluate-agents instrument timeframe :testing)))

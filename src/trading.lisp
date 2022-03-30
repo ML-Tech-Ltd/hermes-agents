@@ -2156,7 +2156,7 @@ more recent unique datasets.
         do (loop for timeframe in hscom.hsage:*timeframes*
                  do (let ((trades (get-trades-no-result instrument timeframe)))
                       (when trades
-                        (-validate-trades instrument trades older-than))))))
+                        (-validate-trades instrument trades))))))
 ;; (validate-trades)
 
 (def (function d) delete-signals (from to)

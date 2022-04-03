@@ -1,5 +1,5 @@
 (defpackage hermes-agents.trading
-  (:use #:cl #:ciel #:postmodern #:hsage.log #:hscom.log #:hu.dwim.def)
+  (:use #:cl #:ciel #:postmodern #:hscom.log #:hu.dwim.def)
   (:import-from #:defenum
                 #:defenum)
   (:import-from #:alexandria
@@ -28,7 +28,6 @@
                 #:*ignore-test-conditions-p*
                 #:*lookahead*
                 #:*lookbehind*
-                #:*unique-point-p*
                 #:*unique-count*
                 #:*max-agents-count*
                 #:*min-agents-count*
@@ -52,8 +51,6 @@
                 #:get-output-dataset
                 #:get-tp-sl
                 #:get-unique-dataset)
-  (:import-from #:hsage.log
-                #:push-to-log)
   (:import-from #:hsage.utils
                 #:prepare-agents-properties
                 #:format-rr)
@@ -248,15 +245,14 @@
           "BUY"
           "SELL")))
 
-(def (function d) insert-signal (strategy-id instrument timeframe training-fitnesses testing-fitnesses tp sl activation)
-  (bind ((dataset (get-dataset instrument timeframe :testing))
-         (training-metrics (insert-metrics training-fitnesses))
+(def (function d) insert-signal (strategy-id instrument timeframe rates training-fitnesses testing-fitnesses tp sl activation)
+  (bind ((training-metrics (insert-metrics training-fitnesses))
          (testing-metrics (insert-metrics testing-fitnesses))
          (decision (determine-decision tp sl))
-         (entry-time (assoccess (last-elt dataset) :time))
+         (entry-time (assoccess (last-elt rates) :time))
          (entry-price (if (> tp 0)
-                          (hsinp.rates:->close-ask (last-elt dataset))
-                          (hsinp.rates:->close-bid (last-elt dataset))))
+                          (hsinp.rates:->close-ask (last-elt rates))
+                          (hsinp.rates:->close-bid (last-elt rates))))
          (trade (insert-trade decision 0 0 tp sl activation
                               entry-price entry-time 0 0)))
     (insert-trades-from-fitnesses training-fitnesses training-metrics)
@@ -700,28 +696,30 @@ more recent unique datasets.
 ;; (get-signal-rates :AUD_USD :M15)
 
 (def (function d) signal-strategy (instrument timeframe strategy-id model)
-  (multiple-value-bind (tp sl activation)
-      (funcall model (get-signal-rates instrument timeframe))
-    (bind ((test-fitnesses (-evaluate-model
-                            :instrument instrument
-                            :timeframe timeframe
-                            :environment :testing
-                            :model model)))
-      ;; We're going to allow any trade to pass (not using -TEST-CONDITIONS).
-      (when (-test-conditions instrument tp sl test-fitnesses :hybridp t)
-        (insert-signal strategy-id instrument timeframe test-fitnesses
-                       test-fitnesses tp sl activation)))))
+  (bind ((rates (get-signal-rates instrument timeframe)))
+    (multiple-value-bind (tp sl activation)
+        (funcall model rates)
+      (bind ((test-fitnesses (-evaluate-model
+                              :instrument instrument
+                              :timeframe timeframe
+                              :environment :testing
+                              :model model)))
+        ;; We're going to allow any trade to pass (not using -TEST-CONDITIONS).
+        (when (-test-conditions instrument tp sl test-fitnesses :hybridp t)
+          (insert-signal strategy-id instrument timeframe rates test-fitnesses
+                         test-fitnesses tp sl activation))))))
 
 (def (function d) test-agents (instrument timeframe)
-  (multiple-value-bind (tp sl activation agent-ids)
+  (bind ((rates (get-signal-rates instrument timeframe)))
+      (multiple-value-bind (tp sl activation agent-ids)
       ;; This one gets the final TP and SL.
-      (eval-agents instrument timeframe (get-signal-rates instrument timeframe))
+      (eval-agents instrument timeframe rates)
     (bind ((strategy (get-strategy instrument timeframe :hermes))
            ;; (train-fitnesses (evaluate-agents instrument timeframe :training))
            (test-fitnesses (evaluate-agents instrument timeframe :testing)))
       (when (-test-conditions instrument tp sl test-fitnesses)
-        (insert-signal (id strategy) instrument timeframe test-fitnesses test-fitnesses tp sl activation)
-        ))))
+        (insert-signal (id strategy) instrument timeframe rates test-fitnesses test-fitnesses tp sl activation)
+        )))))
 
 (def (function d) calculate-return (tp sl revenue)
   (if (or (= tp 0)
@@ -733,7 +731,7 @@ more recent unique datasets.
 
 (def (function d) -evaluate-model (&key instrument timeframe environment model)
   "Used by EVALUATE-AGENT and EVALUATE-AGENTS."
-  (bind ((idxs (when *unique-point-p* (get-unique-dataset-idxs instrument timeframe environment)))
+  (bind ((idxs (get-unique-dataset-idxs instrument timeframe environment))
          (rates (get-dataset instrument timeframe))
          (revenues)
          (max-poses)
@@ -795,11 +793,7 @@ more recent unique datasets.
                                    exit-prices)
                              (push max-pos max-poses)
                              (push max-neg max-negses)
-                             (push revenue revenues)))
-                       (if (and hscom.hsage:*trade-every-dp-p*
-                                *unique-point-p*)
-                           (incf idx)
-                           (incf idx finish-idx)))))))
+                             (push revenue revenues))))))))
     ($log $info (format nil "Traded ~a out of ~a datapoints." num-datapoints-traded num-datapoints))
     (bind ((returns (loop for revenue in revenues
                           for tp in tps
@@ -2082,53 +2076,53 @@ more recent unique datasets.
 
 (def (function d) -get-trade-time (trade)
   "Used in `-validate-trades`."
-  (let ((entry-time (slot-value trade 'entry-time))
-        (creation-time (slot-value trade 'creation-time)))
-    (if hscom.all:*is-production*
-        ;; The exact time when the trade got created, e.g 4:33 PM.
-        creation-time
-        (if (not (equal entry-time :null))
-            ;; The time of the last traded candle in the testing dataset.
-            ;; This time will be a rounded hour (if using hours), e.g. 4:00 PM.
-            entry-time
-            creation-time))))
+  (if hscom.all:*is-production*
+      (assoccess trade :timestamp)
+      ;; We need to use ENTRY-TIME for dev mode,
+      ;; otherwise timestamps are not following "market real-time",
+      ;; but "simulation real-time".
+      (assoccess trade :entry-time)))
 
 (def (function d) -validate-trades (instrument trades)
   (when (> (length trades) 0)
     ($log $info (format nil "Trying to validate ~a trades." (length trades)))
-    (bind ((oldest (first (sort (copy-sequence 'list trades) #'< :key ^(entry-time _))))
+    (bind ((oldest (first (sort (copy-sequence 'list trades) #'< :key ^(assoccess _ :entry-time))))
            ;; (newest (first (sort (copy-sequence 'list trades) #'> :key #'-get-trade-time)))
            (rates (get-rates-range-big instrument
                                        hscom.hsage:*validation-timeframe*
-                                       (entry-time oldest)
+                                       (assoccess oldest :entry-time)
                                        ;; (-get-trade-time newest)
                                        (now)
                                        )))
       (loop for trade in trades
-            do (bind ((idx (position (entry-time trade) rates :test #'<= :key (lambda (rate) (assoccess rate :time)))))
+            do (bind ((idx (position (-get-trade-time trade)
+                                     rates :test #'<= :key (lambda (rate) (assoccess rate :time)))))
                  (when idx
                    (let ((sub-rates (subseq rates idx)))
                      (multiple-value-bind (revenue return exit-time exit-price)
-                         (get-trade-result (entry-price trade)
-                                           (tp trade)
-                                           (sl trade)
+                         (get-trade-result (assoccess trade :entry-price)
+                                           (assoccess trade :tp)
+                                           (assoccess trade :sl)
                                            sub-rates)
                        (when revenue
                          ($log $info (format nil "Trade validated. Revenue: ~2$, Return: ~2$, EntryT: ~a, EntryP: ~5$, ExitT: ~a, ExitP: ~5$."
                                              (to-pips instrument revenue)
                                              return
-                                             (entry-time trade)
-                                             (entry-price trade)
+                                             (-get-trade-time trade)
+                                             (assoccess trade :entry-price)
                                              exit-time
                                              exit-price))
-                         (setf (.return trade) return)
-                         (setf (revenue trade) revenue)
-                         (setf (exit-time trade) exit-time)
-                         (setf (exit-price trade) exit-price)
-                         (conn (update-dao trade)))))))))))
+                         (conn
+                          (bind ((trade-dao (get-dao '<trade> (assoccess trade :id))))
+                            (setf (.return trade-dao) return)
+                            (setf (revenue trade-dao) revenue)
+                            (setf (exit-time trade-dao) exit-time)
+                            (setf (exit-price trade-dao) exit-price)
+                            (update-dao trade-dao))
+                          ))))))))))
 
 (def (function d) get-trades-no-result (instrument timeframe)
-  (conn (query (:select 'trades.*
+  (conn (query (:select 'trades.* 'signals.timestamp
                  :from 'signals
                  :join 'trades
                  :on (:= 'trades.id 'signals.trade-id)
@@ -2143,7 +2137,8 @@ more recent unique datasets.
                                   (:select 'id
                                     :from 'timeframes
                                     :where (:= 'timeframes.name (string+ timeframe))))))
-               (:dao <trade>))))
+               :alists
+               )))
 ;; (get-trades-no-result :AUD_USD :M15)
 
 (def (function d) validate-trades (&optional (older-than 0))
@@ -2204,20 +2199,3 @@ more recent unique datasets.
                                  (+ entry-price (abs tp)))))
                ))))
 ;; (get-trade-result 0.72274 -0.0018100000000000893 0.0013900000000000026 )
-
-(def (function d) sigmoid (x a b k)
-  (/ k (+ 1 (exp (+ a (* b x))))))
-;; (sigmoid -3 2 -30 1)
-
-(comment
- ;; (sb-int:with-float-traps-masked)
- (sb-int:set-floating-point-modes :traps nil)
- (sb-int:set-floating-point-modes :fast-mode t)
- (let ((x 2)
-       (a 0)
-       (b 1000)
-       (k 1))
-   (* x
-      (sigmoid x a (* -1 b) k)
-      (sigmoid x (* -1 b) b k)))
- )

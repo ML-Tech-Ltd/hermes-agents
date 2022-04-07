@@ -39,11 +39,10 @@
                 ((:file "memoization")))
                (:module "src"
                 :components
-                ((:file "main" :depends-on ("config" "db" "km" "utils" "log" "trading"))
-                 (:file "trading" :depends-on ("log" "stat"))
+                ((:file "main" :depends-on ("config" "db" "km" "utils" "trading"))
+                 (:file "trading" :depends-on ("stat"))
                  (:file "stat")
                  (:file "km")
-                 (:file "log")
                  (:file "plotly-utils")
                  (:file "utils")
                  (:file "config" :depends-on ("utils"))

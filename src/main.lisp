@@ -1,30 +1,3 @@
-;; (ql:quickload :cl-project)
-;; (cl-project:make-project #p"/home/amherag/.roswell/local-projects/")
-
-;; (ql:quickload :hermes-agents)
-;; (time (loop-optimize-test))
-;; (clerk:calendar)
-;; (progn (hsage.db:drop-database) (hsage.db:init-database) (hsage.log:clear-logs) (when hscom.all:*is-production* (hsage::clear-jobs)))
-;; (progn (drop-database) (init-database))
-;; (ql-dist:disable (ql-dist:find-dist "ultralisp"))
-;; (ql-dist:enable (ql-dist:find-dist "ultralisp"))
-
-;; (conn (query (:select '* :from 'trades) :alists))
-;; (conn (query (:select '* :from 'trades) :alists))
-
-;; (bind ((trades (conn (query (:select '* :from 'trades) :alists)))
-;;        (returns (remove 0.0 (loop for trade in trades collect (assoccess trade :test-avg-return))))
-;;        (results (when returns `((:mean . ,(alexandria:mean returns))
-;;                                 (:stdev . ,(alexandria:standard-deviation returns))
-;;                                 (:n . ,(length returns)))))
-;;        ((:values sign stat) (hsage.stat:t-test-two-sample -0.06639316003057408 0.14203489875313058 21
-;;                                                           (assoccess results :mean)
-;;                                                           (assoccess results :stdev)
-;;                                                           (assoccess results :n)
-;;                                                           :tails :negative)))
-;;   (print (list sign stat))
-;;   results)
-
 (defpackage hermes-agents
   (:use #:cl
         #:ciel
@@ -40,41 +13,21 @@
         #:hermes-agents.db
         #:hermes-agents.km
         #:hermes-agents.utils
-        #:hermes-agents.log
         #:hscom.log)
   (:import-from #:hu.dwim.def
                 #:def)
   (:import-from #:hscom.utils
                 #:assoccess
-                #:dbg
                 #:whole-reals-to-integers)
   (:import-from #:hscom.hsage
-                #:*hybrid-maximize-p*
-                #:*hybrid-population-size*
-                #:*hybrid-iterations*
-                #:*hybrid-mutation-rate*
                 #:*cores-count*
                 #:*iterations*
                 #:*print-hypothesis-test*
-                #:*test-size-human-strategies-signals*
-                #:*test-size-human-strategies-metrics*
-                #:*hybrid-fitness-metric*
                 #:*run-hermes-p*
-                #:*unique-point-p*
-                #:*unique-count*
-                #:*lookahead*
-                #:*lookbehind*
                 #:*instruments*
-                #:*timeframes*
-                #:*timeframes-being-used*
-                #:*creation-dataset-size*
-                #:*training-dataset-size*
-                #:*testing-dataset-size*)
+                #:*timeframes*)
   (:import-from #:hsper
                 #:get-human-strategies)
-  (:import-from #:hsage.log
-                #:log-stack
-                #:clear-logs)
   (:import-from #:hsage.trading
                 #:agent
                 #:optimization
@@ -91,7 +44,6 @@
                 #:update-agent-fitnesses
                 #:update-agents-fitnesses
                 #:validate-trades
-                #:get-trade-result
                 #:signal-strategy
                 #:optimize-human-strategy
                 #:best-individual
@@ -121,12 +73,6 @@
 
 (ciel:enable-punch-syntax)
 
-;; FARE-MEMOIZATION configuration.
-(setf fare-memoization::*memoized* (make-hash-table :test #'equal :synchronized t))
-
-;; (describe fare-memoization::*memoized*)
-;; (hsage.utils:refresh-memory)
-
 (setf lparallel:*kernel* (lparallel:make-kernel
                           (if (<= *cores-count* 0)
                               ;; (or (<= *cores-count* 0)
@@ -135,6 +81,26 @@
                                 (if (/= ideal-cores-count 0)
                                     ideal-cores-count 1))
                               *cores-count*)))
+
+(def (function d) log-stack (c)
+  (with-open-file (str (merge-pathnames #P"hsage-stack.log" #P"~/")
+                       :direction :output
+                       :if-exists :append
+                       :if-does-not-exist :create)
+    (format str "==============~%~%~a~%" (local-time:now))
+    (format str "~%~a~%~%" c)
+    (loop for obj in (cdr (dissect:stack))
+          when (dissect:line obj)
+          do (format str "~a:~a ~a~%"
+                     (dissect:file obj)
+                     (dissect:line obj)
+                     (dissect:call obj)))))
+
+(def (function d) get-clerk-jobs ()
+  (with-open-stream (s (make-string-output-stream))
+    (clerk:calendar s)
+    (get-output-stream-string s)))
+;; (get-clerk-jobs)
 
 (def (function d) clear-jobs ()
   (when (> (length clerk:*jobs*) 0)
@@ -160,11 +126,11 @@
     (-loop-human-strategies
      testingp
      (optimize-human-strategy instrument timeframe human-strategy
-                              :maximize *hybrid-maximize-p*
-                              :population-size *hybrid-population-size*
-                              :max-iterations *hybrid-iterations*
-                              :mutation-rate *hybrid-mutation-rate*
-                              :fitness-metric *hybrid-fitness-metric*))))
+                              :maximize hscom.hsage:*hybrid-maximize-p*
+                              :population-size hscom.hsage:*hybrid-population-size*
+                              :max-iterations hscom.hsage:*hybrid-iterations*
+                              :mutation-rate hscom.hsage:*hybrid-mutation-rate*
+                              :fitness-metric hscom.hsage:*hybrid-fitness-metric*))))
 
 (def (function d) -loop-test-human-strategies ()
   "
@@ -196,13 +162,13 @@
                                      (assoccess human-strategy :args-default)))))))
     ($log $trace :<- :loop-test-human-strategies)))
 
-(defun -update-rates ()
+(def (function d) -update-rates ()
   (loop for instrument in *instruments*
-        do (loop for timeframe in *timeframes-being-used*
+        do (loop for timeframe in hscom.hsage:*timeframes-being-used*
                  do (sync-rates instrument timeframe))))
 ;; (time (-update-rates))
 
-(defun -loop-update-rates ()
+(def (function d) -loop-update-rates ()
   (loop while t
         do (-update-rates)))
 ;; (time (-loop-update-rates))
@@ -256,13 +222,6 @@ UPDATE-UNIQUE-DATASETS in an infinite loop.
   (eval `(clerk:job "Creating signals" every ,(read-from-string (format nil "~a.seconds" seconds)) (-loop-test-all)))
   ($log $trace :<- :create-job-signals))
 
-;; (require 'sb-sprof)
-;; (sb-sprof:start-profiling)
-;; (sb-sprof:reset)
-;; (sb-sprof:report :type :flat)
-;; (sb-sprof:report)
-;; (sb-sprof:stop-profiling)
-
 (def (function d) -loop-validate ()
   (when hscom.all:*is-production*
     ($log $info "Validating trades older than 24 hours.")
@@ -283,8 +242,8 @@ UPDATE-UNIQUE-DATASETS in an infinite loop.
                                         instrument
                                         timeframe
                                         (assoccess beliefs :perception-fns)
-                                        *lookahead*
-                                        *lookbehind*)))
+                                        hscom.hsage:*lookahead*
+                                        hscom.hsage:*lookbehind*)))
                 (if (eq hscom.hsage:*stop-criteria* :time)
                     hscom.hsage:*seconds-to-optimize-per-pattern*
                     hscom.hsage:*optimization-agent-evaluations*)
@@ -292,14 +251,6 @@ UPDATE-UNIQUE-DATASETS in an infinite loop.
   ($log $info "Optimization process completed.")
   (sync-agents instrument timeframe)
   ($log $trace :<- :-loop-optimize))
-
-(def (function d) -get-rates (instrument timeframe size)
-  (if hscom.all:*is-production*
-      (progn
-        ;; We don't want our data feed provider to ban us.
-        (sleep 1)
-        (get-rates-count-big instrument timeframe size))
-      (get-rates-random-count-big instrument timeframe size)))
 
 (def (function d) -loop-test-all ()
   "We run this every `hscom.hsage:*seconds-interval-testing*` seconds."

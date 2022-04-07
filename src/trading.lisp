@@ -88,7 +88,6 @@
            #:update-agent-fitnesses
            #:update-agents-fitnesses
            #:wipe-agents
-           #:get-trade-result
            #:validate-trades
            #:re-validate-trades
            #:delete-signals
@@ -233,6 +232,7 @@
    (consequents :col-type string :initarg :consequents :accessor consequents)
    (creation-begin-time :col-type (or db-null int8) :initarg :creation-begin-time :initform :null)
    (creation-end-time :col-type (or db-null int8) :initarg :creation-end-time :initform :null)
+   (timestamp :col-type int8 :initform (now) :initarg :timestamp :accessor timestamp)
    (.metrics :initarg :.metrics :accessor .metrics))
   (:metaclass postmodern:dao-class)
   (:table-name agents)
@@ -264,26 +264,18 @@
                     :testing-metrics-id (id testing-metrics)
                     :timestamp (now)))))
 
-(comment
-  (test-agents :AUD_USD :M15)
-  (evaluate-agents :AUD_USD :M15 :testing)
-  (length (get-unique-dataset-idxs :AUD_USD :M15 :testing))
-  (length (get-dataset :AUD_USD :M15)))
-
 (def (function d) buy-and-hold (rates)
   (- (hsinp.rates:->close (last-elt rates))
      (hsinp.rates:->close (first rates))))
 
-(def (function d) evaluate-trade (tp sl rates)
+(def (function d) evaluate-trade (starting-rate tp sl rates)
   "Refactorize this."
-  (let ((starting-rate (if (plusp tp)
-                           ;; We need to use `open` because it's when we start.
-                           (hsinp.rates:->open-ask (first rates))
-                           (hsinp.rates:->open-bid (first rates))))
-        (revenue 0)
+  (let ((revenue)
+        (.return)
         (max-pos 0)
         (max-neg 0)
         (exit-time)
+        (exit-price)
         ;; Needs to be (length rates) in case the trade never finishes.
         (finish-idx (length rates)))
     (when (or (= tp 0) (= sl 0))
@@ -307,28 +299,36 @@
                          ;; Then we lost.
                          (progn
                            (setf revenue sl)
+                           (setf .return (calculate-return tp sl sl))
                            (setf finish-idx idx)
                            (setf exit-time time)
+                           (setf exit-price (+ starting-rate sl))
                            (return))
                          (when (>= (- high starting-rate) tp)
                            ;; Then we won.
                            (setf revenue tp)
+                           (setf .return (calculate-return tp sl tp))
                            (setf finish-idx idx)
                            (setf exit-time time)
+                           (setf exit-price (+ starting-rate tp))
                            (return)))
                      ;; Then it's bearish.
                      (if (> (- high starting-rate) sl)
                          ;; Then we lost.
                          (progn
                            (setf revenue (- sl))
+                           (setf .return (calculate-return tp sl (- sl)))
                            (setf finish-idx idx)
                            (setf exit-time time)
+                           (setf exit-price (+ starting-rate (- sl)))
                            (return))
                          (when (<= (- low starting-rate) tp)
                            ;; Then we won.
                            (setf revenue (- tp))
+                           (setf .return (calculate-return tp sl (- tp)))
                            (setf finish-idx idx)
                            (setf exit-time time)
+                           (setf exit-price (+ starting-rate (- tp)))
                            (return))))
                  ;; These need to be done after determining if we won or lost.
                  ;; Otherwise, we'd be reporting max-neg or max-pos that are greater
@@ -339,11 +339,7 @@
                  ;; Updating max-neg.
                  (when (< (- low starting-rate) max-neg)
                    (setf max-neg (- low starting-rate))))))
-    `((:revenue . ,revenue)
-      (:max-pos . ,max-pos)
-      (:max-neg . ,max-neg)
-      (:exit-time . ,exit-time)
-      (:finish-idx . ,finish-idx))))
+    (values revenue .return exit-time exit-price max-pos max-neg finish-idx)))
 ;; (evaluate-trade 0.0015 -0.0020 (get-output-dataset *rates* 3))
 
 (def (function d) -test-conditions (instrument tp sl test-fitnesses &key (hybridp nil))
@@ -755,13 +751,14 @@ more recent unique datasets.
                  (if (< activation hscom.hsage:*evaluate-agents-activation-threshold*)
                      ;; Ignore. Just increase NUM-DATAPOINTS.
                      (incf num-datapoints)
-                     (bind ((trade (evaluate-trade tp sl output-dataset))
-                            (revenue (assoccess trade :revenue))
-                            (max-pos (assoccess trade :max-pos))
-                            (max-neg (assoccess trade :max-neg))
-                            (exit-time (assoccess trade :exit-time))
-                            (finish-idx (assoccess trade :finish-idx)))
-                       (if (or (= revenue 0)
+                     (bind (((:values revenue .return exit-time exit-price max-pos max-neg finish-idx)
+                             (evaluate-trade (if (plusp tp)
+                                                 (hsinp.rates:->close-ask (first output-dataset))
+                                                 (hsinp.rates:->close-bid (first output-dataset)))
+                                             tp sl output-dataset)))
+                       (declare (ignore .return exit-price))
+                       (if (or (null revenue) (null exit-time)
+                               (= revenue 0)
                                (> (abs sl) (abs tp))
                                (> (* tp sl) 0)
                                (< (abs (/ tp sl))
@@ -769,8 +766,7 @@ more recent unique datasets.
                                (= tp 0)
                                (= sl 0)
                                (< (abs (to-pips instrument sl)) hscom.hsage:*min-pips-sl*)
-                               (> (abs (to-pips instrument sl)) hscom.hsage:*max-pips-sl*)
-                               )
+                               (> (abs (to-pips instrument sl)) hscom.hsage:*max-pips-sl*))
                            (incf num-datapoints)
                            (progn
                              (incf num-datapoints-traded)
@@ -2100,10 +2096,10 @@ more recent unique datasets.
                  (when idx
                    (let ((sub-rates (subseq rates idx)))
                      (multiple-value-bind (revenue return exit-time exit-price)
-                         (get-trade-result (assoccess trade :entry-price)
-                                           (assoccess trade :tp)
-                                           (assoccess trade :sl)
-                                           sub-rates)
+                         (evaluate-trade (assoccess trade :entry-price)
+                                         (assoccess trade :tp)
+                                         (assoccess trade :sl)
+                                         sub-rates)
                        (when revenue
                          ($log $info (format nil "Trade validated. Revenue: ~2$, Return: ~2$, EntryT: ~a, EntryP: ~5$, ExitT: ~a, ExitP: ~5$."
                                              (to-pips instrument revenue)
@@ -2167,35 +2163,3 @@ more recent unique datasets.
        ;; Deleting trades associated to these signals.
        (execute (:delete-from 'trades
                   :where (:in 'id (:set trade-ids))))))))
-
-(def (function d) get-trade-result (entry-price tp sl rates)
-  (let ((low-type (if (plusp tp) :low-bid :low-ask))
-        (high-type (if (plusp tp) :high-bid :high-ask)))
-    (loop for rate in rates do
-             (progn
-               ;; Then it's a buy. Lose.
-               (when (and (> tp 0) (< (- (assoccess rate low-type) entry-price) sl))
-                 (return (values sl
-                                 (calculate-return tp sl sl)
-                                 (assoccess rate :time)
-                                 (+ entry-price sl))))
-               ;; Then it's a sell. Lose.
-               (when (and (< tp 0) (> (- (assoccess rate high-type) entry-price) sl))
-                 (return (values (- sl)
-                                 (calculate-return tp sl (- sl))
-                                 (assoccess rate :time)
-                                 (+ entry-price (- sl)))))
-               ;; Then it's a buy. Win.
-               (when (and (> tp 0) (> (- (assoccess rate high-type) entry-price) tp))
-                 (return (values tp
-                                 (calculate-return tp sl tp)
-                                 (assoccess rate :time)
-                                 (+ entry-price tp))))
-               ;; Then it's a sell. Win.
-               (when (and (< tp 0) (< (- (assoccess rate low-type) entry-price) tp))
-                 (return (values (abs tp)
-                                 (calculate-return tp sl (abs tp))
-                                 (assoccess rate :time)
-                                 (+ entry-price (abs tp)))))
-               ))))
-;; (get-trade-result 0.72274 -0.0018100000000000893 0.0013900000000000026 )

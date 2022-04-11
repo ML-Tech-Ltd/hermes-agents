@@ -790,7 +790,7 @@ more recent unique datasets.
                              (push max-pos max-poses)
                              (push max-neg max-negses)
                              (push revenue revenues))))))))
-    ($log $info (format nil "Traded ~a out of ~a datapoints." num-datapoints-traded num-datapoints))
+    ;; ($log $info (format nil "Traded ~a out of ~a datapoints." num-datapoints-traded num-datapoints))
     (bind ((returns (loop for revenue in revenues
                           for tp in tps
                           for sl in sls

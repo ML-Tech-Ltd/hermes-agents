@@ -1062,8 +1062,10 @@ more recent unique datasets.
   (conn
    (with-transaction ()
      (bind ((metrics-id (metrics-id agent)))
+       (delete-metrics-trades metrics-id)
+       (execute (:delete-from 'metrics :where (:= 'id metrics-id)))
        (delete-dao agent)
-       (execute (:delete-from 'metrics :where (:= 'id (metrics-id agent))))))))
+       ))))
 
 (def (function d) get-agents-count (instrument timeframe)
   (conn

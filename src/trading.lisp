@@ -879,7 +879,7 @@ more recent unique datasets.
   ;; Update or add agents from A1 using A2
   ;; Delete agents found in A1 but not in A2
   ($log $trace :-> :sync-agents)
-  (let ((A1 (get-agents instrument timeframe))
+  (let ((A1 (.get-agents instrument timeframe))
         (A2 (get-agents-from-cache instrument timeframe)))
     ($log $debug "Database agents:" (length A1))
     ($log $debug "Cache agents:" (length A2))

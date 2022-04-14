@@ -1102,11 +1102,31 @@ more recent unique datasets.
 (def (function d) gen-perception-fn (perception-params)
   (hsper:gen-perception-fn perception-params))
 
+(def (function d) delete-metrics-trades (metrics-id)
+  (conn (execute (:delete-from 'trades :where (:in 'metrics-id (:select 'id :from 'metrics :where (:= 'id metrics-id)))))))
+
+(def (function d) .update-db-agent-fitnesses (agent)
+  (when (and (slot-boundp agent '.metrics)
+             (.metrics agent)
+             ;; Also checking if this is not a new agent.
+             (slot-boundp agent 'metrics-id)
+             (metrics-id agent))
+    (conn
+     (with-transaction ()
+       (bind ((agent-metrics (.metrics agent))
+              (db-metrics (get-dao '<metrics> (metrics-id agent))))
+         (delete-metrics-trades (metrics-id agent))
+         (update-metrics agent-metrics (metrics-id agent))
+         (insert-trades-from-fitnesses agent-metrics db-metrics)
+         )))))
+
 (def (function d) update-agent-fitnesses (instrument timeframe agent)
   (bind ((agents (gethash (list instrument timeframe) *agents-cache*))
          (agent-idx (position agent agents :test (lambda (agent1 agent2) (string= (slot-value agent1 'id)
-                                                                                  (slot-value agent2 'id))))))
-    (setf (nth agent-idx agents) (evaluate-agent agent instrument timeframe :training))))
+                                                                                  (slot-value agent2 'id)))))
+         (updated-agent (evaluate-agent agent instrument timeframe :training)))
+    (.update-db-agent-fitnesses updated-agent)
+    (setf (nth agent-idx agents) updated-agent)))
 
 (def (function d) update-agents-fitnesses (instrument timeframe agents)
   (loop for agent in agents

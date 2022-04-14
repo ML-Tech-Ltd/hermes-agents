@@ -1061,8 +1061,9 @@ more recent unique datasets.
   ($log $debug (string+ "Deleting agent " (id agent)))
   (conn
    (with-transaction ()
-     (execute (:delete-from 'metrics :where (:= 'id (metrics-id agent))))
-     (delete-dao agent))))
+     (bind ((metrics-id (metrics-id agent)))
+       (delete-dao agent)
+       (execute (:delete-from 'metrics :where (:= 'id (metrics-id agent))))))))
 
 (def (function d) get-agents-count (instrument timeframe)
   (conn

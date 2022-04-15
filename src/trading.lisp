@@ -270,7 +270,7 @@
 
 (def (function d) evaluate-trade (starting-rate tp sl rates)
   "Refactorize this."
-  (let ((revenue)
+  (bind ((revenue)
         (.return)
         (max-pos 0)
         (max-neg 0)
@@ -286,7 +286,7 @@
     (unless (or (= tp 0) (= sl 0))
       (loop for rate in rates
             for idx from 1 below finish-idx ;; (length (rest rates))
-            do (let ((low (if (plusp tp) ;; Used to exit a trade, so buy -> bid, sell -> ask.
+            do (bind ((low (if (plusp tp) ;; Used to exit a trade, so buy -> bid, sell -> ask.
                               (hsinp.rates:->low-bid rate)
                               (hsinp.rates:->low-ask rate)))
                      (high (if (plusp tp)
@@ -852,12 +852,12 @@ more recent unique datasets.
         agent)))
 ;; (evaluate-agent (gen-agent 3 *rates* (access *beliefs* :perception-fns) 10 55) (subseq *rates* 0 200))
 
-(def (function d) evaluate-agents (instrument timeframe environment)
+(def (function d) evaluate-agents (instrument timeframe environment &optional agents)
   (-evaluate-model :instrument instrument
                    :timeframe timeframe
                    :environment environment
                    :model (lambda (input-dataset)
-                            (eval-agents instrument timeframe input-dataset))))
+                            (eval-agents instrument timeframe input-dataset agents))))
 ;; (time (evaluate-agents :EUR_USD hscom.hsage:*train-tf* '(:BULLISH) (subseq *rates* 0 200)))
 
 (def (function d) wipe-agents ()
@@ -879,7 +879,7 @@ more recent unique datasets.
   ;; Update or add agents from A1 using A2
   ;; Delete agents found in A1 but not in A2
   ($log $trace :-> :sync-agents)
-  (let ((A1 (.get-agents instrument timeframe))
+  (bind ((A1 (.get-agents instrument timeframe))
         (A2 (get-agents-from-cache instrument timeframe)))
     ($log $debug "Database agents:" (length A1))
     ($log $debug "Cache agents:" (length A2))
@@ -891,7 +891,7 @@ more recent unique datasets.
                   (update-dao agent)
                   (insert-agent agent)))
      ;; Now we delete the agents that are in A1 (database) but not in A2 (cache).
-     (let ((ids (mapcar (lambda (agent) (slot-value agent 'id)) A2)))
+     (bind ((ids (mapcar (lambda (agent) (slot-value agent 'id)) A2)))
        (loop for agent in A1
              do (bind ((id (slot-value agent 'id))
                        (foundp (find id ids :test #'string=)))
@@ -901,7 +901,7 @@ more recent unique datasets.
 ;; (time (sync-agents :AUD_USD hscom.hsage:*train-tf* '(:BULLISH)))
 
 (def (function d) limit-seq (seq limit offset)
-  (let ((lseq (length seq)))
+  (bind ((lseq (length seq)))
     (if (plusp limit)
         (if (>= offset lseq)
             nil
@@ -912,7 +912,7 @@ more recent unique datasets.
 
 (def (function d) agent-correct-perception-fns (agent)
   "TODO: Add some error handling, as we're not returning anything."
-  (let ((perception-fns (slot-value agent 'perception-fns)))
+  (bind ((perception-fns (slot-value agent 'perception-fns)))
     (loop for idx from 0 below (length perception-fns)
           do (multiple-value-bind (i r)
                  (round (aref perception-fns idx))
@@ -971,7 +971,7 @@ more recent unique datasets.
   ($log $trace :<- :retire-agents))
 ;; (retire-agents :AUD_USD :M15)
 
-(let ((sync-table (make-hash-table :test 'equal :synchronized t)))
+(bind ((sync-table (make-hash-table :test 'equal :synchronized t)))
   (def (function d) cache-agents-from-db (instrument timeframe &optional (safe-cache-p nil))
     "Caches agents from `instrument` and `timeframe` from the database to *AGENTS-CACHE*."
     ($log $trace :-> :cache-agents-from-db)
@@ -1020,7 +1020,7 @@ more recent unique datasets.
     (:dao <agent>))))
 
 (def (function d) get-agents (instrument timeframe &optional (limit -1) (offset 0))
-  (let (result)
+  (bind (result)
     (if-let ((agents (gethash (list instrument timeframe) *agents-cache*)))
       (loop for agent in (limit-seq agents limit offset)
             do (push agent result))
@@ -1088,7 +1088,7 @@ more recent unique datasets.
     :single)))
 
 (def (function d) eval-agent (agent input-dataset)
-  (let ((perception-fn (gen-perception-fn (perception-fns agent))))
+  (bind ((perception-fn (gen-perception-fn (perception-fns agent))))
     (cond ((eq *fis-method* :index)
            (eval-ifis-idx (funcall perception-fn input-dataset)
                           (slot-value agent 'antecedents)
@@ -1214,7 +1214,7 @@ more recent unique datasets.
              (returns-0 (slot-value agent 'returns))
              (entry-times-0 (slot-value agent 'entry-times)))
         ;; `data`'s going to hold the max activations, returns and entry times per DP.
-        (let ((data (make-hash-table)))
+        (bind ((data (make-hash-table)))
           ;; Determining max activations and returns.
           (loop for agent in agents
                 for agent-idx from 0
@@ -1225,7 +1225,7 @@ more recent unique datasets.
                               ;; Checking if internal hash-table doesn't exist.
                               (unless (gethash time data)
                                 (setf (gethash time data) (make-hash-table :size 3)))
-                              (let ((datum (gethash time data)))
+                              (bind ((datum (gethash time data)))
                                 ;; Updating internal hash-table.
                                 (when (or (not (gethash :activation datum))
                                           (> act (gethash :activation datum)))
@@ -1235,12 +1235,12 @@ more recent unique datasets.
                                   (setf (gethash :total-return datum)
                                         (slot-value agent 'total-return)))))))
           ;; Comparing agent activations, returns, etc. to see if it doesn't get dominated.
-          (let ((dominatedp t)
+          (bind ((dominatedp t)
                 (dominated-idx -1))
             ;; First checking if our candidate AGENT wins by default because no other agent is trading at a particular DP.
             ;; Also checking if candidate has a positive total return and return at that DP.
             ;; Checking agent data against max values.
-            (let ((foundp t))
+            (bind ((foundp t))
               (loop for time across entry-times-0
                     for ret across returns-0
                     do (when (and (not (gethash time data))
@@ -1260,7 +1260,7 @@ more recent unique datasets.
               (loop for time across entry-times-0
                     for act across activations-0
                     for ret across returns-0
-                    do (let ((datum (gethash time data)))
+                    do (bind ((datum (gethash time data)))
                          ;; We're going to add an agent to the agent pool that has a positive DPret (`ret`),
                          ;; a greater total-return on that DP and a greater than or equal activation than that DP's (and threshold).
                          (when (and datum
@@ -1277,7 +1277,7 @@ more recent unique datasets.
             dominatedp)))))
 
 (def (function d) get-agent-by-id (agent-id &key (ret-type :dao))
-  (let (result)
+  (bind (result)
     (loop for key being each hash-key of *agents-cache*
           for agents being each hash-value of *agents-cache*
           do (loop for agent in agents
@@ -1287,7 +1287,7 @@ more recent unique datasets.
                           ;; (print (type-of (json:encode-json-to-string agent)))
                           (if (eq ret-type :dao)
                               (setf result agent)
-                              (let ((pre-result (json:decode-json-from-string (json:encode-json-to-string agent))))
+                              (bind ((pre-result (json:decode-json-from-string (json:encode-json-to-string agent))))
                                 (push `(:instrument . ,(first key)) pre-result)
                                 (push `(:timeframe . ,(second key)) pre-result)
                                 (push `(:type . ,(third key)) pre-result)
@@ -1310,16 +1310,16 @@ more recent unique datasets.
 ;; (get-agent :EUR_USD hscom.hsage:*train-tf* '(:BULLISH) "48F3970F-36C1-4A49-9E54-95746CFEA9FE")
 ;; (slot-value (first (get-agents :EUR_USD hscom.hsage:*train-tf* '(:BULLISH))) 'id)
 
-(def (function d) eval-agents (instrument timeframe input-dataset)
-  (let (tps sls activations ids)
-    (let ((agents (get-agents instrument timeframe)))
+(def (function d) eval-agents (instrument timeframe input-dataset &optional agents)
+  (bind (tps sls activations ids)
+    (bind ((agents (if agents agents (get-agents instrument timeframe))))
       (loop for agent in agents
             do (multiple-value-bind (tp sl activation)
                    (eval-agent agent input-dataset)
                  (bind ((last-rate (last-elt input-dataset))
                         ;; Checking if calculated SL is greater than Nx the current spread.
                         ;; If not, we set Nx the current spread as the SL.
-                        (corrected-sl (let ((nx-spread (* hscom.hsage:*min-n-times-spread-sl*
+                        (corrected-sl (bind ((nx-spread (* hscom.hsage:*min-n-times-spread-sl*
                                                           (abs (- (hsinp.rates:->close-bid last-rate)
                                                                    (hsinp.rates:->close-ask last-rate))))))
                                         (if (>= (abs sl) nx-spread)
@@ -1352,7 +1352,7 @@ more recent unique datasets.
                (bullish-act (when bullish-acts (mean bullish-acts)))
                (bearish-act (when bearish-acts (mean bearish-acts))))
           (when (and bullish-act bearish-act)
-            (let ((pos (if (> bullish-act bearish-act)
+            (bind ((pos (if (> bullish-act bearish-act)
                            (position idx-top-bullish idxs)
                            (position idx-top-bearish idxs))))
               (setf tp (nth pos tps))
@@ -1365,7 +1365,7 @@ more recent unique datasets.
 
 (def (function d) make-agent (inputs outputs perception-fns lookahead lookbehind)
   "Used for manual agent creation."
-  (let ((agent (make-instance 'agent)))
+  (bind ((agent (make-instance 'agent)))
     (setf (slot-value agent 'perception-fns) (format nil "~s" perception-fns))
     (setf (slot-value agent 'lookahead) lookahead)
     (setf (slot-value agent 'lookbehind) lookbehind)
@@ -1377,14 +1377,14 @@ more recent unique datasets.
 
 (comment
  ;; Testing MAKE-AGENT
- (let ((perc (hsper:gen-random-perceptions 3)))
+ (bind ((perc (hsper:gen-random-perceptions 3)))
    (multiple-value-bind (inp out)
        (get-inputs-outputs 2 :AUD_USD *rates*
                            (hsper:gen-perception-fn (hscom.utils:assoccess perc :perception-fns))
                            (hscom.utils:assoccess perc :lookahead)
                            (hscom.utils:assoccess perc :lookbehind)
                            :direction-fn #'minusp)
-     (let ((agent (make-agent inp out (hscom.utils:assoccess perc :perception-fns) 10 10)))
+     (bind ((agent (make-agent inp out (hscom.utils:assoccess perc :perception-fns) 10 10)))
        (list (antecedents agent)
              (consequents agent)))
      )))
@@ -1395,7 +1395,7 @@ more recent unique datasets.
 (def (function d) interactive-make-agent (&key (lookahead 10) (rules-count 3))
   "Asks the user what perception function to generate for an agent."
   (block all
-    (let ((options (get-perceptions))
+    (bind ((options (get-perceptions))
           (p-rows)
           (percs)
           (instrument :AUD_USD)
@@ -1408,7 +1408,7 @@ more recent unique datasets.
             for i from 0
             do (format t "(~a) ~a~%" (1+ i) instrument))
       (format t "~%Choose a market (default = ~a):~%" instrument)
-      (setf instrument (let ((ans (read-line)))
+      (setf instrument (bind ((ans (read-line)))
                          (unless (string= ans "") (nth (1- (read-from-string ans)) hscom.hsage:*instruments*))))
       ;; Capturing table elements.
       (loop for perc in options
@@ -1418,13 +1418,13 @@ more recent unique datasets.
                              (assoccess perc :name)
                              (assoccess perc :documentation))
                        p-rows)))
-      (let ((table (with-open-stream (s (make-string-output-stream))
+      (bind ((table (with-open-stream (s (make-string-output-stream))
                      (format-table s (reverse p-rows)
                                    :column-label '("#" "Name" "Documentation"))
                      (get-output-stream-string s))))
         ;; Collecting perception functions.
         (loop
-          do (let ((answer -1)
+          do (bind ((answer -1)
                    (args '()))
                (format t "~%~a~%" table)
                (when (> (length percs) 0)
@@ -1441,7 +1441,7 @@ more recent unique datasets.
 
                (format t "Choose a perception function by entering their associated numbers (1 - ~a) or just press ENTER to finish:~%" (length options))
 
-               (setf answer (let ((ans (read-line))) (if (string= ans "") -1 (1- (read-from-string ans)))))
+               (setf answer (bind ((ans (read-line))) (if (string= ans "") -1 (1- (read-from-string ans)))))
 
                (if (< answer 0)
                    (progn
@@ -1457,7 +1457,7 @@ more recent unique datasets.
                                         (assoccess param :documentation)
                                         (assoccess param :name)
                                         (assoccess param :default))
-                                (let ((ans (read-line)))
+                                (bind ((ans (read-line)))
                                   (if (string= ans "")
                                       (push (assoccess param :default) args)
                                       (push (read-from-string ans) args)))))
@@ -1468,7 +1468,7 @@ more recent unique datasets.
                        (push perc-vector percs)))))))
       ;; Asking for direction function.
       (format t "Should the agent be BULLISH (input any positive number) or BEARISH (input any negative number)? (default = random)" )
-      (setf direction-fn (let ((ans (read-line)))
+      (setf direction-fn (bind ((ans (read-line)))
                            (if (string= ans "")
                                (if (> (random-float 0 1) 0.5)
                                    #'plusp
@@ -1478,12 +1478,12 @@ more recent unique datasets.
                                    #'minusp))))
       ;; Asking for rules count.
       (format t "How many rules should your agent have (default = ~a):~%" rules-count)
-      (setf rules-count (let ((ans (read-line))) (if (string= ans "") rules-count (read-from-string ans))))
+      (setf rules-count (bind ((ans (read-line))) (if (string= ans "") rules-count (read-from-string ans))))
       ;; Asking for lookahead.
       (format t "How many datapoints in the future do you want to consider for calculating TP & SL (default = ~a):~%" lookahead)
-      (setf lookahead (let ((ans (read-line))) (if (string= ans "") lookahead (read-from-string ans))))
+      (setf lookahead (bind ((ans (read-line))) (if (string= ans "") lookahead (read-from-string ans))))
       ;; Creating fuzzy system.
-      (let ((percs (make-array (length percs) :initial-contents percs)))
+      (bind ((percs (make-array (length percs) :initial-contents percs)))
         (loop
           do (multiple-value-bind (inputs outputs idxs)
                  (get-inputs-outputs rules-count
@@ -1494,7 +1494,7 @@ more recent unique datasets.
                                      lookbehind
                                      :direction-fn direction-fn)
                ;; Getting rate plots
-               (let ((agent (make-agent inputs outputs percs lookahead lookbehind))
+               (bind ((agent (make-agent inputs outputs percs lookahead lookbehind))
                      (rate-plots (apply #'concatenate 'string
                                         (loop for idx in idxs
                                               collect (plot-rates (subseq *rates* (- idx lookbehind) (+ idx lookahead)))))))
@@ -1503,7 +1503,7 @@ more recent unique datasets.
                    (print-in-columns (list ;; rate-plots
                                       antecedents consequents)))
                  (format t "Are you satisfied with this configuration (Y or N)? (default = N):~%")
-                 (let ((ans (read-line)))
+                 (bind ((ans (read-line)))
                    (when (or (string= ans "y")
                              (string= ans "Y"))
                      ;; (setf final-agent agent)
@@ -1524,7 +1524,7 @@ more recent unique datasets.
 
 (def (function d) -fill-split-string-with-newlines (split-string height)
   "Used by PRINT-IN-COLUMNS."
-  (let ((row-width (length (first split-string))))
+  (bind ((row-width (length (first split-string))))
     (if (> height (length split-string))
         (append split-string
                 (make-list (- height (length split-string))
@@ -1533,7 +1533,7 @@ more recent unique datasets.
 
 (def (function d) -split-string (string)
   "Used by PRINT-IN-COLUMNS."
-  (let ((split (cl-ppcre:split "\\n" string)))
+  (bind ((split (cl-ppcre:split "\\n" string)))
     (values
      (if split split "")
      ;; width
@@ -1580,7 +1580,7 @@ more recent unique datasets.
 ;; Choose input-outputs
 
 (def (function d) plot-xy (xs ys)
-  (let ((output #P"/tmp/hermes-plot-xy.txt"))
+  (bind ((output #P"/tmp/hermes-plot-xy.txt"))
     (eazy-gnuplot:with-plots (*standard-output* :debug nil)
       (eazy-gnuplot:gp-setup :xlabel "X"
                              :ylabel "Y"
@@ -1599,7 +1599,7 @@ more recent unique datasets.
 ;; (plot-xy (list (iota 10) (iota 10 :start 1)) (list (iota 10) (iota 10 :start 5)))
 
 (def (function d) plot-rates (rates &optional (type :close-frac))
-  (let ((output #P"/tmp/hermes-plot-rates.txt"))
+  (bind ((output #P"/tmp/hermes-plot-rates.txt"))
     (eazy-gnuplot:with-plots (*standard-output* :debug nil)
       (eazy-gnuplot:gp-setup :xlabel "X"
                              :ylabel "GM"
@@ -1627,8 +1627,8 @@ more recent unique datasets.
 ;; (plot-rates (subseq *rates* 0 10) :close-bid)
 
 (def (function d) plot-agent-rules (agent)
-  (let ((output #P"/tmp/hermes-plot-fuzzy.txt"))
-    (let (antecedents consequents)
+  (bind ((output #P"/tmp/hermes-plot-fuzzy.txt"))
+    (bind (antecedents consequents)
       (loop for antecedent across (antecedents agent)
             for perc-fn across (perception-fns agent)
             do (progn
@@ -1650,11 +1650,11 @@ more recent unique datasets.
       ;; Consequents
       ;; TODO: These consequents follow the structure of "stay restricted to each observed rule", i.e.
       ;; we're not "mixing" antecedents nor consequents from different observed rules.
-      (let ((tps)
+      (bind ((tps)
             (sls))
         ;; Collecting all TPs and SLs first.
         ;; They're all the same (constrained to rules).
-        (let ((cons (aref (consequents agent) 0)))
+        (bind ((cons (aref (consequents agent) 0)))
           (loop
             ;; We need to ignore the repeated line.
             for i from 0 below (length cons) by 2
@@ -1709,7 +1709,7 @@ more recent unique datasets.
   (bind ((dataset (get-dataset instrument timeframe :creation))
          (idxs (get-unique-dataset-idxs instrument timeframe :creation))
          (strategy (get-strategy instrument timeframe :hermes)))
-    (let ((agent (make-instance '<agent>)))
+    (bind ((agent (make-instance '<agent>)))
       (setf (slot-value agent 'strategy-id) (id strategy))
       (setf (slot-value agent 'creation-begin-time) (assoccess (first dataset) :time))
       (setf (slot-value agent 'creation-end-time) (assoccess (last-elt dataset) :time))
@@ -1736,7 +1736,7 @@ more recent unique datasets.
          (idxs (shuffle (iota (- (length rates) lookahead lookbehind) :start lookbehind)))
          (result))
     (loop for idx in idxs
-          do (let ((tp-sl (get-tp-sl (subseq rates idx) lookahead)))
+          do (bind ((tp-sl (get-tp-sl (subseq rates idx) lookahead)))
                (when (and (< (length result) count)
                           (funcall pred (assoccess tp-sl :tp))
                           (/= (assoccess tp-sl :sl) 0)
@@ -1762,7 +1762,7 @@ more recent unique datasets.
          (idxs (iota (- (length rates) lookahead lookbehind) :start lookbehind))
          (result))
     (loop for idx in idxs
-          do (let ((tp-sl (get-tp-sl (subseq rates idx) lookahead)))
+          do (bind ((tp-sl (get-tp-sl (subseq rates idx) lookahead)))
                (when (and (funcall pred (assoccess tp-sl :tp))
                           (/= (assoccess tp-sl :sl) 0)
                           (> (abs (assoccess tp-sl :sl)) (from-pips instrument hscom.hsage:*min-sl*))
@@ -1817,7 +1817,7 @@ more recent unique datasets.
               (loop
                 for inputs in (apply #'mapcar #'list inputs)
                 for idx from 0
-                collect (let ((inputs (sort (copy-sequence 'list inputs) #'<)))
+                collect (bind ((inputs (sort (copy-sequence 'list inputs) #'<)))
                           (loop
                             for i from 0
                             for input in inputs
@@ -1848,10 +1848,56 @@ more recent unique datasets.
       (make-ant-con chosen-inputs chosen-outputs))))
 ;; (plot-agent-rules *agent*)
 
+(def (function d) pool-optimization (instrument timeframe gen-agent-fn stop-count)
+  ($log $trace :-> :pool-optimization)
+  (bind ((agents (if-let ((existing-agents (mapcar ^(evaluate-agent _ instrument timeframe :training)
+                                                   (get-agents instrument timeframe))))
+                   existing-agents
+                   (list (evaluate-agent (funcall gen-agent-fn) instrument timeframe :training))))
+         (fitnesses (evaluate-agents instrument timeframe :training agents)))
+    (dbg (assoccess fitnesses :avg-return))
+    (loop repeat stop-count
+          do (bind ((trial-agents (if (> (length agents) 30)
+                                      (bind ((idx (random (length agents))))
+                                        (append (subseq agents 0 idx)
+                                                (subseq agents (1+ idx))))
+                                      (append (list (evaluate-agent (funcall gen-agent-fn) instrument timeframe :training))
+                                              agents)))
+                    (trial-fitnesses (evaluate-agents instrument timeframe :training trial-agents)))
+               (when (> (assoccess trial-fitnesses :avg-return)
+                        (assoccess fitnesses :avg-return))
+                 (dbg "train" (assoccess trial-fitnesses :avg-return))
+                 (setf agents trial-agents)
+                 (setf fitnesses trial-fitnesses)
+                 (setf (gethash (list instrument timeframe) *agents-cache*) agents)
+                 (sync-agents instrument timeframe)
+                 (dbg "test" (assoccess (evaluate-agents instrument timeframe :testing trial-agents) :avg-return)))
+               ))
+    (dbg (assoccess fitnesses :avg-return))
+    (values agents fitnesses))
+  ($log $trace :<- :pool-optimization))
+
+(comment
+  (update-unique-datasets)
+  (get-agents :EUR_GBP :M15)
+  (bind ((instrument :EUR_GBP)
+         (timeframe :M15))
+    (pool-optimization instrument timeframe
+                       (lambda () (let ((beliefs (hsper:gen-random-perceptions hscom.hsage:*number-of-agent-inputs*)))
+                                    (gen-agent hscom.hsage:*number-of-agent-rules*
+                                               instrument
+                                               timeframe
+                                               (assoccess beliefs :perception-fns)
+                                               hscom.hsage:*lookahead*
+                                               hscom.hsage:*lookbehind*)))
+                       100)))
+
+
+
 (def (function d) optimization (instrument timeframe gen-agent-fn stop-count &optional (stop-criterion))
   ($log $trace :-> :optimization)
   ;; Checking if we need to initialize the agents collection.
-  (let ((agents (if-let ((agents (get-agents instrument timeframe)))
+  (bind ((agents (if-let ((agents (get-agents instrument timeframe)))
                   (update-agents-fitnesses instrument timeframe agents)
                   (loop repeat hscom.hsage:*initial-agent-count*
                         collect (evaluate-agent (funcall gen-agent-fn) instrument timeframe :training))))
@@ -1912,7 +1958,7 @@ more recent unique datasets.
 (def (function d) agents-to-alists (agents)
   (bind ((agents-props (prepare-agents-properties agents))
          (vals (loop for agent-props in agents-props
-                     collect (let ((avg-tp (read-from-string (assoccess agent-props :avg-tp)))
+                     collect (bind ((avg-tp (read-from-string (assoccess agent-props :avg-tp)))
                                    (avg-sl (read-from-string (assoccess agent-props :avg-sl))))
                                (append agent-props
                                        `((:r/r . ,(format-rr avg-sl avg-tp))))))))
@@ -1923,7 +1969,7 @@ more recent unique datasets.
 (def (function d) -make-human-trades-alist (human-trades)
   (apply #'nconc
          (loop for trade in human-trades
-               collect (let ((run-return 0)
+               collect (bind ((run-return 0)
                              (run-revenue 0)
                              (run-won 0)
                              (run-lost 0))
@@ -1996,12 +2042,12 @@ more recent unique datasets.
           (unless return-results-p
             (format t "# of trades: ~a~%~%" (length acts)))
           ;; Uniform distribution returns.
-          (let ((step (floor (/ (length acts) granularity)))
+          (bind ((step (floor (/ (length acts) granularity)))
                 (sorted-acts (hsage.utils:sorted-indexes acts #'<)))
             (unless return-results-p
               (format t "Competence Mean-Return SD-Return Mean-Revenue SD-Revenue Mean-Wins SD-Wins Precision Wins Losses Max-Returns Min-Returns n~%"))
-            (let ((results (loop for ceiling from 0 below (- (length acts) step) by step
-                                 collect (let ((filtered-rets (loop for i from ceiling below (+ ceiling step)
+            (bind ((results (loop for ceiling from 0 below (- (length acts) step) by step
+                                 collect (bind ((filtered-rets (loop for i from ceiling below (+ ceiling step)
                                                                     collect (nth (position i sorted-acts) rets)))
                                                (filtered-revs (loop for i from ceiling below (+ ceiling step)
                                                                     collect (nth (position i sorted-acts) revs))))
@@ -2070,7 +2116,7 @@ more recent unique datasets.
          (no-results (analysis :granularity granularity :label "hermes.consensus-1" :return-results-p t))
          (yes-results (analysis :granularity granularity :label (format nil "hermes.consensus-~a" label) :return-results-p t)))
     (when (and no-results yes-results)
-      (let ((n1 (reduce #'+ (mapcar #'last-elt (subseq no-results (* numerator (ceiling (/ (length no-results) denominator)))))))
+      (bind ((n1 (reduce #'+ (mapcar #'last-elt (subseq no-results (* numerator (ceiling (/ (length no-results) denominator)))))))
             (mu1 (mean (mapcar #'third (subseq no-results (* numerator (ceiling (/ (length no-results) denominator)))))))
             (sd1 (mean (mapcar #'fourth (subseq no-results (* numerator (ceiling (/ (length no-results) denominator)))))))
             (n2 (reduce #'+ (mapcar #'last-elt (subseq yes-results (* numerator (ceiling (/ (length yes-results) denominator)))))))
@@ -2117,7 +2163,7 @@ more recent unique datasets.
             do (bind ((idx (position (-get-trade-time trade)
                                      rates :test #'<= :key (lambda (rate) (assoccess rate :time)))))
                  (when idx
-                   (let ((sub-rates (subseq rates idx)))
+                   (bind ((sub-rates (subseq rates idx)))
                      (multiple-value-bind (revenue return exit-time exit-price)
                          (evaluate-trade (assoccess trade :entry-price)
                                          (assoccess trade :tp)
@@ -2168,7 +2214,7 @@ more recent unique datasets.
   ;;                do (sync-rates instrument timeframe)))
   (loop for instrument in hscom.hsage:*instruments*
         do (loop for timeframe in hscom.hsage:*timeframes*
-                 do (let ((trades (get-trades-no-result instrument timeframe)))
+                 do (bind ((trades (get-trades-no-result instrument timeframe)))
                       (when trades
                         (-validate-trades instrument trades))))))
 ;; (validate-trades)

@@ -316,9 +316,7 @@ UPDATE-UNIQUE-DATASETS in an infinite loop.
     (if (or (is-market-close)
             (not hscom.all:*is-production*))
         (update-unique-datasets)
-        (progn
-          (create-job-unique-datasets)
-          (create-job-update-rates)))
+        (create-job-unique-datasets))
     ;; Signal creation. Production. We create a cron job for this to be
     ;; run every `hscom.hsage:*seconds-interval-testing*` seconds.
     (when hscom.all:*is-production*

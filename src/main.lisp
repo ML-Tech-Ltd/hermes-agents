@@ -169,7 +169,6 @@
 ;; (time (-update-rates))
 
 (def (function d) -loop-update-rates ()
-  (dex:clear-connection-pool)
   (loop while t
         do (-update-rates)))
 ;; (time (-loop-update-rates))
@@ -192,9 +191,11 @@ UPDATE-UNIQUE-DATASETS in an infinite loop.
 (def (function d) create-job-update-rates ()
   "CREATE-JOB-UPDATE-RATES creates a thread that is constantly updating our rates."
   ($log $info "Updating rates before loop that keeps updating them")
+  (dex:clear-connection-pool)
   (-update-rates)
   ($log $info "Done updating rates")
   ($log $trace :-> :create-job-update-rates)
+  (dex:clear-connection-pool)
   (bt:make-thread #'-loop-update-rates)
   ($log $trace :<- :create-job-update-rates))
 

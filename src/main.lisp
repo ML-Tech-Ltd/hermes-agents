@@ -169,6 +169,7 @@
 ;; (time (-update-rates))
 
 (def (function d) -loop-update-rates ()
+  (dex:clear-connection-pool)
   (loop while t
         do (-update-rates)))
 ;; (time (-loop-update-rates))

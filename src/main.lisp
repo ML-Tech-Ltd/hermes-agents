@@ -147,18 +147,18 @@
          ($log $info "Trying to create signal for hybrid strategy" (assoccess human-strategy :name))
          (signal-strategy instrument timeframe
                           (slot-value hybrid 'hermes-agents.trading::id)
-                          (lambda (input-dataset)
+                          (lambda (input-dataset idx)
                             (funcall (assoccess human-strategy :model)
-                                     input-dataset
+                                     input-dataset idx
                                      (whole-reals-to-integers (best-individual hybrid))))))
        ;; Testing human strategy.
        (when human
          ($log $info "Trying to create signal for human strategy" (assoccess human-strategy :name))
          (signal-strategy instrument timeframe
                           (slot-value human 'hermes-agents.trading::id)
-                          (lambda (input-dataset)
+                          (lambda (input-dataset idx)
                             (funcall (assoccess human-strategy :model)
-                                     input-dataset
+                                     input-dataset idx
                                      (assoccess human-strategy :args-default)))))))
     ($log $trace :<- :loop-test-human-strategies)))
 

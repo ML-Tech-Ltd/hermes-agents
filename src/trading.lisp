@@ -376,18 +376,19 @@ INSERT-TRADE creates a new trade on the database. TRADE is an alist containing
 all the data for the trade. METRICS is an object of type <METRICS>. INSERT-TRADE
 returns an object of type <TRADE>.
 "
-  (conn (make-dao '<trade>
-                  :metrics-id (if metrics (id metrics) :null)
-                  :decision decision
-                  :return return
-                  :revenue revenue
-                  :tp tp
-                  :sl sl
-                  :activation activation
-                  :entry-price entry-price
-                  :entry-time entry-time
-                  :exit-price exit-price
-                  :exit-time exit-time)))
+  (conn (insert-dao
+         (make-instance '<trade>
+                        :metrics-id (if metrics (id metrics) :null)
+                        :decision decision
+                        :return return
+                        :revenue revenue
+                        :tp tp
+                        :sl sl
+                        :activation activation
+                        :entry-price entry-price
+                        :entry-time entry-time
+                        :exit-price exit-price
+                        :exit-time exit-time))))
 
 (def (function d) update-metrics (metrics metrics-id)
   (conn
@@ -420,31 +421,32 @@ returns an object of type <TRADE>.
        (update-dao dao)))))
 
 (def (function d) insert-metrics (metrics)
-  (conn (make-dao '<metrics>
-                  :begin-time (assoccess-default metrics :begin-time -1)
-                  :end-time (assoccess-default metrics :end-time -1)
-                  :dataset-size (assoccess-default metrics :dataset-size -1)
-                  :avg-revenue (assoccess-default metrics :avg-revenue 0)
-                  :stdev-revenue (assoccess-default metrics :stdev-revenue -1)
-                  :total-revenue (assoccess-default metrics :total-revenue 0)
-                  :avg-return (assoccess-default metrics :avg-return 0)
-                  :total-return (assoccess-default metrics :total-return 0)
-                  :avg-max-pos (assoccess-default metrics :avg-max-pos 0)
-                  :stdev-max-pos (assoccess-default metrics :stdev-max-pos -1)
-                  :avg-max-neg (assoccess-default metrics :avg-max-neg 0)
-                  :stdev-max-neg (assoccess-default metrics :stdev-max-neg -1)
-                  :avg-tp (assoccess-default metrics :avg-tp 0)
-                  :stdev-tp (assoccess-default metrics :stdev-tp -1)
-                  :avg-sl (assoccess-default metrics :avg-sl 0)
-                  :stdev-sl (assoccess-default metrics :stdev-sl -1)
-                  :avg-activation (assoccess-default metrics :avg-activation 0)
-                  :stdev-activation (assoccess-default metrics :stdev-activation -1)
-                  :max-tp (assoccess-default metrics :max-tp 0)
-                  :min-tp (assoccess-default metrics :min-tp 0)
-                  :max-sl (assoccess-default metrics :max-sl 0)
-                  :min-sl (assoccess-default metrics :min-sl 0)
-                  :trades-won (assoccess-default metrics :trades-won -1)
-                  :trades-lost (assoccess-default metrics :trades-lost -1))))
+  (conn (insert-dao
+         (make-instance '<metrics>
+                        :begin-time (assoccess-default metrics :begin-time -1)
+                        :end-time (assoccess-default metrics :end-time -1)
+                        :dataset-size (assoccess-default metrics :dataset-size -1)
+                        :avg-revenue (assoccess-default metrics :avg-revenue 0)
+                        :stdev-revenue (assoccess-default metrics :stdev-revenue -1)
+                        :total-revenue (assoccess-default metrics :total-revenue 0)
+                        :avg-return (assoccess-default metrics :avg-return 0)
+                        :total-return (assoccess-default metrics :total-return 0)
+                        :avg-max-pos (assoccess-default metrics :avg-max-pos 0)
+                        :stdev-max-pos (assoccess-default metrics :stdev-max-pos -1)
+                        :avg-max-neg (assoccess-default metrics :avg-max-neg 0)
+                        :stdev-max-neg (assoccess-default metrics :stdev-max-neg -1)
+                        :avg-tp (assoccess-default metrics :avg-tp 0)
+                        :stdev-tp (assoccess-default metrics :stdev-tp -1)
+                        :avg-sl (assoccess-default metrics :avg-sl 0)
+                        :stdev-sl (assoccess-default metrics :stdev-sl -1)
+                        :avg-activation (assoccess-default metrics :avg-activation 0)
+                        :stdev-activation (assoccess-default metrics :stdev-activation -1)
+                        :max-tp (assoccess-default metrics :max-tp 0)
+                        :min-tp (assoccess-default metrics :min-tp 0)
+                        :max-sl (assoccess-default metrics :max-sl 0)
+                        :min-sl (assoccess-default metrics :min-sl 0)
+                        :trades-won (assoccess-default metrics :trades-won -1)
+                        :trades-lost (assoccess-default metrics :trades-lost -1)))))
 
 ;; Use this generalized function instead
 (def (function d) get-strategy (instrument timeframe method &optional (name ""))
@@ -575,36 +577,54 @@ returns an object of type <TRADE>.
 UPDATE-UNIQUE-DATASETS updates the values in *UNIQUE-DATASETS* with
 more recent unique datasets.
 "
-  (loop for instrument in hscom.hsage:*instruments*
-        do (loop for timeframe in hscom.hsage:*timeframes*
-                 do (bind ((rates (if hscom.all:*is-production*
-                                      (get-rates-count-big instrument timeframe (+ *creation-dataset-size*
-                                                                                    *training-dataset-size*
-                                                                                    *testing-dataset-size*))
-                                      (get-rates-random-count-big instrument timeframe (+ *creation-dataset-size*
-                                                                                           *training-dataset-size*
-                                                                                           *testing-dataset-size*)))))
-                      ;; Storing rates.
-                      (setf (gethash `(,instrument ,timeframe) *datasets*) (coerce rates 'vector))
-                      ;; Storing unique datasets.
-                      (setf (gethash `(,instrument ,timeframe :creation) *unique-datasets*)
-                            (get-unique-dataset (subseq rates
-                                                        0
-                                                        *creation-dataset-size*)
-                                                *unique-count* *lookahead* *lookbehind*))
-                      (setf (gethash `(,instrument ,timeframe :training) *unique-datasets*)
-                            ;; We need to offset the indexes so they match the rates in *DATASETS*.
-                            (mapcar ^(+ _ *creation-dataset-size*)
-                                    (get-unique-dataset (subseq rates
-                                                                *creation-dataset-size*
-                                                                (+ *creation-dataset-size* *training-dataset-size*))
-                                                        *unique-count* *lookahead* *lookbehind*)))
-                      (setf (gethash `(,instrument ,timeframe :testing) *unique-datasets*)
-                            (mapcar ^(+ _ (+ *creation-dataset-size* *training-dataset-size*))
-                                    (get-unique-dataset (subseq rates
-                                                                (+ *creation-dataset-size* *training-dataset-size*))
-                                                        *unique-count* *lookahead* *lookbehind*)))))))
+  (bind ((environments-count 3)
+         (dataset-size (+ *creation-dataset-size*
+                          *training-dataset-size*
+                          *testing-dataset-size*
+                          (* *lookahead*
+                             environments-count)
+                          (* *lookbehind*
+                             environments-count)))
+         (creation-dataset-size (+ *creation-dataset-size*
+                                   *lookahead*
+                                   *lookbehind*))
+         (training-dataset-size (+ *training-dataset-size*
+                                   *lookahead*
+                                   *lookbehind*))
+         (testing-dataset-size (+ *testing-dataset-size*
+                                  *lookahead*
+                                  *lookbehind*)))
+        (loop for instrument in hscom.hsage:*instruments*
+              do (loop for timeframe in hscom.hsage:*timeframes*
+                       do (bind ((rates (if hscom.all:*is-production*
+                                            (get-rates-count-big instrument timeframe dataset-size)
+                                            (get-rates-random-count-big instrument timeframe dataset-size))))
+                                ;; Storing rates.
+                                (setf (gethash `(,instrument ,timeframe) *datasets*) (coerce rates 'vector))
+                                ;; Storing unique datasets.
+                                (setf (gethash `(,instrument ,timeframe :creation) *unique-datasets*)
+                                      (get-unique-dataset (subseq rates
+                                                                  0
+                                                                  creation-dataset-size)
+                                                          *unique-count* *lookahead* *lookbehind*))
+                                (setf (gethash `(,instrument ,timeframe :training) *unique-datasets*)
+                                      ;; We need to offset the indexes so they match the rates in *DATASETS*.
+                                      (mapcar ^(+ _ creation-dataset-size)
+                                              (get-unique-dataset (subseq rates
+                                                                          creation-dataset-size
+                                                                          (+ creation-dataset-size training-dataset-size))
+                                                                  *unique-count* *lookahead* *lookbehind*)))
+                                (setf (gethash `(,instrument ,timeframe :testing) *unique-datasets*)
+                                      (mapcar ^(+ _ (+ creation-dataset-size training-dataset-size))
+                                              (get-unique-dataset (subseq rates
+                                                                          (+ creation-dataset-size training-dataset-size))
+                                                                  *unique-count* *lookahead* *lookbehind*))))))))
 ;; (time (update-unique-datasets))
+;; (get-unique-dataset-idxs :AUD_USD)
+;; (length (get-unique-dataset-idxs :GBP_USD :M15 :creation))
+;; (loop for instrument in hscom.hsage:*instruments*
+;;       do (print (length (get-unique-dataset-idxs instrument :M15 :testing))))
+;; (loop for i in (get-unique-dataset-idxs :AUD_USD :M15 :testing) minimize i)
 
 (def (function d) optimize-human-strategy (instrument timeframe human-strategy
                                                       &key (maximize nil)
@@ -1838,8 +1858,7 @@ more recent unique datasets.
                                                    (get-agents instrument timeframe))))
                    existing-agents
                    (list (evaluate-agent (funcall gen-agent-fn) instrument timeframe :training))))
-         (fitnesses (evaluate-agents instrument timeframe :training agents))
-         )
+         (fitnesses (evaluate-agents instrument timeframe :training agents)))
     (dbg (assoccess fitnesses :avg-return))
     (loop repeat stop-count
           do (bind ((trial-agents (if (> (length agents) 100)

@@ -554,16 +554,25 @@ returns an object of type <TRADE>.
 ;; (gen-population-from-genomes )
 
 (def (function d) get-dataset (instrument timeframe &optional environment)
-  (bind ((dataset (gethash (list instrument timeframe) *datasets*)))
+  (bind ((dataset (gethash (list instrument timeframe) *datasets*))
+         (creation-dataset-size (+ *creation-dataset-size*
+                                    *lookahead*
+                                    *lookbehind*))
+         (training-dataset-size (+ *training-dataset-size*
+                                    *lookahead*
+                                    *lookbehind*))
+         (testing-dataset-size (+ *testing-dataset-size*
+                                   *lookahead*
+                                   *lookbehind*)))
     (if environment
         (cond ((eq environment :creation) (subseq dataset
                                                   0
-                                                  *creation-dataset-size*))
+                                                  creation-dataset-size))
               ((eq environment :training) (subseq dataset
-                                                  *creation-dataset-size*
-                                                  (+ *creation-dataset-size* *training-dataset-size*)))
+                                                  creation-dataset-size
+                                                  (+ creation-dataset-size training-dataset-size)))
               ((eq environment :testing) (subseq dataset
-                                                 (+ *creation-dataset-size* *training-dataset-size*)))
+                                                 (+ creation-dataset-size training-dataset-size)))
               (t (error "Undefined environment.")))
         dataset)))
 ;; (length (get-dataset :EUR_USD :M15 :creation))
@@ -621,6 +630,7 @@ more recent unique datasets.
                                                                   *unique-count* *lookahead* *lookbehind*))))))))
 ;; (time (update-unique-datasets))
 ;; (get-unique-dataset-idxs :AUD_USD)
+;; (get-unique-dataset-idxs :AUD_USD :M15 :creation)
 ;; (length (get-unique-dataset-idxs :GBP_USD :M15 :creation))
 ;; (loop for instrument in hscom.hsage:*instruments*
 ;;       do (print (length (get-unique-dataset-idxs instrument :M15 :testing))))
@@ -1967,7 +1977,7 @@ more recent unique datasets.
                          (when (and (> evaluations stop-count)
                                     (eq stop-criterion :evaluations))
                            (return-from opt))))))
-               (when (= (mod evaluations 10) 0)
+               (when (= (mod evaluations 100) 0)
                  ($log $debug (format nil "Optimized for ~a for ~a ~a" evaluations instrument timeframe))))))
   ($log $trace :<- :optimization))
 

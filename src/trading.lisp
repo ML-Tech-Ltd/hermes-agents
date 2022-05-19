@@ -2179,12 +2179,13 @@ more recent unique datasets.
     ($log $info (format nil "Trying to validate ~a trades." (length trades)))
     (bind ((oldest (first (sort (copy-sequence 'list trades) #'< :key ^(assoccess _ :entry-time))))
            ;; (newest (first (sort (copy-sequence 'list trades) #'> :key #'-get-trade-time)))
-           (rates (get-rates-range-big instrument
-                                       hscom.hsage:*validation-timeframe*
-                                       (assoccess oldest :entry-time)
-                                       ;; (-get-trade-time newest)
-                                       (now)
-                                       )))
+           (rates (^(coerce _ 'vector)
+                    (get-rates-range-big instrument
+                                         hscom.hsage:*validation-timeframe*
+                                         (assoccess oldest :entry-time)
+                                         ;; (-get-trade-time newest)
+                                         (now)
+                                         ))))
       (loop for trade in trades
             do (bind ((idx (position (-get-trade-time trade)
                                      rates :test #'<= :key (lambda (rate) (assoccess rate :time)))))

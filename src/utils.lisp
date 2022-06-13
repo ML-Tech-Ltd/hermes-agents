@@ -12,7 +12,8 @@
            #:refresh-memory
            #:sorted-indexes
            #:prepare-agents-properties
-           #:format-rr)
+           #:format-rr
+           #:format-table)
   (:nicknames #:hsage.utils))
 (in-package :hermes-agents.utils)
 
@@ -95,7 +96,7 @@
                               ;; (string= key "CREATION-BEGIN-TIME")
                               ;; (string= key "CREATION-END-TIME")
                               ;; (string= key "BEGIN-TIME")
-                              ;; 	 (string= key "END-TIME")
+                              ;;     (string= key "END-TIME")
 
                               ;; (string= key "MIN-TP")
                               ;; (string= key "MIN-SL")
@@ -143,4 +144,3 @@
               (/ (* 10000 (abs reward))
                  (* 10000 (abs risk))))))
 ;; (format-rr 10 30)
-

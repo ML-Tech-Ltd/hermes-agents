@@ -28,12 +28,15 @@
                 #:*ignore-test-conditions-p*
                 #:*lookahead*
                 #:*lookbehind*
-                #:*unique-count*
+                #:*unique-count-creation*
+                #:*unique-count-training*
+                #:*unique-count-testing*
                 #:*max-agents-count*
                 #:*min-agents-count*
                 #:*creation-dataset-size*
                 #:*training-dataset-size*
-                #:*testing-dataset-size*)
+                #:*testing-dataset-size*
+                #:*initial-agent-count*)
   (:import-from #:hsper
                 #:get-perceptions
                 #:nth-perception
@@ -615,26 +618,38 @@ more recent unique datasets.
                                       (get-unique-dataset (subseq rates
                                                                   0
                                                                   creation-dataset-size)
-                                                          *unique-count* *lookahead* *lookbehind*))
+                                                          *unique-count-creation* *lookahead* *lookbehind*))
                                 (setf (gethash `(,instrument ,timeframe :training) *unique-datasets*)
                                       ;; We need to offset the indexes so they match the rates in *DATASETS*.
                                       (mapcar ^(+ _ creation-dataset-size)
                                               (get-unique-dataset (subseq rates
                                                                           creation-dataset-size
                                                                           (+ creation-dataset-size training-dataset-size))
-                                                                  *unique-count* *lookahead* *lookbehind*)))
+                                                                  *unique-count-training* *lookahead* *lookbehind*)))
                                 (setf (gethash `(,instrument ,timeframe :testing) *unique-datasets*)
                                       (mapcar ^(+ _ (+ creation-dataset-size training-dataset-size))
                                               (get-unique-dataset (subseq rates
                                                                           (+ creation-dataset-size training-dataset-size))
-                                                                  *unique-count* *lookahead* *lookbehind*))))))))
+                                                                  *unique-count-testing* *lookahead* *lookbehind*))))))))
 ;; (time (update-unique-datasets))
-;; (get-unique-dataset-idxs :AUD_USD)
-;; (get-unique-dataset-idxs :AUD_USD :M15 :creation)
+;; (get-unique-dataset-idxs :AUD_USD :M15 :training)
 ;; (length (get-unique-dataset-idxs :GBP_USD :M15 :creation))
 ;; (loop for instrument in hscom.hsage:*instruments*
 ;;       do (print (length (get-unique-dataset-idxs instrument :M15 :testing))))
 ;; (loop for i in (get-unique-dataset-idxs :AUD_USD :M15 :testing) minimize i)
+
+;; (length (get-dataset :AUD_USD :M15 :testing))
+;; (loop for instrument in hscom.hsage:*instruments*
+;;       do (format t "~a ~2$~%" instrument
+;;                  (to-pips instrument
+;;                           (mean (loop for i from 0 to (- (length (get-dataset instrument :M15 :testing)) 2)
+;;                                       collect (abs (- (assoccess (aref (get-dataset instrument :M15 :testing) i) :close-bid)
+;;                                                        (assoccess (aref (get-dataset instrument :M15 :testing) (1+ i)) :close-bid))))))))
+
+;; (cdr (get-dataset instrument :M15 :testing))
+;; (loop for instrument in hscom.hsage:*instruments*
+;;       do (loop for r across (get-dataset instrument :M15 :testing)
+;;                collect (assoccess r :close-bid)))
 
 (def (function d) optimize-human-strategy (instrument timeframe human-strategy
                                                       &key (maximize nil)
@@ -1164,33 +1179,36 @@ more recent unique datasets.
   (bind ((tps (->agent-metric agent :tps))
          (avg-return (->agent-metric agent :avg-return)))
     (or (= (length tps) 0)
-        (<= avg-return
-            hscom.hsage:*min-agent-avg-return*)
-        (< (length tps)
-           hscom.hsage:*min-num-trades-training*))))
+        ;; (<= avg-return
+        ;;     hscom.hsage:*min-agent-avg-return*)
+        ;; (< (length tps)
+        ;;    hscom.hsage:*min-num-trades-training*)
+        )))
 
-(def (function d) agent-dominated?-pareto (agent agents &optional (logp nil))
-  (if (-base-reject agent)
-      ;; AGENT is dominated.
-      t
-      (bind ((agent-id-0 (slot-value agent 'id))
-             (avg-revenue-0 (->agent-metric agent :avg-revenue))
-             (trades-won-0 (->agent-metric agent :trades-won))
-             (trades-lost-0 (->agent-metric agent :trades-lost))
-             (agent-direction-0 (nth 0 (->agent-metric agent :tps)))
-             (avg-return-0 (->agent-metric agent :avg-return))
-             (total-return-0 (->agent-metric agent :total-return))
-             (activations-0 (->agent-metric agent :activations))
-             (returns-0 (->agent-metric agent :returns))
-             ;; (agent-directions (->agent-metric agent :tps))
-             (stdev-revenue-0 (->agent-metric agent :stdev-revenue))
-             ;; (entry-times-0 (->agent-metric agent :entry-times))
+(def (function d) agent-dominated?-pareto (instrument timeframe challenger agents &optional (logp nil))
+  (if (-base-reject challenger)
+      ;; Challenger AGENT is dominated.
+      (progn
+        (log-agents-write instrument timeframe :crap challenger)
+        t)
+      (bind ((challenger-avg-revenue (->agent-metric challenger :avg-revenue))
+             (challenger-trades-won (->agent-metric challenger :trades-won))
+             (challenger-trades-lost (->agent-metric challenger :trades-lost))
+             (challenger-agent-direction (nth 0 (->agent-metric challenger :tps)))
+             (challenger-avg-return (->agent-metric challenger :avg-return))
+             (challenger-total-return (->agent-metric challenger :total-return))
+             (challenger-activations (->agent-metric challenger :activations))
+             (challenger-returns (->agent-metric challenger :returns))
+             ;; (challenger-agent-directions (->agent-metric challenger :tps))
+             (challenger-stdev-revenue (->agent-metric challenger :stdev-revenue))
+             ;; (challenger-entry-times (->agent-metric challenger :entry-times))
+             (challenger-avg-activation (->agent-metric challenger :avg-activation))
+             (challenger-stdev-activation (->agent-metric challenger :stdev-activation))
              (is-dominated? nil))
-        ;; (format t "~a, ~a, ~a~%~%" avg-revenue-0 trades-won-0 trades-lost-0)
+        ;; (format t "~a, ~a, ~a~%~%" challenger-avg-revenue challenger-trades-won challenger-trades-lost)
         (loop for agent in agents
               do (when (> (length (->agent-metric agent :tps)) 0)
-                   (bind ((agent-id (->agent-metric agent :id))
-                          (avg-revenue (->agent-metric agent :avg-revenue))
+                   (bind ((avg-revenue (->agent-metric agent :avg-revenue))
                           (trades-won (->agent-metric agent :trades-won))
                           (trades-lost (->agent-metric agent :trades-lost))
                           (agent-direction (nth 0 (->agent-metric agent :tps)))
@@ -1198,31 +1216,42 @@ more recent unique datasets.
                           (total-return (->agent-metric agent :total-return))
                           (activations (->agent-metric agent :activations))
                           (returns (->agent-metric agent :returns))
-                          ;; (agent-directions (->agent-metric agent :tps))
+                          ;; (challenger-agent-directions (->agent-metric agent :tps))
                           (stdev-revenue (->agent-metric agent :stdev-revenue))
                           ;; (entry-times (->agent-metric agent :entry-times))
+                          (avg-activation (->agent-metric agent :avg-activation))
+                          (stdev-activation (->agent-metric agent :stdev-activation))
                           )
                      ;; Fitnesses currently being used.
                      (when (or
-                            ;; (<= total-return-0 0)
+                            ;; (<= challenger-total-return 0)
                             (and
-                             ;; (> (* agent-direction-0 agent-direction) 0)
-                             ;; (>= avg-revenue avg-revenue-0)
-                             ;; (< stdev-revenue stdev-revenue-0)
+                             ;; (> (* challenger-agent-direction agent-direction) 0)
 
-                             (>= trades-won trades-won-0)
-                             (<= trades-lost trades-lost-0)
-                             (>= avg-return avg-return-0)
-                             (>= total-return total-return-0)
+                             ;; (>= avg-revenue challenger-avg-revenue)
+                             ;; (< stdev-revenue challenger-stdev-revenue)
+                             ;; (>= avg-activation challenger-avg-activation)
+                             ;; (< stdev-activation challenger-stdev-activation)
+
+                             (>= trades-won challenger-trades-won)
+                             (<= trades-lost challenger-trades-lost)
+                             (>= avg-return challenger-avg-return)
+                             (>= total-return challenger-total-return)
                              (>= (/ trades-won
                                     (+ trades-won trades-lost))
-                                 (/ trades-won-0
-                                    (+ trades-won-0 trades-lost-0)))
-                             ;; (vector-1-similarity entry-times entry-times-0)
+                                 (/ challenger-trades-won
+                                    (+ challenger-trades-won challenger-trades-lost)))
+                             ;; (vector-1-similarity entry-times challenger-entry-times)
                              ))
                        ;; Candidate agent was dominated.
+                       ;; (log-agents-write instrument timeframe :beta challenger)
+                       ;; (log-agents-write instrument timeframe :alpha agent)
+                       (log-agents-write instrument timeframe :battle agent challenger)
                        (setf is-dominated? t)
                        (return)))))
+        (if is-dominated?
+            (log-agents-write instrument timeframe :crap challenger)
+            (log-agents-write instrument timeframe :winner challenger))
         is-dominated?)))
 
 (def (function d) agent-dominated?-mactavator (agent agents &optional (logp nil))
@@ -1757,9 +1786,7 @@ more recent unique datasets.
                           (> (abs (assoccess tp-sl :sl)) (from-pips instrument hscom.hsage:*min-sl*))
                           (> (abs (/ (assoccess tp-sl :tp)
                                      (assoccess tp-sl :sl)))
-                             hscom.hsage:*agents-min-rr-creation*)
-                          (or (eq instrument :USD_CNH)
-                              (< (abs (assoccess tp-sl :tp)) (from-pips instrument hscom.hsage:*max-tp*))))
+                             hscom.hsage:*agents-min-rr-creation*))
                  (push idx result))))
     (if (> (length result) 1)
         result
@@ -1862,63 +1889,201 @@ more recent unique datasets.
       (make-ant-con chosen-inputs chosen-outputs))))
 ;; (plot-agent-rules *agent*)
 
+(def (function d) log-agents-write-single (type agent)
+  (bind ((agent-id (id agent))
+         (metrics (.metrics agent))
+         (avg-revenue (assoccess metrics :avg-revenue))
+         (trades-won (assoccess metrics :trades-won))
+         (trades-lost (assoccess metrics :trades-lost))
+         (avg-return (assoccess metrics :avg-return))
+         (total-return (assoccess metrics :total-return))
+         (avg-sl (assoccess metrics :avg-sl))
+         (avg-tp (assoccess metrics :avg-tp))
+         (metric-labels '("AVG-REVENUE" "TRADES-WON" "TRADES-LOST" "AVG-RETURN" "TOTAL-RETURN" "AVG-RR" "DIRECTION")))
+    (with-open-stream (s (make-string-output-stream))
+      (format s "(~a) ~a~%" type agent-id)
+      (format-table s `((,(format nil "~6$" avg-revenue)
+                         ,trades-won
+                         ,trades-lost
+                         ,(format nil "~2$" avg-return)
+                         ,(format nil "~2$" total-return)
+                         ,(format-rr avg-sl avg-tp)
+                         ,(if (plusp avg-tp) "BULL" "BEAR")))
+                    :column-label metric-labels)
+      (get-output-stream-string s))
+    ;; `(((:avg-revenue . ,(format nil "~6$" avg-revenue))
+    ;;    (:trades-won . ,trades-won)
+    ;;    (:trades-lost . ,trades-lost)
+    ;;    (:avg-return . ,(format nil "~2$" avg-return))
+    ;;    (:total-return . ,(format nil "~2$" total-return))
+    ;;    (:avg-rr . ,(format-rr avg-sl avg-tp))
+    ;;    (:direction . ,(if (plusp avg-tp) "BULL" "BEAR"))))
+    ))
+
+;; (log-agents-write-single :crap (first (get-agents :AUD_USD :M15)))
+
+(def (function d) log-agents-write-battle (type agent1 agent2)
+  (bind ((agent-id-1 (id agent1))
+         (agent-id-2 (id agent2))
+         (metrics1 (.metrics agent1))
+         (metrics2 (.metrics agent2))
+         (avg-revenue-1 (assoccess metrics1 :avg-revenue))
+         (trades-won-1 (assoccess metrics1 :trades-won))
+         (trades-lost-1 (assoccess metrics1 :trades-lost))
+         (avg-return-1 (assoccess metrics1 :avg-return))
+         (total-return-1 (assoccess metrics1 :total-return))
+         (avg-sl-1 (assoccess metrics1 :avg-sl))
+         (avg-tp-1 (assoccess metrics1 :avg-tp))
+         (avg-revenue-2 (assoccess metrics2 :avg-revenue))
+         (trades-won-2 (assoccess metrics2 :trades-won))
+         (trades-lost-2 (assoccess metrics2 :trades-lost))
+         (avg-return-2 (assoccess metrics2 :avg-return))
+         (total-return-2 (assoccess metrics2 :total-return))
+         (avg-sl-2 (assoccess metrics2 :avg-sl))
+         (avg-tp-2 (assoccess metrics2 :avg-tp))
+         (metric-labels '("AVG-REVENUE" "TRADES-WON" "TRADES-LOST" "AVG-RETURN" "TOTAL-RETURN" "AVG-RR" "DIRECTION"
+                          "avg-revenue" "trades-won" "trades-lost" "avg-return" "total-return" "avg-rr" "direction")))
+    (with-open-stream (s (make-string-output-stream))
+      (format s "(~a) ~a >><< ~a~%" type agent-id-1 agent-id-2)
+      (format-table s `((,(format nil "~6$" avg-revenue-1)
+                         ,trades-won-1
+                         ,trades-lost-1
+                         ,(format nil "~2$" avg-return-1)
+                         ,(format nil "~2$" total-return-1)
+                         ,(format-rr avg-sl-1 avg-tp-1)
+                         ,(if (plusp avg-tp-1) "BULL" "BEAR")
+                         ,(format nil "~6$" avg-revenue-2)
+                         ,trades-won-2
+                         ,trades-lost-2
+                         ,(format nil "~2$" avg-return-2)
+                         ,(format nil "~2$" total-return-2)
+                         ,(format-rr avg-sl-2 avg-tp-2)
+                         ,(if (plusp avg-tp-2) "BULL" "BEAR")))
+                    :column-label metric-labels)
+      (get-output-stream-string s))
+    ;; `(((:avg-revenue-1 . ,(format nil "~6$" avg-revenue-1))
+    ;;    (:trades-won-1 . ,trades-won-1)
+    ;;    (:trades-lost-1 . ,trades-lost-1)
+    ;;    (:avg-return-1 . ,(format nil "~2$" avg-return-1))
+    ;;    (:total-return-1 . ,(format nil "~2$" total-return-1))
+    ;;    (:avg-rr-1 . ,(format-rr avg-sl avg-tp-1))
+    ;;    (:direction-1 . ,(if (plusp avg-tp-1) "BULL" "BEAR"))
+    ;;    (:avg-revenue-2 . ,(format nil "~6$" avg-revenue-2))
+    ;;    (:trades-won-2 . ,trades-won-2)
+    ;;    (:trades-lost-2 . ,trades-lost-2)
+    ;;    (:avg-return-2 . ,(format nil "~2$" avg-return-2))
+    ;;    (:total-return-2 . ,(format nil "~2$" total-return-2))
+    ;;    (:avg-rr-2 . ,(format-rr avg-sl avg-tp-2))
+    ;;    (:direction-2 . ,(if (plusp avg-tp-2) "BULL" "BEAR"))))
+    ))
+
+(bind ((log (make-hash-table :test 'equal :synchronized t))
+       (max-log-size 10000)
+       (to-kill 5000))
+  (def (function d) log-agents-write (instrument timeframe type agent1 &optional agent2)
+    (pushnew
+     (if agent2
+         (log-agents-write-battle type agent1 agent2)
+         (log-agents-write-single type agent1))
+     (gethash (list instrument timeframe) log))
+    (when (> (length (gethash (list instrument timeframe) log)) max-log-size)
+      (setf (gethash (list instrument timeframe) log)
+            (butlast (gethash (list instrument timeframe) log) to-kill))))
+  (def (function d) log-agents-read (instrument timeframe)
+    ;; (json:encode-json-to-string (gethash (list instrument timeframe) log))
+    (format nil "~{~a~%~}"(gethash (list instrument timeframe) log))
+    )
+
+  ;; HTTP Server
+  (defvar *app* (make-instance 'ningle:app))
+  (setf (ningle:route *app* "/:instrument/:timeframe" :method :get)
+        #'(lambda (params)
+            (setf (lack.response:response-headers ningle:*response*)
+                  (append (lack.response:response-headers ningle:*response*)
+                          (list :content-type "text/plain")))
+            (setf *coco* (assoccess params :instrument))
+            (log-agents-read (make-keyword (nstring-upcase (assoccess params :instrument)))
+                             (make-keyword (nstring-upcase (assoccess params :timeframe))))))
+  (clack:clackup *app*)
+  )
+
+;; (length (log-agents-read :AUD_USD :M15))
+;; (log-agents-read :AUD_USD :M15)
+
+(def (special-variable) *train* nil)
+(def (special-variable) *test* nil)
+
 (def (function d) pool-optimization (instrument timeframe gen-agent-fn stop-count)
   ($log $trace :-> :pool-optimization)
-  (bind ((agents (if-let ((existing-agents (mapcar ^(evaluate-agent _ instrument timeframe :training)
+  (bind ((fitness-metric :avg-return)
+         (report-metric :avg-return)
+         (agents (if-let ((existing-agents (mapcar ^(evaluate-agent _ instrument timeframe :training)
                                                    (get-agents instrument timeframe))))
                    existing-agents
-                   (list (evaluate-agent (funcall gen-agent-fn) instrument timeframe :training))))
+                   (loop repeat *initial-agent-count*
+                         collect (evaluate-agent (funcall gen-agent-fn) instrument timeframe :training))))
          (fitnesses (evaluate-agents instrument timeframe :training agents)))
-    (dbg (assoccess fitnesses :avg-return))
+    (dbg "starting" (length agents))
     (loop repeat stop-count
           do (bind ((trial-agents (if (> (length agents) 100)
-                                      (bind ((idx (random (length agents))))
+                                      (bind (;; (idx (random (length agents)))
+                                             (idx (position 0
+                                                            (hsage.utils:sorted-indexes (loop for agent in agents
+                                                                                              collect (assoccess (.metrics agent) :trades-won)))))
+                                             )
                                         (append (subseq agents 0 idx)
-                                                (subseq agents (1+ idx))))
+                                                (subseq agents (1+ idx))
+                                                (list (evaluate-agent (funcall gen-agent-fn) instrument timeframe :training))))
                                       (append (list (evaluate-agent (funcall gen-agent-fn) instrument timeframe :training))
                                               agents)))
                     (trial-fitnesses (evaluate-agents instrument timeframe :training trial-agents)))
                (when (> (assoccess trial-fitnesses :avg-return)
                         (assoccess fitnesses :avg-return))
-                 (dbg "train" (assoccess trial-fitnesses :avg-return))
+                 (push (assoccess trial-fitnesses report-metric) *train*)
                  (setf agents trial-agents)
                  (setf fitnesses trial-fitnesses)
                  (setf (gethash (list instrument timeframe) *agents-cache*) agents)
                  (sync-agents instrument timeframe)
-                 (dbg "test" (assoccess (evaluate-agents instrument timeframe :testing trial-agents) :avg-return)))
-               ))
-    (dbg (assoccess fitnesses :avg-return))
+                 (push (assoccess (evaluate-agents instrument timeframe :testing trial-agents) report-metric) *test*))))
     (values agents fitnesses))
   ($log $trace :<- :pool-optimization))
 
-(comment
-  (update-unique-datasets)
-  ;; (progn (hsage.db:drop-database) (hsage.db:init-database) (when hscom.all:*is-production* (hsage::clear-jobs)))
-  ;; (def (special-variable) *agents-cache* (make-hash-table :test 'equal :synchronized t))
+;; (comment
+;;   (update-unique-datasets)
 
-  ;; (require :sb-sprof)
-  ;; (sb-sprof:start-profiling :max-depth 1)
-  ;; (sb-sprof:report :type :flat)
-  ;; (sb-sprof:reset)
+;;   (progn
+;;     (progn (hsage.db:drop-database) (hsage.db:init-database) (when hscom.all:*is-production* (hsage::clear-jobs)))
+;;     (def (special-variable) *agents-cache* (make-hash-table :test 'equal :synchronized t))
+;;     (def (special-variable) *train* nil)
+;;     (def (special-variable) *test* nil))
 
-  ;; (require :sb-profile)
-  ;; (sb-profile:profile "HERMES-AGENTS" "HERMES-PERCEPTION")
-  ;; (sb-profile:report :print-no-call-list nil)
-  ;; (sb-profile:reset)
+;;   ;; (require :sb-sprof)
+;;   ;; (sb-sprof:start-profiling :max-depth 1)
+;;   ;; (sb-sprof:report :type :flat)
+;;   ;; (sb-sprof:reset)
 
-  (time
-   (bind ((instrument :EUR_JPY)
-          (timeframe :M15))
-     (pool-optimization instrument timeframe
-                        (lambda () (let ((beliefs (hsper:gen-random-perceptions hscom.hsage:*number-of-agent-inputs*)))
-                                     (gen-agent hscom.hsage:*number-of-agent-rules*
-                                                instrument
-                                                timeframe
-                                                (assoccess beliefs :perception-fns)
-                                                hscom.hsage:*lookahead*
-                                                hscom.hsage:*lookbehind*)))
-                        1000)))
-  )
+;;   ;; (require :sb-profile)
+;;   ;; (sb-profile:profile "HERMES-AGENTS" "HERMES-PERCEPTION")
+;;   ;; (sb-profile:report :print-no-call-list nil)
+;;   ;; (sb-profile:reset)
+
+;;   (loop for train in (reverse *train*)
+;;         for test in (reverse *test*)
+;;         do (dbg train test))
+;;   hscom.hsage:*instruments*
+;;   (time
+;;    (bind ((instrument :AUD_USD)
+;;           (timeframe :M15))
+;;      (pool-optimization instrument timeframe
+;;                         (lambda () (let ((beliefs (hsper:gen-random-perceptions hscom.hsage:*number-of-agent-inputs*)))
+;;                                      (gen-agent hscom.hsage:*number-of-agent-rules*
+;;                                                 instrument
+;;                                                 timeframe
+;;                                                 (assoccess beliefs :perception-fns)
+;;                                                 hscom.hsage:*lookahead*
+;;                                                 hscom.hsage:*lookbehind*)))
+;;                         1000)))
+;;   )
 
 (def (function d) optimization (instrument timeframe gen-agent-fn stop-count &optional (stop-criterion))
   ($log $trace :-> :optimization)
@@ -1949,7 +2114,7 @@ more recent unique datasets.
                    (block opt
                      (bind ((challenger (list (evaluate-agent (funcall gen-agent-fn) instrument timeframe :training)))
                             (is-dominated? (when hscom.hsage:*optimize-p*
-                                             (agent-dominated?-pareto (car challenger) agents t))))
+                                             (agent-dominated?-pareto instrument timeframe (car challenger) agents t))))
                        ;; No longer the first iteration after this.
                        (setf first-iteration-p nil)
                        ;; Logging agent direction.
@@ -1964,7 +2129,7 @@ more recent unique datasets.
                                do (progn
                                     ;; (incf evaluations)
                                     (if (and hscom.hsage:*optimize-p*
-                                             (agent-dominated?-pareto in-trial challenger))
+                                             (agent-dominated?-pareto instrument timeframe in-trial challenger))
                                         (remove-agent in-trial instrument timeframe)
                                         (push in-trial purged-agents))
                                     (when (and (> evaluations stop-count)

@@ -24,6 +24,8 @@
                :fare-mop
                :defenum
                :genetic-algorithm
+               :ningle
+               :clack
 
                ;; logging
                :dissect

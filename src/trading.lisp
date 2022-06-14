@@ -916,7 +916,7 @@ more recent unique datasets.
   ;; Delete agents found in A1 but not in A2
   ($log $trace :-> :sync-agents)
   (bind ((A1 (.get-agents instrument timeframe))
-        (A2 (get-agents-from-cache instrument timeframe)))
+         (A2 (get-agents-from-cache instrument timeframe)))
     ($log $debug "Database agents:" (length A1))
     ($log $debug "Cache agents:" (length A2))
     (conn
@@ -1185,7 +1185,7 @@ more recent unique datasets.
         ;;    hscom.hsage:*min-num-trades-training*)
         )))
 
-(def (function d) agent-dominated?-pareto (instrument timeframe challenger agents &optional (logp nil))
+(def (function d) agent-dominated?-pareto (instrument timeframe challenger agents &optional (trialp nil))
   (if (-base-reject challenger)
       ;; Challenger AGENT is dominated.
       (progn
@@ -1246,11 +1246,11 @@ more recent unique datasets.
                        ;; Candidate agent was dominated.
                        ;; (log-agents-write instrument timeframe :beta challenger)
                        ;; (log-agents-write instrument timeframe :alpha agent)
-                       (log-agents-write instrument timeframe :battle agent challenger)
+                       (log-agents-write instrument timeframe (if trialp :trial :challenge) agent challenger)
                        (setf is-dominated? t)
                        (return)))))
         (if is-dominated?
-            (log-agents-write instrument timeframe :crap challenger)
+            (log-agents-write instrument timeframe :loser challenger)
             (log-agents-write instrument timeframe :winner challenger))
         is-dominated?)))
 
@@ -2001,10 +2001,9 @@ more recent unique datasets.
                 (setf (lack.response:response-headers ningle:*response*)
                       (append (lack.response:response-headers ningle:*response*)
                               (list :content-type "text/plain")))
-                (setf *coco* (assoccess params :instrument))
                 (log-agents-read (make-keyword (nstring-upcase (assoccess params :instrument)))
                                  (make-keyword (nstring-upcase (assoccess params :timeframe))))))
-      (clack:clackup *app* :address "0.0.0.0")
+      (clack:clackup *app* :address "0.0.0.0" :debug nil)
       )
 
 ;; (length (log-agents-read :AUD_USD :M15))
@@ -2114,7 +2113,7 @@ more recent unique datasets.
                    (block opt
                      (bind ((challenger (list (evaluate-agent (funcall gen-agent-fn) instrument timeframe :training)))
                             (is-dominated? (when hscom.hsage:*optimize-p*
-                                             (agent-dominated?-pareto instrument timeframe (car challenger) agents t))))
+                                             (agent-dominated?-pareto instrument timeframe (car challenger) agents nil))))
                        ;; No longer the first iteration after this.
                        (setf first-iteration-p nil)
                        ;; Logging agent direction.
@@ -2129,7 +2128,7 @@ more recent unique datasets.
                                do (progn
                                     ;; (incf evaluations)
                                     (if (and hscom.hsage:*optimize-p*
-                                             (agent-dominated?-pareto instrument timeframe in-trial challenger))
+                                             (agent-dominated?-pareto instrument timeframe in-trial challenger t))
                                         (remove-agent in-trial instrument timeframe)
                                         (push in-trial purged-agents))
                                     (when (and (> evaluations stop-count)

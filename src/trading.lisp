@@ -20,23 +20,13 @@
                 #:dbg
                 #:stringify
                 #:whole-reals-to-integers
-                #:now)
-  (:import-from #:hscom.hsage
-                #:*fis-method*
-                #:*min-pips-sl*
-                #:*exhaust-rules-in-creation-dataset-p*
-                #:*ignore-test-conditions-p*
-                #:*lookahead*
-                #:*lookbehind*
-                #:*unique-count-creation*
-                #:*unique-count-training*
-                #:*unique-count-testing*
-                #:*max-agents-count*
-                #:*min-agents-count*
-                #:*creation-dataset-size*
-                #:*training-dataset-size*
-                #:*testing-dataset-size*
-                #:*initial-agent-count*)
+                #:now
+                #:sans-default)
+  (:import-from #:hscom.config
+                #:cfg<
+                #:cfg>
+                #:cfg>>
+                #:cfg$)
   (:import-from #:hsper
                 #:get-perceptions
                 #:nth-perception
@@ -245,8 +235,14 @@
           "BUY"
           "SELL")))
 
+;; (cfg< "DEVELOP" :AUD_USD :M15)
+;; (cfg> :hsage :AUD_USD :M15)
+;; (cfg$ (cfg> :hsage :AUD_USD :M15) "31323")
+
 (def (function d) insert-signal (strategy-id instrument timeframe rates idx training-fitnesses testing-fitnesses tp sl activation)
-  (bind ((training-metrics (insert-metrics training-fitnesses))
+  (bind ((instrument (alexandria:make-keyword instrument))
+         (timeframe (alexandria:make-keyword timeframe))
+         (training-metrics (insert-metrics training-fitnesses))
          (testing-metrics (insert-metrics testing-fitnesses))
          (decision (determine-decision tp sl))
          (entry-time (assoccess (aref rates idx) :time))
@@ -255,14 +251,19 @@
                           (hsinp.rates:->close-bid (aref rates idx))))
          (trade (insert-trade decision 0 0 tp sl activation
                               entry-price entry-time 0 0)))
+    (cfg$ (cfg> :hsage instrument timeframe)
+          (id testing-metrics))
     (insert-trades-from-fitnesses training-fitnesses training-metrics)
     (insert-trades-from-fitnesses testing-fitnesses testing-metrics)
-    (conn (make-dao '<signal>
-                    :trade-id (id trade)
-                    :strategy-id strategy-id
-                    :training-metrics-id (id training-metrics)
-                    :testing-metrics-id (id testing-metrics)
-                    :timestamp (now)))))
+    (bind ((signal-id (format nil "~a" (uuid:make-v4-uuid))))
+      (conn (insert-dao
+             (make-instance '<signal>
+                            :id signal-id
+                            :trade-id (id trade)
+                            :strategy-id strategy-id
+                            :training-metrics-id (id training-metrics)
+                            :testing-metrics-id (id testing-metrics)
+                            :timestamp (now)))))))
 
 (def (function d) evaluate-trade (starting-rate tp sl rates idx)
   "Refactorize this."
@@ -337,8 +338,8 @@
                    (setf max-neg (- low starting-rate))))))
     (values revenue .return exit-time exit-price max-pos max-neg finish-idx)))
 
-(def (function d) -test-conditions (instrument tp sl test-fitnesses &key (hybridp nil))
-  (or (and *ignore-test-conditions-p* ($log $debug "TEST COND. Ignoring test conditions."))
+(def (function d) -test-conditions (instrument timeframe tp sl test-fitnesses &key (hybridp nil))
+  (or (and (cfg>> :hsage :ignore-test-conditions instrument timeframe) ($log $debug "TEST COND. Ignoring test conditions."))
       (and
        (or (/= tp 0) ($log $debug "TEST COND. (/= tp 0)."))
        ;; (if (not (eq instrument :USD_CNH)) (< (assoccess prediction :tp) 100) t)
@@ -349,9 +350,9 @@
            t
            (and
             (or (> (abs (/ tp sl))
-                    hscom.hsage:*agents-min-rr-signal*)
+                    (cfg>> :hsage :agents-min-rr-signal instrument timeframe))
                  ($log $debug "TEST COND. (> (abs (/ tp sl)) *agents-min-rr-signal*)."))
-            (or (> (abs (to-pips instrument sl)) *min-pips-sl*)
+            (or (> (abs (to-pips instrument sl)) (cfg>> :hsage :min-pips-sl instrument timeframe))
                  ($log $debug (string+ "TEST COND. (> (abs (to-pips instrument sl)) *min-pips-sl*)." (to-pips instrument sl))))
             (or (/= (assoccess test-fitnesses :trades-won) 0)
                  ($log $debug "TEST COND. (/= (assoccess test-fitnesses :trades-won) 0)."))))
@@ -371,6 +372,8 @@
         do (insert-trade (determine-decision tp sl) return revenue tp sl
                          activation entry-price entry-time exit-price exit-time metrics)))
 
+;; We need a function that generates a new configuration and injects it.
+
 (def (function d) insert-trade (decision return revenue tp sl activation entry-price
                                          entry-time exit-price exit-time
                                          &optional metrics)
@@ -379,19 +382,21 @@ INSERT-TRADE creates a new trade on the database. TRADE is an alist containing
 all the data for the trade. METRICS is an object of type <METRICS>. INSERT-TRADE
 returns an object of type <TRADE>.
 "
-  (conn (insert-dao
-         (make-instance '<trade>
-                        :metrics-id (if metrics (id metrics) :null)
-                        :decision decision
-                        :return return
-                        :revenue revenue
-                        :tp tp
-                        :sl sl
-                        :activation activation
-                        :entry-price entry-price
-                        :entry-time entry-time
-                        :exit-price exit-price
-                        :exit-time exit-time))))
+  (bind ((trade-id (format nil "~a" (uuid:make-v4-uuid))))
+    (conn (insert-dao
+           (make-instance '<trade>
+                          :id trade-id
+                          :metrics-id (if metrics (id metrics) :null)
+                          :decision decision
+                          :return return
+                          :revenue revenue
+                          :tp tp
+                          :sl sl
+                          :activation activation
+                          :entry-price entry-price
+                          :entry-time entry-time
+                          :exit-price exit-price
+                          :exit-time exit-time)))))
 
 (def (function d) update-metrics (metrics metrics-id)
   (conn
@@ -558,15 +563,15 @@ returns an object of type <TRADE>.
 
 (def (function d) get-dataset (instrument timeframe &optional environment)
   (bind ((dataset (gethash (list instrument timeframe) *datasets*))
-         (creation-dataset-size (+ *creation-dataset-size*
-                                    *lookahead*
-                                    *lookbehind*))
-         (training-dataset-size (+ *training-dataset-size*
-                                    *lookahead*
-                                    *lookbehind*))
-         (testing-dataset-size (+ *testing-dataset-size*
-                                   *lookahead*
-                                   *lookbehind*)))
+         (creation-dataset-size (+ (cfg>> :hsage :creation-dataset-size)
+                                    (cfg>> :hsage :lookahead)
+                                    (cfg>> :hsage :lookbehind)))
+         (training-dataset-size (+ (cfg>> :hsage :training-dataset-size)
+                                    (cfg>> :hsage :lookahead)
+                                    (cfg>> :hsage :lookbehind)))
+         (testing-dataset-size (+ (cfg>> :hsage :testing-dataset-size)
+                                   (cfg>> :hsage :lookahead)
+                                   (cfg>> :hsage :lookbehind))))
     (if environment
         (cond ((eq environment :creation) (subseq dataset
                                                   0
@@ -584,62 +589,71 @@ returns an object of type <TRADE>.
   (gethash (list instrument timeframe environment) *unique-datasets*))
 ;; (length (get-unique-dataset-idxs :EUR_USD :M15 :testing))
 
+;; (get-rates-count-big "USD_CHF" :H1 1000)
+;; (sans-default (cfg>> :hsage :instruments))
+
 (def (function d) update-unique-datasets ()
   "
 UPDATE-UNIQUE-DATASETS updates the values in *UNIQUE-DATASETS* with
 more recent unique datasets.
 "
-  (bind ((environments-count 3)
-         (dataset-size (+ *creation-dataset-size*
-                          *training-dataset-size*
-                          *testing-dataset-size*
-                          (* *lookahead*
-                             environments-count)
-                          (* *lookbehind*
-                             environments-count)))
-         (creation-dataset-size (+ *creation-dataset-size*
-                                   *lookahead*
-                                   *lookbehind*))
-         (training-dataset-size (+ *training-dataset-size*
-                                   *lookahead*
-                                   *lookbehind*))
-         (testing-dataset-size (+ *testing-dataset-size*
-                                  *lookahead*
-                                  *lookbehind*)))
-        (loop for instrument in hscom.hsage:*instruments*
-              do (loop for timeframe in hscom.hsage:*timeframes*
-                       do (bind ((rates (if hscom.all:*is-production*
-                                            (get-rates-count-big instrument timeframe dataset-size)
-                                            (get-rates-random-count-big instrument timeframe dataset-size))))
-                                ;; Storing rates.
-                                (setf (gethash `(,instrument ,timeframe) *datasets*) (coerce rates 'vector))
-                                ;; Storing unique datasets.
-                                (setf (gethash `(,instrument ,timeframe :creation) *unique-datasets*)
-                                      (get-unique-dataset (subseq rates
-                                                                  0
-                                                                  creation-dataset-size)
-                                                          *unique-count-creation* *lookahead* *lookbehind*))
-                                (setf (gethash `(,instrument ,timeframe :training) *unique-datasets*)
-                                      ;; We need to offset the indexes so they match the rates in *DATASETS*.
-                                      (mapcar ^(+ _ creation-dataset-size)
-                                              (get-unique-dataset (subseq rates
-                                                                          creation-dataset-size
-                                                                          (+ creation-dataset-size training-dataset-size))
-                                                                  *unique-count-training* *lookahead* *lookbehind*)))
-                                (setf (gethash `(,instrument ,timeframe :testing) *unique-datasets*)
-                                      (mapcar ^(+ _ (+ creation-dataset-size training-dataset-size))
-                                              (get-unique-dataset (subseq rates
-                                                                          (+ creation-dataset-size training-dataset-size))
-                                                                  *unique-count-testing* *lookahead* *lookbehind*))))))))
+  (loop for instrument across (sans-default (cfg>> :hsage :instruments))
+        do (loop for timeframe across (sans-default (cfg>> :hsage :timeframes))
+                 do (bind ((environments-count 3)
+                           (dataset-size (+ (cfg>> :hsage :creation-dataset-size)
+                                             (cfg>> :hsage :training-dataset-size)
+                                             (cfg>> :hsage :testing-dataset-size)
+                                             (* (cfg>> :hsage :lookahead)
+                                                environments-count)
+                                             (* (cfg>> :hsage :lookbehind)
+                                                environments-count)))
+                           (creation-dataset-size (+ (cfg>> :hsage :creation-dataset-size instrument timeframe)
+                                                      (cfg>> :hsage :lookahead instrument timeframe)
+                                                      (cfg>> :hsage :lookbehind instrument timeframe)))
+                           (training-dataset-size (+ (cfg>> :hsage :training-dataset-size instrument timeframe)
+                                                      (cfg>> :hsage :lookahead instrument timeframe)
+                                                      (cfg>> :hsage :lookbehind instrument timeframe)))
+                           (testing-dataset-size (+ (cfg>> :hsage :testing-dataset-size instrument timeframe)
+                                                     (cfg>> :hsage :lookahead instrument timeframe)
+                                                     (cfg>> :hsage :lookbehind instrument timeframe)))
+                           (rates (if (cfg>> :hscom :is-production)
+                                      (get-rates-count-big instrument timeframe dataset-size)
+                                      (get-rates-random-count-big instrument timeframe dataset-size))))
+                      ;; Storing rates.
+                      (setf (gethash `(,instrument ,timeframe) *datasets*) (coerce rates 'vector))
+                      ;; Storing unique datasets.
+                      (setf (gethash `(,instrument ,timeframe :creation) *unique-datasets*)
+                            (get-unique-dataset (subseq rates
+                                                        0
+                                                        creation-dataset-size)
+                                                (cfg>> :hsage :unique-count-creation)
+                                                (cfg>> :hsage :lookahead)
+                                                (cfg>> :hsage :lookbehind)))
+                      (setf (gethash `(,instrument ,timeframe :training) *unique-datasets*)
+                            ;; We need to offset the indexes so they match the rates in *DATASETS*.
+                            (mapcar ^(+ _ creation-dataset-size)
+                                    (get-unique-dataset (subseq rates
+                                                                creation-dataset-size
+                                                                (+ creation-dataset-size training-dataset-size))
+                                                        (cfg>> :hsage :unique-count-training)
+                                                        (cfg>> :hsage :lookahead)
+                                                        (cfg>> :hsage :lookbehind))))
+                      (setf (gethash `(,instrument ,timeframe :testing) *unique-datasets*)
+                            (mapcar ^(+ _ (+ creation-dataset-size training-dataset-size))
+                                    (get-unique-dataset (subseq rates
+                                                                (+ creation-dataset-size training-dataset-size))
+                                                        (cfg>> :hsage :unique-count-testing)
+                                                        (cfg>> :hsage :lookahead)
+                                                        (cfg>> :hsage :lookbehind))))))))
 ;; (time (update-unique-datasets))
 ;; (get-unique-dataset-idxs :AUD_USD :M15 :training)
 ;; (length (get-unique-dataset-idxs :GBP_USD :M15 :creation))
-;; (loop for instrument in hscom.hsage:*instruments*
+;; (loop for instrument across (sans-default (cfg>> :hsage :instruments))
 ;;       do (print (length (get-unique-dataset-idxs instrument :M15 :testing))))
 ;; (loop for i in (get-unique-dataset-idxs :AUD_USD :M15 :testing) minimize i)
 
 ;; (length (get-dataset :AUD_USD :M15 :testing))
-;; (loop for instrument in hscom.hsage:*instruments*
+;; (loop for instrument across (sans-default (cfg>> :hsage :instruments))
 ;;       do (format t "~a ~2$~%" instrument
 ;;                  (to-pips instrument
 ;;                           (mean (loop for i from 0 to (- (length (get-dataset instrument :M15 :testing)) 2)
@@ -647,7 +661,7 @@ more recent unique datasets.
 ;;                                                        (assoccess (aref (get-dataset instrument :M15 :testing) (1+ i)) :close-bid))))))))
 
 ;; (cdr (get-dataset instrument :M15 :testing))
-;; (loop for instrument in hscom.hsage:*instruments*
+;; (loop for instrument across (sans-default (cfg>> :hsage :instruments))
 ;;       do (loop for r across (get-dataset instrument :M15 :testing)
 ;;                collect (assoccess r :close-bid)))
 
@@ -726,7 +740,7 @@ more recent unique datasets.
   ($log $trace :<- :optimize-human-strategy))
 
 (def (function d) get-signal-rates (instrument timeframe)
-  (get-rates-count-big instrument timeframe *lookbehind*))
+  (get-rates-count-big instrument timeframe (cfg>> :hsage :lookbehind)))
 ;; (get-signal-rates :AUD_USD :M15)
 
 (def (function d) signal-strategy (instrument timeframe strategy-id model)
@@ -739,7 +753,7 @@ more recent unique datasets.
                               :environment :testing
                               :model model)))
         ;; We're going to allow any trade to pass (not using -TEST-CONDITIONS).
-        (when (-test-conditions instrument tp sl test-fitnesses :hybridp t)
+        (when (-test-conditions instrument timeframe tp sl test-fitnesses :hybridp t)
           (insert-signal strategy-id instrument timeframe rates (1- (length rates)) test-fitnesses
                          test-fitnesses tp sl activation))))))
 
@@ -751,7 +765,7 @@ more recent unique datasets.
     (bind ((strategy (get-strategy instrument timeframe :hermes))
            ;; (train-fitnesses (evaluate-agents instrument timeframe :training))
            (test-fitnesses (evaluate-agents instrument timeframe :testing)))
-      (when (-test-conditions instrument tp sl test-fitnesses)
+      (when (-test-conditions instrument timeframe tp sl test-fitnesses)
         (insert-signal (id strategy) instrument timeframe rates (1- (length rates)) test-fitnesses test-fitnesses tp sl activation)
         )))))
 
@@ -784,7 +798,7 @@ more recent unique datasets.
     (loop for idx in idxs
           do (multiple-value-bind (tp sl activation)
                  (funcall model rates idx)
-               (if (< activation hscom.hsage:*evaluate-agents-activation-threshold*)
+               (if (< activation (cfg>> :hsage :evaluate-agents-activation-threshold instrument timeframe))
                    ;; Ignore. Just increase NUM-DATAPOINTS.
                    (incf num-datapoints)
                    (bind (((:values revenue .return exit-time exit-price max-pos max-neg finish-idx)
@@ -798,11 +812,11 @@ more recent unique datasets.
                              (> (abs sl) (abs tp))
                              (> (* tp sl) 0)
                              (< (abs (/ tp sl))
-                                hscom.hsage:*agents-min-rr-trading*)
+                                (cfg>> :hsage :agents-min-rr-trading instrument timeframe))
                              (= tp 0)
                              (= sl 0)
-                             (< (abs (to-pips instrument sl)) hscom.hsage:*min-pips-sl*)
-                             (> (abs (to-pips instrument sl)) hscom.hsage:*max-pips-sl*))
+                             (< (abs (to-pips instrument sl)) (cfg>> :hsage :min-pips-sl instrument timeframe))
+                             (> (abs (to-pips instrument sl)) (cfg>> :hsage :max-pips-sl instrument timeframe)))
                          (incf num-datapoints)
                          (progn
                            (incf num-datapoints-traded)
@@ -897,7 +911,7 @@ more recent unique datasets.
 ;; (time (evaluate-agents :EUR_USD hscom.hsage:*train-tf* '(:BULLISH) (subseq *rates* 0 200)))
 
 (def (function d) wipe-agents ()
-  (when hscom.hsage:*wipe-agents-p*
+  (when (cfg>> :hsage :dev-wipe-agents)
     ($log $trace :-> :wipe-agents)
     (conn (query (:delete-from 'agents :where (:= 1 1))))
     ($log $trace :<- :wipe-agents)))
@@ -985,8 +999,9 @@ more recent unique datasets.
   ($log $trace :-> :retire-agents)
   (conn
    (bind ((agents-count (get-agents-count instrument timeframe))
-          (to-retire-count (- agents-count (- *max-agents-count* *min-agents-count*))))
-     (when (> agents-count *max-agents-count*)
+          (to-retire-count (- agents-count (- (cfg>> :hsage :max-agents-count instrument timeframe)
+                                               (cfg>> :hsage :min-agents-count instrument timeframe)))))
+     (when (> agents-count (cfg>> :hsage :max-agents-count instrument timeframe))
        ($log $info (format nil "Retiring ~a agents out of ~a in ~a ~a"
                            to-retire-count
                            agents-count
@@ -1125,7 +1140,7 @@ more recent unique datasets.
 
 (def (function d) eval-agent (agent input-dataset idx)
   (bind ((perception-fn (gen-perception-fn (perception-fns agent))))
-    (cond ((eq *fis-method* :index)
+    (cond ((string= (cfg>> :hsage :fis-method) "INDEX")
            (eval-ifis-idx (funcall perception-fn input-dataset idx)
                           (slot-value agent 'antecedents)
                           (slot-value agent 'consequents)))
@@ -1254,78 +1269,6 @@ more recent unique datasets.
             (log-agents-write instrument timeframe :winner challenger))
         is-dominated?)))
 
-(def (function d) agent-dominated?-mactavator (agent agents &optional (logp nil))
-  (if (-base-reject agent)
-      ;; AGENT is dominated.
-      t
-      (bind ((total-return-0 (slot-value agent 'total-return))
-             (avg-return-0 (slot-value agent 'avg-return))
-             (activations-0 (slot-value agent 'activations))
-             (returns-0 (slot-value agent 'returns))
-             (entry-times-0 (slot-value agent 'entry-times)))
-        ;; `data`'s going to hold the max activations, returns and entry times per DP.
-        (bind ((data (make-hash-table)))
-          ;; Determining max activations and returns.
-          (loop for agent in agents
-                for agent-idx from 0
-                do (loop for act across (slot-value agent 'activations)
-                         for ret across (slot-value agent 'returns)
-                         for time across (slot-value agent 'entry-times)
-                         do (progn
-                              ;; Checking if internal hash-table doesn't exist.
-                              (unless (gethash time data)
-                                (setf (gethash time data) (make-hash-table :size 3)))
-                              (bind ((datum (gethash time data)))
-                                ;; Updating internal hash-table.
-                                (when (or (not (gethash :activation datum))
-                                          (> act (gethash :activation datum)))
-                                  (setf (gethash :agent-idx datum) agent-idx)
-                                  (setf (gethash :activation datum) act)
-                                  ;; (setf (gethash :return datum) ret) ;; Keeping in case we want to compare against DPret.
-                                  (setf (gethash :total-return datum)
-                                        (slot-value agent 'total-return)))))))
-          ;; Comparing agent activations, returns, etc. to see if it doesn't get dominated.
-          (bind ((dominatedp t)
-                (dominated-idx -1))
-            ;; First checking if our candidate AGENT wins by default because no other agent is trading at a particular DP.
-            ;; Also checking if candidate has a positive total return and return at that DP.
-            ;; Checking agent data against max values.
-            (bind ((foundp t))
-              (loop for time across entry-times-0
-                    for ret across returns-0
-                    do (when (and (not (gethash time data))
-                                  (> ret 0)
-                                  (> avg-return-0 hscom.hsage:*min-agent-avg-return*)
-                                  (> total-return-0 0)
-                                  )
-                         (setf foundp nil)
-                         (return)))
-              (unless foundp
-                ;; Not dominated.
-                (setf dominatedp nil)))
-
-            ;; Checking if we already know that it wasn't dominated.
-            (when dominatedp
-              ;; Checking each DP if agent dominates at that DP.
-              (loop for time across entry-times-0
-                    for act across activations-0
-                    for ret across returns-0
-                    do (bind ((datum (gethash time data)))
-                         ;; We're going to add an agent to the agent pool that has a positive DPret (`ret`),
-                         ;; a greater total-return on that DP and a greater than or equal activation than that DP's (and threshold).
-                         (when (and datum
-                                    (> ret 0)
-                                    (> total-return-0 (gethash :total-return datum))
-                                    (>= act
-                                        (gethash :activation datum)
-                                        hscom.hsage:*evaluate-agents-activation-threshold*))
-                           ;; Storing what agent got dominated, mainly for logging purposes.
-                           (setf dominated-idx (gethash :agent-idx datum))
-                           ;; Not dominated. Returning from loop.
-                           (setf dominatedp nil)
-                           (return)))))
-            dominatedp)))))
-
 (def (function d) get-agent-by-id (agent-id &key (ret-type :dao))
   (bind (result)
     (loop for key being each hash-key of *agents-cache*
@@ -1369,7 +1312,7 @@ more recent unique datasets.
                  (bind ((last-rate (aref input-dataset idx))
                         ;; Checking if calculated SL is greater than Nx the current spread.
                         ;; If not, we set Nx the current spread as the SL.
-                        (corrected-sl (bind ((nx-spread (* hscom.hsage:*min-n-times-spread-sl*
+                        (corrected-sl (bind ((nx-spread (* (cfg>> :hsage :min-n-times-spread-sl instrument timeframe)
                                                           (abs (- (hsinp.rates:->close-bid last-rate)
                                                                    (hsinp.rates:->close-ask last-rate))))))
                                         (if (>= (abs sl) nx-spread)
@@ -1385,7 +1328,7 @@ more recent unique datasets.
            (tp (nth (position 0 idxs) tps))
            (sl (nth (position 0 idxs) sls))
            (activation (nth (position 0 idxs) activations))
-           (len (min hscom.hsage:*consensus-threshold* (length activations))))
+           (len (min (cfg>> :hsage :consensus-threshold instrument timeframe) (length activations))))
       (unless (< len 3)
         (bind ((bullish-acts (loop for idx from 0 below len
                                    when (plusp (nth (position idx idxs) tps))
@@ -1413,50 +1356,38 @@ more recent unique datasets.
               activation
               (list (nth (position 0 idxs) ids))))))
 
-(def (function d) make-agent (inputs outputs perception-fns lookahead lookbehind)
+(def (function d) make-agent (instrument timeframe inputs outputs perception-fns lookahead lookbehind)
   "Used for manual agent creation."
   (bind ((agent (make-instance 'agent)))
     (setf (slot-value agent 'perception-fns) (format nil "~s" perception-fns))
     (setf (slot-value agent 'lookahead) lookahead)
     (setf (slot-value agent 'lookbehind) lookbehind)
     (multiple-value-bind (antecedents consequents)
-        (make-ant-con inputs outputs)
+        (make-ant-con instrument timeframe inputs outputs)
       (setf (slot-value agent 'antecedents) (format nil "~s" antecedents))
       (setf (slot-value agent 'consequents) (format nil "~s" consequents)))
     agent))
-
-(comment
- ;; Testing MAKE-AGENT
- (bind ((perc (hsper:gen-random-perceptions 3)))
-   (multiple-value-bind (inp out)
-       (get-inputs-outputs 2 :AUD_USD *rates*
-                           (hsper:gen-perception-fn (hscom.utils:assoccess perc :perception-fns))
-                           (hscom.utils:assoccess perc :lookahead)
-                           (hscom.utils:assoccess perc :lookbehind)
-                           :direction-fn #'minusp)
-     (bind ((agent (make-agent inp out (hscom.utils:assoccess perc :perception-fns) 10 10)))
-       (list (antecedents agent)
-             (consequents agent)))
-     )))
 
 (def (function d) interactive-make-agent (&key (lookahead 10) (rules-count 3))
   "Asks the user what perception function to generate for an agent."
   (block all
     (bind ((options (get-perceptions))
-          (p-rows)
-          (percs)
-          (instrument :AUD_USD)
-          (lookbehind -1)
-          (direction-fn)
-          ;; (final-agent)
-          )
+           (p-rows)
+           (percs)
+           (instrument :AUD_USD)
+           (timeframe :M15)
+           (lookbehind -1)
+           (direction-fn)
+           ;; (final-agent)
+           )
       ;; Asking for instrument.
-      (loop for instrument in hscom.hsage:*instruments*
+      (loop for instrument across (sans-default (cfg>> :hsage :instruments))
             for i from 0
             do (format t "(~a) ~a~%" (1+ i) instrument))
       (format t "~%Choose a market (default = ~a):~%" instrument)
       (setf instrument (bind ((ans (read-line)))
-                         (unless (string= ans "") (nth (1- (read-from-string ans)) hscom.hsage:*instruments*))))
+                         (unless (string= ans "") (aref (sans-default (cfg>> :hsage :instruments))
+                                                        (1- (read-from-string ans))))))
       ;; Capturing table elements.
       (loop for perc in options
             for i from 1
@@ -1466,13 +1397,13 @@ more recent unique datasets.
                              (assoccess perc :documentation))
                        p-rows)))
       (bind ((table (with-open-stream (s (make-string-output-stream))
-                     (format-table s (reverse p-rows)
-                                   :column-label '("#" "Name" "Documentation"))
-                     (get-output-stream-string s))))
+                      (format-table s (reverse p-rows)
+                                    :column-label '("#" "Name" "Documentation"))
+                      (get-output-stream-string s))))
         ;; Collecting perception functions.
         (loop
           do (bind ((answer -1)
-                   (args '()))
+                    (args '()))
                (format t "~%~a~%" table)
                (when (> (length percs) 0)
                  (format t "~%These perception functions have been chosen so far:~%")
@@ -1535,16 +1466,17 @@ more recent unique datasets.
           do (multiple-value-bind (inputs outputs idxs)
                  (get-inputs-outputs rules-count
                                      instrument
+                                     timeframe
                                      *rates*
                                      (hsper:gen-perception-fn percs)
                                      lookahead
                                      lookbehind
                                      :direction-fn direction-fn)
                ;; Getting rate plots
-               (bind ((agent (make-agent inputs outputs percs lookahead lookbehind))
-                     (rate-plots (apply #'concatenate 'string
-                                        (loop for idx in idxs
-                                              collect (plot-rates (subseq *rates* (- idx lookbehind) (+ idx lookahead)))))))
+               (bind ((agent (make-agent instrument timeframe inputs outputs percs lookahead lookbehind))
+                      (rate-plots (apply #'concatenate 'string
+                                         (loop for idx in idxs
+                                               collect (plot-rates (subseq *rates* (- idx lookbehind) (+ idx lookahead)))))))
                  (multiple-value-bind (antecedents consequents)
                      (plot-agent-rules agent)
                    (print-in-columns (list ;; rate-plots
@@ -1767,12 +1699,12 @@ more recent unique datasets.
       (setf (slot-value agent 'perceptions-count)
             (get-perceptions-count perception-fns))
       (multiple-value-bind (antecedents consequents)
-          (make-ifis agent num-rules instrument dataset idxs)
+          (make-ifis agent num-rules instrument timeframe dataset idxs)
         (setf (slot-value agent 'antecedents) antecedents)
         (setf (slot-value agent 'consequents) consequents))
       agent)))
 
-(def (function d) get-same-direction-outputs-idxs (instrument rates count &key (lookahead 10) (lookbehind 10) direction-fn)
+(def (function d) get-same-direction-outputs-idxs (instrument timeframe rates count &key (lookahead 10) (lookbehind 10) direction-fn)
   (bind ((r (random-float 0 1))
          (pred (if direction-fn direction-fn (if (> r 0.5) #'plusp #'minusp)))
          (opposite-pred (if (> r 0.5) #'minusp #'plusp))
@@ -1783,20 +1715,20 @@ more recent unique datasets.
                (when (and (< (length result) count)
                           (funcall pred (assoccess tp-sl :tp))
                           (/= (assoccess tp-sl :sl) 0)
-                          (> (abs (assoccess tp-sl :sl)) (from-pips instrument hscom.hsage:*min-sl*))
+                          (> (abs (assoccess tp-sl :sl)) (from-pips instrument (cfg>> :hsage :min-sl instrument timeframe)))
                           (> (abs (/ (assoccess tp-sl :tp)
                                      (assoccess tp-sl :sl)))
-                             hscom.hsage:*agents-min-rr-creation*))
+                             (cfg>> :hsage :agents-min-rr-creation instrument timeframe)))
                  (push idx result))))
     (if (> (length result) 1)
         result
-        (get-same-direction-outputs-idxs instrument rates count
+        (get-same-direction-outputs-idxs instrument timeframe rates count
                                          :lookahead lookahead
                                          :lookbehind lookbehind
                                          :direction-fn opposite-pred))))
 ;; (get-same-direction-outputs-idxs *rates* :lookahead 5)
 
-(def (function d) get-same-direction-outputs-idxs-all (instrument rates &key (lookahead 10) (lookbehind 10) direction-fn)
+(def (function d) get-same-direction-outputs-idxs-all (instrument timeframe rates &key (lookahead 10) (lookbehind 10) direction-fn)
   (bind ((r (random-float 0 1))
          (pred (if direction-fn direction-fn (if (> r 0.5) #'plusp #'minusp)))
          (opposite-pred (if (> r 0.5) #'minusp #'plusp))
@@ -1806,35 +1738,35 @@ more recent unique datasets.
           do (bind ((tp-sl (get-tp-sl rates (1+ idx) lookahead)))
                (when (and (funcall pred (assoccess tp-sl :tp))
                           (/= (assoccess tp-sl :sl) 0)
-                          (> (abs (assoccess tp-sl :sl)) (from-pips instrument hscom.hsage:*min-sl*))
+                          (> (abs (assoccess tp-sl :sl)) (from-pips instrument (cfg>> :hsage :min-sl instrument timeframe)))
                           (> (abs (/ (assoccess tp-sl :tp)
                                      (assoccess tp-sl :sl)))
-                             hscom.hsage:*agents-min-rr-creation*)
+                             (cfg>> :hsage :agents-min-rr-creation instrument timeframe))
                           (or (eq instrument :USD_CNH)
-                              (< (abs (assoccess tp-sl :tp)) (from-pips instrument hscom.hsage:*max-tp*))))
+                              (< (abs (assoccess tp-sl :tp)) (from-pips instrument (cfg>> :hsage :max-tp instrument timeframe)))))
                  (push idx result))))
     (if (> (length result) 1)
         result
-        (get-same-direction-outputs-idxs-all instrument rates
+        (get-same-direction-outputs-idxs-all instrument timeframe rates
                                              :lookahead lookahead
                                              :lookbehind lookbehind
                                              :direction-fn opposite-pred))))
 ;; (length (get-same-direction-outputs-idxs-all :AUD_USD *rates* :lookahead 10))
 
-(def (function d) get-inputs-outputs (num-rules instrument rates idxs perception-fn lookahead lookbehind &key direction-fn)
+(def (function d) get-inputs-outputs (num-rules instrument timeframe rates idxs perception-fn lookahead lookbehind &key direction-fn)
   (bind ((idxs (if idxs (^(sort (subseq (shuffle (alexandria:copy-sequence 'list idxs)) 0 num-rules) #'<))
                    (^(sort _ #'<)
                      (cond (*exhaust-rules-in-creation-dataset-p*
                             (^(remove-duplicates _)
                               (get-same-direction-outputs-idxs-all
-                               instrument rates
+                               instrument timeframe rates
                                :lookahead lookahead
                                :lookbehind lookbehind
                                :direction-fn direction-fn)))
                            (t
                             (^(remove-duplicates _)
                               (get-same-direction-outputs-idxs
-                               instrument rates num-rules
+                               instrument timeframe rates num-rules
                                :lookahead lookahead
                                :lookbehind lookbehind
                                :direction-fn direction-fn)))))))
@@ -1842,17 +1774,7 @@ more recent unique datasets.
          (chosen-outputs (loop for idx in idxs collect (get-tp-sl rates (1+ idx) lookahead))))
     (values chosen-inputs chosen-outputs idxs)))
 
-(comment
- (time (bind ((perc (hsper:gen-random-perceptions 5))
-              ((:values inputs outputs)
-               (get-inputs-outputs 10 :EUR_USD *rates*
-                                   (hsper:gen-perception-fn (hscom.utils:assoccess perc :perception-fns))
-                                   (hscom.utils:assoccess perc :lookahead)
-                                   (hscom.utils:assoccess perc :lookbehind))))
-             (list (length inputs)
-                   (length outputs)))))
-
-(def (function d) make-ant-con (inputs outputs)
+(def (function d) make-ant-con (instrument timeframe inputs outputs)
   (values
    (bind ((v (flatten
               (loop
@@ -1875,18 +1797,18 @@ more recent unique datasets.
                                    (sl (assoccess output :sl)))
                               ;; Consequent creation.
                               (list 0 tp
-                                    (* hscom.hsage:*n-times-sl-for-max-sl* sl) sl))))))
+                                    (* (cfg>> :hsage :n-times-sl-for-max-sl instrument timeframe) sl) sl))))))
      (make-array (length v) :initial-contents v))))
 ;; (make-ifis *agent* 3 :AUD_USD *rates*)
 
-(def (function d) make-ifis (agent num-rules instrument rates idxs)
+(def (function d) make-ifis (agent num-rules instrument timeframe rates idxs)
   "Analytical version."
   (bind ((perception-fn (gen-perception-fn (perception-fns agent)))
          (lookahead (slot-value agent 'lookahead))
          (lookbehind (slot-value agent 'lookbehind)))
     (multiple-value-bind (chosen-inputs chosen-outputs)
-        (get-inputs-outputs num-rules instrument rates idxs perception-fn lookahead lookbehind)
-      (make-ant-con chosen-inputs chosen-outputs))))
+        (get-inputs-outputs num-rules instrument timeframe rates idxs perception-fn lookahead lookbehind)
+      (make-ant-con instrument timeframe chosen-inputs chosen-outputs))))
 ;; (plot-agent-rules *agent*)
 
 (def (function d) log-agents-write-single (type agent)
@@ -2019,7 +1941,7 @@ more recent unique datasets.
          (agents (if-let ((existing-agents (mapcar ^(evaluate-agent _ instrument timeframe :training)
                                                    (get-agents instrument timeframe))))
                    existing-agents
-                   (loop repeat *initial-agent-count*
+                   (loop repeat (cfg>> :hsage :initial-agent-count instrument timeframe)
                          collect (evaluate-agent (funcall gen-agent-fn) instrument timeframe :training))))
          (fitnesses (evaluate-agents instrument timeframe :training agents)))
     (dbg "starting" (length agents))
@@ -2051,7 +1973,7 @@ more recent unique datasets.
 ;;   (update-unique-datasets)
 
 ;;   (progn
-;;     (progn (hsage.db:drop-database) (hsage.db:init-database) (when hscom.all:*is-production* (hsage::clear-jobs)))
+;;     (progn (hsage.db:drop-tables) (hsage.db:init-tables) (when (cfg>> :hscom :is-production) (hsage::clear-jobs)))
 ;;     (def (special-variable) *agents-cache* (make-hash-table :test 'equal :synchronized t))
 ;;     (def (special-variable) *train* nil)
 ;;     (def (special-variable) *test* nil))
@@ -2069,7 +1991,7 @@ more recent unique datasets.
 ;;   (loop for train in (reverse *train*)
 ;;         for test in (reverse *test*)
 ;;         do (dbg train test))
-;;   hscom.hsage:*instruments*
+;;   (sans-default (cfg>> :hsage :instruments))
 ;;   (time
 ;;    (bind ((instrument :AUD_USD)
 ;;           (timeframe :M15))
@@ -2079,8 +2001,8 @@ more recent unique datasets.
 ;;                                                 instrument
 ;;                                                 timeframe
 ;;                                                 (assoccess beliefs :perception-fns)
-;;                                                 hscom.hsage:*lookahead*
-;;                                                 hscom.hsage:*lookbehind*)))
+;;                                                 hscom.hsage:(cfg>> :hsage :lookahead)
+;;                                                 hscom.hsage:(cfg>> :hsage :lookbehind))))
 ;;                         1000)))
 ;;   )
 
@@ -2089,7 +2011,7 @@ more recent unique datasets.
   ;; Checking if we need to initialize the agents collection.
   (bind ((agents (if-let ((agents (get-agents instrument timeframe)))
                   (update-agents-fitnesses instrument timeframe agents)
-                  (loop repeat hscom.hsage:*initial-agent-count*
+                  (loop repeat (cfg>> :hsage :initial-agent-count instrument timeframe)
                         collect (evaluate-agent (funcall gen-agent-fn) instrument timeframe :training))))
         (purged-agents))
     ($log $info (format nil "~a agents retrieved to start optimization for ~a ~a" (length agents) instrument timeframe))
@@ -2099,7 +2021,7 @@ more recent unique datasets.
           do (progn
                (if (and (not first-iteration-p)
                         ;; (local-time:timestamp> (local-time:now) until-timestamp)
-                        (if (eq stop-criterion :time)
+                        (if (string= stop-criterion "TIME")
                             (local-time:timestamp> (local-time:now) until-timestamp)
                             (> evaluations stop-count)))
                    (progn
@@ -2112,14 +2034,14 @@ more recent unique datasets.
                      (return))
                    (block opt
                      (bind ((challenger (list (evaluate-agent (funcall gen-agent-fn) instrument timeframe :training)))
-                            (is-dominated? (when hscom.hsage:*optimize-p*
+                            (is-dominated? (when (cfg>> :hsage :optimize instrument timeframe)
                                              (agent-dominated?-pareto instrument timeframe (car challenger) agents nil))))
                        ;; No longer the first iteration after this.
                        (setf first-iteration-p nil)
                        ;; Logging agent direction.
                        (incf evaluations)
                        (when (and (> evaluations stop-count)
-                                  (eq stop-criterion :evaluations))
+                                  (string= stop-criterion "EVALUATIONS"))
                          (return-from opt))
                        (unless is-dominated?
                          ;; Purging agents.
@@ -2127,19 +2049,19 @@ more recent unique datasets.
                                for in-trial in agents
                                do (progn
                                     ;; (incf evaluations)
-                                    (if (and hscom.hsage:*optimize-p*
+                                    (if (and (cfg>> :hsage :optimize instrument timeframe)
                                              (agent-dominated?-pareto instrument timeframe in-trial challenger t))
                                         (remove-agent in-trial instrument timeframe)
                                         (push in-trial purged-agents))
                                     (when (and (> evaluations stop-count)
-                                               (eq stop-criterion :evaluations))
+                                               (string= stop-criterion "EVALUATIONS"))
                                       (return-from trials))
                                     ))
                          (push (first challenger) purged-agents)
                          (setf agents purged-agents)
                          (setf purged-agents nil)
                          (when (and (> evaluations stop-count)
-                                    (eq stop-criterion :evaluations))
+                                    (string= stop-criterion "EVALUATIONS"))
                            (return-from opt))))))
                (when (= (mod evaluations 100) 0)
                  ($log $debug (format nil "Optimized for ~a for ~a ~a" evaluations instrument timeframe))))))
@@ -2293,7 +2215,7 @@ more recent unique datasets.
                         do (apply #'format t "~2$-~2$ ~5$ ~5$ ~5$ ~5$ ~5$ ~5$ ~2$ ~a ~a ~5$ ~a ~a~%" result))))
             ))))))
 ;; (analysis :label "hermes.consensus-1" :granularity 20)
-;; (analysis :label (format nil "hermes.consensus-~a" hscom.hsage:*consensus-threshold*) :granularity 10)
+;; (analysis :label (format nil "hermes.consensus-~a" (cfg>> :hsage :consensus-threshold)) :granularity 10)
 
 ;; Plots
 ;; Per market comparisons
@@ -2302,7 +2224,7 @@ more recent unique datasets.
 ;; Table with means and standard deviations. Hypothesis testing.
 
 (def (function d) hypothesis-test (&key (numerator 0) (denominator 100) (granularity 100))
-  (bind ((label hscom.hsage:*consensus-threshold*)
+  (bind ((label (cfg>> :hsage :consensus-threshold))
          (no-results (analysis :granularity granularity :label "hermes.consensus-1" :return-results-p t))
          (yes-results (analysis :granularity granularity :label (format nil "hermes.consensus-~a" label) :return-results-p t)))
     (when (and no-results yes-results)
@@ -2331,7 +2253,7 @@ more recent unique datasets.
 
 (def (function d) -get-trade-time (trade)
   "Used in `-validate-trades`."
-  (if hscom.all:*is-production*
+  (if (cfg>> :hscom :is-production)
       (assoccess trade :timestamp)
       ;; We need to use ENTRY-TIME for dev mode,
       ;; otherwise timestamps are not following "market real-time",
@@ -2345,7 +2267,7 @@ more recent unique datasets.
            ;; (newest (first (sort (copy-sequence 'list trades) #'> :key #'-get-trade-time)))
            (rates (^(coerce _ 'vector)
                     (get-rates-range-big instrument
-                                         hscom.hsage:*validation-timeframe*
+                                         (cfg>> :hsage :validation-timeframe)
                                          (assoccess oldest :entry-time)
                                          ;; (-get-trade-time newest)
                                          (now)
@@ -2399,11 +2321,11 @@ more recent unique datasets.
 (def (function d) validate-trades (&optional (older-than 0))
   ;; TODO: Refactor this. We should be calling something like (SYNC-RATES '(:M1))
   ;; Syncing M1 rates.
-  ;; (loop for instrument in hscom.hsage:*instruments*
-  ;;       do (loop for timeframe in `(,hscom.hsage:*validation-timeframe*)
+  ;; (loop for instrument across (sans-default (cfg>> :hsage :instruments))
+  ;;       do (loop for timeframe in `(,(cfg>> :hsage :validation-timeframe))
   ;;                do (sync-rates instrument timeframe)))
-  (loop for instrument in hscom.hsage:*instruments*
-        do (loop for timeframe in hscom.hsage:*timeframes*
+  (loop for instrument across (sans-default (cfg>> :hsage :instruments))
+        do (loop for timeframe across (sans-default (cfg>> :hsage :timeframes))
                  do (bind ((trades (get-trades-no-result instrument timeframe)))
                       (when trades
                         (-validate-trades instrument trades))))))

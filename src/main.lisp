@@ -17,15 +17,15 @@
   (:import-from #:hu.dwim.def
                 #:def)
   (:import-from #:hscom.utils
+                #:dbg
                 #:assoccess
-                #:whole-reals-to-integers)
-  (:import-from #:hscom.hsage
-                #:*cores-count*
-                #:*iterations*
-                #:*print-hypothesis-test*
-                #:*run-hermes-p*
-                #:*instruments*
-                #:*timeframes*)
+                #:whole-reals-to-integers
+                #:sans-default
+                #:getenv)
+  (:import-from #:hscom.config
+                #:cfg<
+                #:cfg>
+                #:cfg>>)
   (:import-from #:hsper
                 #:get-human-strategies)
   (:import-from #:hsage.trading
@@ -56,9 +56,6 @@
                 #:get-strategy)
   (:import-from #:hscom.db
                 #:conn)
-  (:import-from #:hsage.db
-                #:init-database
-                #:drop-database)
   (:import-from #:hsinp.rates
                 #:fracdiff
                 #:sync-datasets-to-database
@@ -74,13 +71,13 @@
 (ciel:enable-punch-syntax)
 
 (setf lparallel:*kernel* (lparallel:make-kernel
-                          (if (<= *cores-count* 0)
-                              ;; (or (<= *cores-count* 0)
-                              ;;     (>= *cores-count* (1- (cl-cpus:get-number-of-processors))))
+                          (if (<= (cfg>> :hsage :cores-count) 0)
+                              ;; (or (<= (cfg>> :hsage :cores-count) 0)
+                              ;;     (>= (cfg>> :hsage :cores-count) (1- (cl-cpus:get-number-of-processors))))
                               (let ((ideal-cores-count (1- (cl-cpus:get-number-of-processors))))
                                 (if (/= ideal-cores-count 0)
                                     ideal-cores-count 1))
-                              *cores-count*)))
+                              (cfg>> :hsage :cores-count))))
 
 (def (function d) log-stack (c)
   (with-open-file (str (merge-pathnames #P"hsage-stack.log" #P"~/")
@@ -117,27 +114,27 @@
              ,@body
              ;; We don't want our data feed provider to ban us.
              ;; We also want to go easy on those database reads (`agents-count`).
-             (when hscom.all:*is-production*
+             (when (cfg>> :hscom :is-production)
                (sleep 1))))))))
 
 (def (function d) -loop-optimize-human-strategies (&key (testingp nil))
   (when (and (not (is-market-close))
-             hscom.hsage:*run-human-and-hybrid-p*)
+             (cfg>> :hsage :run-human-and-hybrid))
     (-loop-human-strategies
      testingp
      (optimize-human-strategy instrument timeframe human-strategy
-                              :maximize hscom.hsage:*hybrid-maximize-p*
-                              :population-size hscom.hsage:*hybrid-population-size*
-                              :max-iterations hscom.hsage:*hybrid-iterations*
-                              :mutation-rate hscom.hsage:*hybrid-mutation-rate*
-                              :fitness-metric hscom.hsage:*hybrid-fitness-metric*))))
+                              :maximize (cfg>> :hsage :hybrid-maximize)
+                              :population-size (cfg>> :hsage :hybrid-population-size)
+                              :max-iterations (cfg>> :hsage :hybrid-iterations)
+                              :mutation-rate (cfg>> :hsage :hybrid-mutation-rate)
+                              :fitness-metric (cfg>> :hsage :hybrid-fitness-metric)))))
 
 (def (function d) -loop-test-human-strategies ()
   "
 -LOOP-TEST-HUMAN-STRATEGIES ...
 "
   (when (and (not (is-market-close))
-             hscom.hsage:*run-human-and-hybrid-p*)
+             (cfg>> :hsage :run-human-and-hybrid))
     ($log $trace :-> :loop-test-human-strategies)
     (-loop-human-strategies
      ;; Testing hybrid strategy.
@@ -163,10 +160,12 @@
     ($log $trace :<- :loop-test-human-strategies)))
 
 (def (function d) -update-rates ()
-  (loop for instrument in *instruments*
-        do (loop for timeframe in hscom.hsage:*timeframes-being-used*
+  (loop for instrument across (sans-default (cfg>> :hsage :instruments))
+        do (loop for timeframe across (cfg>> :hsage :timeframes-being-used)
                  do (sync-rates instrument timeframe))))
 ;; (time (-update-rates))
+;; (sync-rates :AUD_USD :M15)
+;; (sync-rates "EUR_USD" "M15")
 
 (def (function d) -loop-update-rates ()
   (loop while t
@@ -201,7 +200,7 @@ UPDATE-UNIQUE-DATASETS in an infinite loop.
 
 (def (function d) create-job-human-strategies-metrics (seconds)
   "We run this every `hscom.hsage#:*seconds-interval-testing-human-strategies-metrics*` seconds."
-  (when hscom.hsage:*run-human-and-hybrid-p*
+  (when (cfg>> :hsage :run-human-and-hybrid)
     ($log $trace :-> :create-job-human-strategies-metrics)
     ;; Let's run it once immediately.
     (eval `(clerk:job "Creating human strategies metrics" every ,(read-from-string (format nil "~a.seconds" seconds))
@@ -211,7 +210,7 @@ UPDATE-UNIQUE-DATASETS in an infinite loop.
 
 (def (function d) create-job-optimize-human-strategies (seconds)
   "We run this every `hscom.hsage#:*seconds-interval-testing-human-strategies-metrics*` seconds."
-  (when hscom.hsage:*run-human-and-hybrid-p*
+  (when (cfg>> :hsage :run-human-and-hybrid)
     ($log $trace :-> :create-job-optimize-human-strategies)
     ;; Let's run it once immediately.
     (eval `(clerk:job "Optimizing human strategies to create hybrid strategies" every ,(read-from-string (format nil "~a.seconds" seconds))
@@ -225,7 +224,7 @@ UPDATE-UNIQUE-DATASETS in an infinite loop.
   ($log $trace :<- :create-job-signals))
 
 (def (function d) -loop-validate ()
-  (when hscom.all:*is-production*
+  (when (cfg>> :hscom :is-production)
     ($log $info "Validating trades older than 24 hours.")
     (validate-trades)))
 
@@ -239,70 +238,91 @@ UPDATE-UNIQUE-DATASETS in an infinite loop.
 (def (function d) -loop-optimize (instrument timeframe)
   ($log $trace :-> :-loop-optimize)
   (optimization instrument timeframe
-                (lambda () (let ((beliefs (gen-random-perceptions hscom.hsage:*number-of-agent-inputs*)))
-                             (gen-agent hscom.hsage:*number-of-agent-rules*
+                (lambda () (let ((beliefs (gen-random-perceptions (cfg>> :hsage :number-of-agent-inputs instrument timeframe))))
+                             (gen-agent (cfg>> :hsage :number-of-agent-rules instrument timeframe)
                                         instrument
                                         timeframe
                                         (assoccess beliefs :perception-fns)
-                                        hscom.hsage:*lookahead*
-                                        hscom.hsage:*lookbehind*)))
-                (if (eq hscom.hsage:*stop-criteria* :time)
-                    hscom.hsage:*seconds-to-optimize-per-pattern*
-                    hscom.hsage:*optimization-agent-evaluations*)
-                hscom.hsage:*stop-criteria*)
+                                        (cfg>> :hsage :lookahead instrument timeframe)
+                                        (cfg>> :hsage :lookbehind instrument timeframe))))
+                (if (string= (cfg>> :hsage :stop-criteria instrument timeframe) "TIME")
+                    (cfg>> :hsage :seconds-to-optimize-per-pattern instrument timeframe)
+                    (cfg>> :hsage :optimization-agent-evaluations instrument timeframe))
+                (cfg>> :hsage :stop-criteria instrument timeframe))
   ($log $info "Optimization process completed.")
   (sync-agents instrument timeframe)
   ($log $trace :<- :-loop-optimize))
 
 (def (function d) -loop-test-all ()
   "We run this every `hscom.hsage:*seconds-interval-testing*` seconds."
-  (dolist (instrument hscom.hsage:*instruments*)
-    (dolist (timeframe hscom.hsage:*timeframes*)
-      (unless (is-market-close)
-        (cache-agents-from-db instrument timeframe)
-        (let ((agents-count (get-agents-count instrument timeframe)))
-          (when (> agents-count 0)
-            (-loop-test instrument timeframe)))
-        ;; We don't want our data feed provider to ban us.
-        ;; We also want to go easy on those database reads (`agents-count`).
-        (uncache-agents-from-db instrument timeframe)
-        (sleep 1)))))
+  (loop for instrument across (sans-default (cfg>> :hsage :instruments))
+        do (loop for timeframe across (sans-default (cfg>> :hsage :timeframes))
+                 do (unless (is-market-close)
+                      (cache-agents-from-db instrument timeframe)
+                      (let ((agents-count (get-agents-count instrument timeframe)))
+                        (when (> agents-count 0)
+                          (-loop-test instrument timeframe)))
+                      ;; We don't want our data feed provider to ban us.
+                      ;; We also want to go easy on those database reads (`agents-count`).
+                      (uncache-agents-from-db instrument timeframe)
+                      (sleep 1)))))
+
+;; (cfg< "DEVELOP" :EUR_USD :M15)
+;; (cfg< "DEFAULT" :EUR_USD :M15)
+;; (cfg> :hsage :EUR_USD :M15)
+
+(def (function d) coco (profile)
+  "Gets the latest N optimized profiles and performs a mutation to the best of
+them."
+  (conn (query (:select '* :from 'config@hsage :where (:like 'profile (format "~a%" profile)))))
+  )
+
+;; (cfg< )
+
+;; (bind ((profile "DEVELOP")
+;;        (instrument :AUD_USD)
+;;        (instrument :AUD_USD))
+;;   (conn (query (:select 'metrics_id :from 'config@hsage :where (:like 'profile (format nil "~a%" profile)))
+;;                :alist)))
 
 (def (function d) -loop-optimize-test-validate ()
   ($log $trace :-> :-loop-optimize-test-validate)
   ;; If development mode, we want to refresh with random datasets.
-  (when (not hscom.all:*is-production*)
+  (when (not (cfg>> :hscom :is-production))
     (update-unique-datasets))
   ;; Gather  the human strategies metrics when in development mode.
-  (when (and (not hscom.all:*is-production*)
-             hscom.hsage:*run-human-and-hybrid-p*)
+  (when (and (not (cfg>> :hscom :is-production))
+             (cfg>> :hsage :run-human-and-hybrid))
     (-loop-optimize-human-strategies)
     (-loop-test-human-strategies))
   ;; Human strategies signals. Let's evaluate human strategies first regardless of development or production mode.
-  (when hscom.hsage:*run-human-and-hybrid-p*
+  (when (cfg>> :hsage :run-human-and-hybrid)
     (-loop-test-human-strategies))
-  (when *run-hermes-p*
+  (when (cfg>> :hsage :run-hermes)
     (pmap nil (lambda (instrument)
-                (dolist (timeframe hscom.hsage:*timeframes*)
-                  (unless (is-market-close)
-                    (retire-agents instrument timeframe)
-                    ($log $info "Caching agents for pattern" (list instrument timeframe))
-                    (cache-agents-from-db instrument timeframe t)
-                    ($log $info "Retrieving datasets for agents.")
-                    ($log $info "Beginning agent optimization process.")
-                    ;; Optimization.
-                    (-loop-optimize instrument timeframe)
-                    ;; Signal creation. Development.
-                    (when (not hscom.all:*is-production*)
-                      (-loop-test instrument timeframe))
-                    ($log $info "Done agent optimization process.")
-                    (-loop-validate)
-                    (uncache-agents-from-db instrument timeframe t))
-                  (sync-datasets-to-database)
-                  (when *print-hypothesis-test*
-                    (hsage.trading::hypothesis-test))))
-          hscom.hsage:*instruments*)
-    (unless hscom.all:*is-production*
+                (loop for timeframe across (sans-default (cfg>> :hsage :timeframes))
+                      do (unless (is-market-close)
+                           (cfg< (json:decode-json-from-string (getenv "HERMES_PROFILES" "\"DEFAULT\""))
+                                 instrument
+                                 timeframe)
+                           (retire-agents instrument timeframe)
+                           ($log $info "Caching agents for pattern" (list instrument timeframe))
+                           (cache-agents-from-db instrument timeframe t)
+                           ($log $info "Retrieving datasets for agents.")
+                           ($log $info "Beginning agent optimization process.")
+                           ;; Optimization.
+                           (-loop-optimize instrument timeframe)
+                           ;; Signal creation. Development.
+                           (when (not (cfg>> :hscom :is-production))
+                             (-loop-test instrument timeframe))
+                           ($log $info "Done agent optimization process.")
+                           (-loop-validate)
+                           (uncache-agents-from-db instrument timeframe t))
+                         (sync-datasets-to-database)
+                         (when (cfg>> :hsage :print-hypothesis-test)
+                           (hsage.trading::hypothesis-test))))
+          (sans-default (cfg>> :hsage :instruments)))
+    (unless (cfg>> :hscom :is-production)
       (wipe-agents)))
   ($log $trace :<- :-loop-optimize-test-validate))
 
@@ -314,22 +334,22 @@ UPDATE-UNIQUE-DATASETS in an infinite loop.
     (hsage.utils:refresh-memory)
     ;; If market's closed, just update unique datasets once.
     (if (or (is-market-close)
-            (not hscom.all:*is-production*))
+            (not (cfg>> :hscom :is-production)))
         (update-unique-datasets)
         (create-job-unique-datasets))
     ;; Signal creation. Production. We create a cron job for this to be
     ;; run every `hscom.hsage:*seconds-interval-testing*` seconds.
-    (when hscom.all:*is-production*
-      (when *run-hermes-p*
-        (create-job-signals hscom.hsage:*seconds-interval-testing*))
+    (when (cfg>> :hscom :is-production)
+      (when (cfg>> :hsage :run-hermes)
+        (create-job-signals (cfg>> :hsage :seconds-interval-testing)))
       (create-job-update-rates)
-      (create-job-human-strategies-metrics hscom.hsage:*seconds-interval-testing-human-strategies-metrics*)
-      (create-job-optimize-human-strategies hscom.hsage:*seconds-interval-optimizing-human-strategies*)
+      (create-job-human-strategies-metrics (cfg>> :hsage :seconds-interval-testing-human-strategies-metrics))
+      (create-job-optimize-human-strategies (cfg>> :hsage :seconds-interval-optimizing-human-strategies))
       (clerk:start))
-    (if *run-hermes-p*
-        (if (< *iterations* 0)
+    (if (cfg>> :hsage :run-hermes)
+        (if (< (cfg>> :hsage :iterations) 0)
             (loop unless (is-market-close)
                     do (-loop-optimize-test-validate))
-            (loop repeat *iterations*
+            (loop repeat (cfg>> :hsage :iterations)
                   do (-loop-optimize-test-validate)))
         (loop))))

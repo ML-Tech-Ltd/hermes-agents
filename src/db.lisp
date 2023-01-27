@@ -3,23 +3,22 @@
   (:import-from #:hscom.db
                 #:conn)
   (:import-from #:hscom.utils
-                #:assoccess)
-  (:import-from #:hscom.hsage
-                #:*all-timeframes*
-                #:*timeframes*
-                #:*forex*
-                #:*methods*
-                #:*environments*)
+                #:assoccess
+                #:sans-default)
+  (:import-from #:hscom.config
+                #:cfg<
+                #:cfg>
+                #:cfg>>)
   (:import-from #:hsper
                 #:get-human-strategies)
   (:import-from #:hsage.trading
                 #:insert-strategy)
-  (:export #:init-database
-           #:drop-database)
+  (:export #:init-tables
+           #:drop-tables)
   (:nicknames :hsage.db))
 (in-package hermes-agents.db)
 
-(defun init-database ()
+(defun init-tables ()
   "Creates all the necessary tables for Hermes Agents."
   (conn
    (unless (table-exists-p 'instruments)
@@ -27,7 +26,7 @@
                 ((id :type int8 :identity-always t)
                  (name :type string))
               (:primary-key id)))
-     (loop for instrument in *forex*
+     (loop for instrument across (cfg>> :hscom :forex)
            do (query (:insert-into 'instruments :set 'name (format nil "~a" instrument)))))
 
    (unless (table-exists-p 'timeframes)
@@ -35,7 +34,7 @@
                 ((id :type int8 :identity-always t)
                  (name :type string))
               (:primary-key id)))
-     (loop for timeframe in *all-timeframes*
+     (loop for timeframe across (sans-default (cfg>> :hsage :timeframes))
            do (query (:insert-into 'timeframes :set 'name (format nil "~a" timeframe)))))
 
    (unless (table-exists-p 'methods)
@@ -43,7 +42,7 @@
                 ((id :type int8 :identity-always t)
                  (name :type string))
               (:primary-key id)))
-     (loop for method in *methods*
+     (loop for method across (cfg>> :hsage :methods)
            do (query (:insert-into 'methods :set 'name (format nil "~a" method)))))
 
    (unless (table-exists-p 'environments)
@@ -51,7 +50,7 @@
                 ((id :type int8 :identity-always t)
                  (name :type string))
               (:primary-key id)))
-     (loop for environment in *environments*
+     (loop for environment across (cfg>> :hsage :environments)
            do (query (:insert-into 'environments :set 'name (format nil "~a" environment)))))
 
    (unless (table-exists-p 'strategies)
@@ -71,8 +70,8 @@
               (:foreign-key (method-id) (methods id))))
      ;; Humans and hybrids.
      (loop for strategy in (get-human-strategies)
-           do (loop for instrument in *forex*
-                    do (loop for timeframe in *timeframes*
+           do (loop for instrument across (cfg>> :hscom :forex)
+                    do (loop for timeframe across (sans-default (cfg>> :hsage :timeframes))
                              do (progn
                                   ;; Human.
                                   (insert-strategy instrument timeframe :human
@@ -81,8 +80,8 @@
                                   (insert-strategy instrument timeframe :hybrid
                                                    :name (assoccess strategy :name))))))
      ;; Hermes.
-     (loop for instrument in *forex*
-           do (loop for timeframe in *timeframes*
+     (loop for instrument across (cfg>> :hscom :forex)
+           do (loop for timeframe across (sans-default (cfg>> :hsage :timeframes))
                     do (insert-strategy instrument timeframe :hermes))))
 
    (unless (table-exists-p 'metrics)
@@ -192,9 +191,9 @@
                  (close-ask :type double-float)
                  (volume :type int))
               (:primary-key time instrument timeframe))))))
-;; (init-database)
+;; (init-tables)
 
-(defun drop-database ()
+(defun drop-tables ()
   (conn
    (drop-table 'signals)
    (drop-table 'trades)
@@ -206,4 +205,4 @@
    (drop-table 'timeframes)
    (drop-table 'methods)
    (drop-table 'environments)))
-;; (drop-database)
+;; (drop-tables)

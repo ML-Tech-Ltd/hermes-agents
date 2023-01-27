@@ -48,7 +48,7 @@
                  (:file "plotly-utils")
                  (:file "utils")
                  (:file "config" :depends-on ("utils"))
-                 (:file "db" :depends-on ("trading")))))
+                 (:file "db" :depends-on ("trading" "config")))))
   :description ""
   :long-description
   #.(read-file-string

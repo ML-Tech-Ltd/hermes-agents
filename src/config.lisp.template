@@ -14,54 +14,49 @@
            :appenv
            :developmentp
            :productionp
-	   :*db-path*
-	   :*is-production*
-	   :*is-log*
+       :*db-path*
+       :*is-production*
+       :*is-log*
 
-	   ;; Algorithm Configuration ;;
-	   #:*seconds-to-optimize-per-pattern*
-	   #:*max-creation-dataset-size*
-	   #:*max-training-dataset-size*
-	   #:*max-testing-dataset-size*
-	   #:*number-of-agent-rules*
-	   #:*number-of-agent-inputs*
-	   #:*evaluate-agents-activation-threshold*
-	   #:*instruments*
-	   #:*timeframes*
-	   #:*max-tp*
-	   #:*min-sl*
-	   #:*min-n-times-spread-sl*
-	   #:*lookahead*
-	   #:*n-times-sl-for-max-sl*
-	   #:*min-agent-avg-return*
-	   #:*stagnation-threshold*
-	   #:*consensus-threshold*
-	   #:*train-slide-step*
-	   #:*train-min-chunk-size*
-	   #:*train-max-chunk-size*
-	   #:*creation-slide-step*
-	   #:*creation-min-chunk-size*
-	   #:*creation-max-chunk-size*
-	   #:*trade-every-dp-p*
-	   #:*agents-min-rr*
-	   #:*agents-min-rr-creation*
-	   #:*agents-min-rr-trading*
-	   #:*agents-min-rr-signal*
-	   #:*min-num-trades-training*
-	   #:*optimize-p*
-	   #:*random-lookahead-p*
-	   #:*random-lookahead-min*
-	   #:*random-lookahead-max*
-	   #:*train-tf*
-	   #:*initial-agent-count*
-	   #:*use-nested-signals-p*
-	   #:*test-size*
-	   #:*all-timeframes*
-	   #:*min-pips-sl*
-	   #:*max-pips-sl*
-	   #:*type-groups*
-	   #:*seconds-interval-testing*
-	   )
+       ;; Algorithm Configuration ;;
+       #:*seconds-to-optimize-per-pattern*
+       #:*max-creation-dataset-size*
+       #:*max-training-dataset-size*
+       #:*max-testing-dataset-size*
+       #:*number-of-agent-rules*
+       #:*number-of-agent-inputs*
+       #:*evaluate-agents-activation-threshold*
+       #:*instruments*
+       #:*timeframes*
+       #:*max-tp*
+       #:*min-sl*
+       #:*min-n-times-spread-sl*
+       #:*lookahead*
+       #:*n-times-sl-for-max-sl*
+       #:*min-agent-avg-return*
+       #:*stagnation-threshold*
+       #:*consensus-threshold*
+       #:*train-slide-step*
+       #:*trade-every-dp-p*
+       #:*agents-min-rr*
+       #:*agents-min-rr-creation*
+       #:*agents-min-rr-trading*
+       #:*agents-min-rr-signal*
+       #:*min-num-trades-training*
+       #:*optimize-p*
+       #:*random-lookahead-p*
+       #:*random-lookahead-min*
+       #:*random-lookahead-max*
+       #:*train-tf*
+       #:*initial-agent-count*
+       #:*use-nested-signals-p*
+       #:*test-size*
+       #:*all-timeframes*
+       #:*min-pips-sl*
+       #:*max-pips-sl*
+       #:*type-groups*
+       #:*seconds-interval-testing*
+       )
   (:nicknames #:hsage.config))
 (in-package :hermes-agents.config)
 
@@ -155,19 +150,6 @@ the SL read from the creation dataset)."
       *test-size* 100)
 
      (""
-      *train-slide-step* 50)
-     (""
-      *train-min-chunk-size* 300)
-     (""
-      *train-max-chunk-size* (+ (* *train-min-chunk-size* 2) 100))
-     (""
-      *creation-slide-step* 50)
-     (""
-      *creation-min-chunk-size* 300) ;; 400
-     (""
-      *creation-max-chunk-size* (+ (* *creation-min-chunk-size* 2) 100)) ;; 1200
-
-     (""
       *all-timeframes* '(:M1 :M5 :M15 :M30 :H1 :H4 :H12 :D))
      (""
       *train-tf* :M15)
@@ -175,8 +157,8 @@ the SL read from the creation dataset)."
       *timeframes* `(,*train-tf*))
      (""
       *instruments* (if *is-production*
-			(setf *instruments* hsinp:*forex*)
-			(setf *instruments* '(:AUD_USD :EUR_GBP))))))
+            (setf *instruments* hsinp:*forex*)
+            (setf *instruments* '(:AUD_USD :EUR_GBP))))))
 
 
 

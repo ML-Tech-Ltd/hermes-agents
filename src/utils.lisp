@@ -1,7 +1,9 @@
 (defpackage hermes-agents.utils
   (:use :cl :ciel #:hscom.log)
-  (:import-from #:hscom.hsage
-                #:*instruments*)
+  (:import-from #:hscom.config
+                #:cfg<
+                #:cfg>
+                #:cfg>>)
   (:import-from #:hsinp.rates
                 #:unix-from-nano)
   (:import-from #:fare-mop
@@ -49,7 +51,7 @@
 (defun is-market-close ()
   (let ((day-of-week (local-time:timestamp-day-of-week (local-time:now) :timezone local-time:+utc-zone+))
         (hour (local-time:timestamp-hour (local-time:now) :timezone local-time:+utc-zone+)))
-    (and hscom.all:*is-production*
+    (and (cfg>> :hscom :is-production)
          (or
           ;; Friday
           (and (= day-of-week 5)
